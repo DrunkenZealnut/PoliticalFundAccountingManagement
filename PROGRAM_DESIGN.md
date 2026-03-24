@@ -39,7 +39,7 @@
 ### 1.3 기술 스택
 | 구분 | 기술 | 이유 |
 |------|------|------|
-| Frontend | Next.js 15 (App Router) + React 19 | SSR/SSG, 파일 기반 라우팅 |
+| Frontend | Next.js 16 (App Router) + React 19 | SSR/SSG, 파일 기반 라우팅 |
 | UI | shadcn/ui + Tailwind CSS | 데이터 테이블, 폼 컴포넌트 풍부 |
 | Backend | Next.js API Routes + Supabase Client | API Routes에서 서버사이드 Supabase 호출 |
 | Database | **Supabase (PostgreSQL)** | 클라우드 DB, RLS, 실시간 구독, Auth 내장 |
@@ -58,7 +58,52 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=***REMOVED***
 
 # 우정사업본부 우편번호 검색 API
 EPOST_API_KEY=***REMOVED***
-EPOST_API_ENDPOINT=https://openapi.epost.go.kr:80/postal/retrieveNewAdressAreaCdService
+
+# Supabase Service Role Key (서버사이드 전용, RLS 우회)
+SUPABASE_SERVICE_ROLE_KEY=<서버에서만 사용, .env.local에 설정>
+```
+
+### 1.5 배포 환경
+
+#### Production (Vercel)
+```
+URL: https://political-fund-accounting-managemen.vercel.app
+플랫폼: Vercel (Hobby Plan)
+GitHub: https://github.com/DrunkenZealnut/PoliticalFundAccountingManagement
+브랜치: main
+
+빌드 설정:
+  - Framework: Next.js (자동 감지)
+  - Root Directory: app/ (Vercel CLI로 app 디렉토리에서 배포)
+  - Build Command: next build (기본값)
+  - Output Directory: .next (기본값)
+  - Node.js: 20.x
+
+환경변수 (Vercel Dashboard → Settings → Environment Variables):
+  - NEXT_PUBLIC_SUPABASE_URL        (Production)
+  - NEXT_PUBLIC_SUPABASE_ANON_KEY   (Production)
+  - SUPABASE_SERVICE_ROLE_KEY       (Production, Sensitive)
+  - EPOST_API_KEY                   (Production)
+
+배포 방법:
+  1. Vercel CLI: cd app && npx vercel --prod
+  2. Git Push: main 브랜치 push 시 자동 배포 (Vercel Git Integration 설정 시)
+```
+
+#### Development (로컬)
+```
+URL: http://localhost:3010
+실행: cd /tmp/pfund-app && npm run dev -- --port 3010
+주의: Turbopack이 한글 경로에서 panic → /tmp/pfund-app에 복사 후 실행
+환경변수: app/.env.local (git 제외)
+```
+
+#### 주의사항
+```
+1. .env.local은 git에 포함되지 않음 → 신규 환경 구축 시 수동 생성 필요
+2. SUPABASE_SERVICE_ROLE_KEY는 절대 클라이언트에 노출 금지 (NEXT_PUBLIC_ 접두사 불가)
+3. Vercel 배포 시 sql.js WASM 파일은 node_modules에서 자동 로드됨
+4. 우편번호 검색 API는 HTTP (not HTTPS) 사용 — Vercel 서버사이드에서 호출
 ```
 
 ---
