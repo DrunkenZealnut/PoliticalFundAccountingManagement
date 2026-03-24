@@ -35,6 +35,7 @@ const MENU_ITEMS = {
       { href: "/dashboard/support-detail", label: "지원금내역" },
       { href: "/dashboard/reports", label: "보고서 및 수입지출부 출력" },
       { href: "/dashboard/audit", label: "감사의견서 등 출력" },
+      { href: "/dashboard/forms", label: "서식 템플릿 출력" },
     ]},
     { group: "시스템관리", items: [
       { href: "/dashboard/backup", label: "자료 백업 및 복구" },
@@ -63,6 +64,7 @@ const MENU_ITEMS = {
       { href: "/dashboard/income-expense-book", label: "정치자금 수입지출부" },
       { href: "/dashboard/reports", label: "보고서 및 수입지출부 출력" },
       { href: "/dashboard/audit", label: "감사의견서 등 출력" },
+      { href: "/dashboard/forms", label: "서식 템플릿 출력" },
     ]},
     { group: "시스템관리", items: [
       { href: "/dashboard/backup", label: "자료 백업 및 복구" },
@@ -92,6 +94,7 @@ const MENU_ITEMS = {
       { href: "/dashboard/reimbursement", label: "정치자금 수입지출부 보전비용" },
       { href: "/dashboard/reports", label: "보고서 및 수입지출부 출력" },
       { href: "/dashboard/audit", label: "감사의견서 등 출력" },
+      { href: "/dashboard/forms", label: "서식 템플릿 출력" },
     ]},
     { group: "시스템관리", items: [
       { href: "/dashboard/backup", label: "자료 백업 및 복구" },
@@ -120,6 +123,7 @@ const MENU_ITEMS = {
       { href: "/dashboard/reports", label: "보고서 및 수입지출부 출력" },
       { href: "/dashboard/donors", label: "후원금 기부자 조회" },
       { href: "/dashboard/audit", label: "감사의견서 등 출력" },
+      { href: "/dashboard/forms", label: "서식 템플릿 출력" },
     ]},
     { group: "시스템관리", items: [
       { href: "/dashboard/backup", label: "자료 백업 및 복구" },
