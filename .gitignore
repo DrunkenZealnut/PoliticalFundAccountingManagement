@@ -1,0 +1,41 @@
+# Dependencies
+app/node_modules/
+node_modules/
+
+# Next.js
+app/.next/
+.next/
+
+# Environment
+app/.env.local
+.env.local
+.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Claude
+.claude/
+
+# bkit
+.bkit/
+
+# Temp
+/tmp/
+
+# Legacy Windows program (binaries and data)
+중앙선거관리위원회_정치자금회계관리2/자료전환/
+중앙선거관리위원회_정치자금회계관리2/Data/
+중앙선거관리위원회_정치자금회계관리2/*.exe
+중앙선거관리위원회_정치자금회계관리2/*.dll
+*.exe
+*.dll
+*.msi
+*.cab
