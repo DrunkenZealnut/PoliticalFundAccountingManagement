@@ -148,6 +148,9 @@ function renderForm(id: string, o: OrgInfo): string {
 
     case "2-1": // 회계책임자 선임신고서
       return `<div class="page">
+        <table class="no-border" style="margin-bottom:10px;">
+          <tr><td style="width:20%"><b>문서번호:</b></td><td></td></tr>
+        </table>
         <div class="title">회계책임자 선임신고서</div>
         <table>
           <tr><th style="width:30%">정당(후원회 등)의 명칭</th><td>${orgName}</td></tr>
@@ -155,41 +158,55 @@ function renderForm(id: string, o: OrgInfo): string {
         <table>
           <tr>
             <th rowspan="4" style="width:15%">회계<br/>책임자</th>
-            <th style="width:15%">성 명</th><td>${acctName}</td>
+            <th style="width:15%">성 명</th><td style="width:20%">${acctName}</td>
+            <th style="width:15%">주민등록번호</th><td></td>
           </tr>
-          <tr><th>주 소</th><td>${addr}</td></tr>
-          <tr><th>전화번호</th><td>${tel}</td></tr>
-          <tr><th>선임연월일</th><td class="blank"></td></tr>
+          <tr><th>주 소</th><td colspan="3">${addr}</td></tr>
+          <tr><th>전화번호</th><td colspan="3">${tel}</td></tr>
+          <tr><th>선임연월일</th><td colspan="3">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;년 &nbsp;&nbsp;&nbsp;&nbsp;월 &nbsp;&nbsp;&nbsp;&nbsp;일</td></tr>
         </table>
         <table>
           <tr>
-            <th rowspan="2" style="width:15%">예금계좌</th>
-            <th style="width:15%">수입용</th>
-            <th style="width:20%">금융기관명</th><td style="width:20%"></td>
-            <th style="width:15%">계좌번호</th><td></td>
+            <th style="width:30%">겸임하는 회계책임자의 신분</th>
+            <td class="blank"></td>
+          </tr>
+        </table>
+        <table>
+          <tr>
+            <th rowspan="3" style="width:12%">예금<br/>계좌</th>
+            <th style="width:12%"></th>
+            <th style="width:15%">예금주</th>
+            <th style="width:20%">금융기관명</th>
+            <th style="width:20%">계좌번호</th>
+            <th style="width:15%">비 고</th>
+          </tr>
+          <tr>
+            <th>수입용</th>
+            <td></td><td></td><td></td><td></td>
           </tr>
           <tr>
             <th>지출용</th>
-            <th>금융기관명</th><td></td>
-            <th>계좌번호</th><td></td>
+            <td></td><td></td><td></td><td></td>
           </tr>
         </table>
 
         <div class="law-text">
-          <p>「정치자금법」 제34조제1항(제60조에서 준용하는 경우를 포함한다)에 따라 위와 같이 회계책임자의 선임을 신고합니다.</p>
+          <p>「정치자금법」 제35조제1항 및 「정치자금사무관리 규칙」 제32조제1항의 규정에 의하여 위와 같이 회계책임자를 선임 신고합니다.</p>
         </div>
 
         <div class="sign-area">
           <p>${todayStr}</p>
-          <p style="margin-top:20px;">신 고 인 &nbsp;&nbsp;${orgName}</p>
-          <p style="margin-top:10px;">대 표 자 &nbsp;&nbsp;${repName} &nbsp;&nbsp;&nbsp;(서명 또는 인)</p>
-          <p style="margin-top:30px;">○○선거관리위원회 귀중</p>
+          <p style="margin-top:20px;">제9회 전국동시지방선거 (예비)후보자 ○○○ (인)</p>
+          <p style="margin-top:10px;">○○선거연락소장 ○○○ (인)</p>
+          <p style="margin-top:10px;">○○○○(예비)후보자○○○후원회대표자 ○○○ (인)</p>
+          <p style="margin-top:30px;">○○○선거관리위원회 귀중</p>
         </div>
 
         <div class="note">
-          <p>【주】 ① 회계책임자가 선임된 때에는 그 날부터 14일 이내에 관할 선거관리위원회에 서면으로 신고하여야 합니다.</p>
-          <p>② 회계책임자의 선임신고를 하는 때에는 회계책임자 취임동의서 1부를 첨부하여야 합니다.</p>
-          <p>③ 예금계좌의 변경이 있는 때에는 즉시 관할 선거관리위원회에 서면으로 신고하여야 합니다.</p>
+          <p>※ 구비서류</p>
+          <p>&nbsp;&nbsp;1. 회계책임자 취임동의서 1부</p>
+          <p>&nbsp;&nbsp;2. 선거비용지출액 약정서 1부(후보자의 회계책임자에 한함)</p>
+          <p>&nbsp;&nbsp;3. 예금통장 사본 각 1부</p>
         </div>
       </div>`;
 
@@ -597,69 +614,54 @@ function renderForm(id: string, o: OrgInfo): string {
     case "9": // 정치자금지출 위임장
       return `<div class="page">
         <div class="title">정치자금지출 위임장</div>
+
+        <p style="font-weight:bold; margin:12px 0 5px;">1. 수임자(회계사무보조자)</p>
         <table>
-          <tr><th style="width:30%">정당(후원회 등)의 명칭</th><td>${orgName}</td></tr>
-          <tr><th>회계책임자 성명</th><td>${acctName}</td></tr>
+          <tr>
+            <th style="width:16%">성 명</th>
+            <th style="width:22%">주민등록번호</th>
+            <th style="width:26%">주 소</th>
+            <th style="width:16%">전화번호</th>
+            <th style="width:12%">비 고</th>
+          </tr>
+          <tr>
+            <td class="blank"></td><td></td><td></td><td></td><td></td>
+          </tr>
         </table>
+
+        <p style="font-weight:bold; margin:12px 0 5px;">2. 위임내용</p>
         <table>
           <tr>
-            <th rowspan="4" style="width:12%">수임자<br/>(회계사무<br/>보조자)</th>
-            <th style="width:18%">성 명</th><td></td>
-          </tr>
-          <tr><th>생년월일</th><td></td></tr>
-          <tr><th>주 소</th><td></td></tr>
-          <tr><th>전화번호</th><td></td></tr>
-        </table>
-        <p style="font-weight:bold; margin:10px 0 5px;">■ 위임내용</p>
-        <table>
-          <tr>
-            <th style="width:25%">위임기간</th>
-            <td></td>
+            <th style="width:16%">위임기간</th>
+            <th style="width:16%">지출목적</th>
+            <th style="width:22%">지출의 대강의 내역</th>
+            <th style="width:16%">지출한도금액</th>
+            <th style="width:16%">지출기간</th>
+            <th style="width:12%">비 고</th>
           </tr>
           <tr>
-            <th>지출목적</th>
-            <td></td>
-          </tr>
-          <tr>
-            <th>지출의 대강의 내역</th>
-            <td></td>
-          </tr>
-          <tr>
-            <th>지출한도금액</th>
-            <td class="right">원</td>
-          </tr>
-          <tr>
-            <th>지출기간</th>
-            <td></td>
-          </tr>
-          <tr>
-            <th>비 고</th>
-            <td></td>
+            <td class="blank"></td><td></td><td></td><td class="right">원</td><td></td><td></td>
           </tr>
         </table>
 
         <div class="law-text">
-          <p>「정치자금법」 제36조제3항(제60조에서 준용하는 경우를 포함한다)에 따라 위와 같이 정치자금의 지출을 위임합니다.</p>
+          <p>「정치자금법」 제36조제1항 단서 및 「정치자금사무관리 규칙」제35조 제1항의 규정에 의하여 정치자금 지출을 위와 같이 위임합니다.</p>
         </div>
 
         <div class="sign-area">
           <p>${todayStr}</p>
-          <p style="margin-top:20px;">위 임 인(회계책임자) &nbsp;&nbsp;${acctName} &nbsp;&nbsp;&nbsp;(서명 또는 인)</p>
+          <p style="margin-top:20px;">위임자 &nbsp;회 계 책 임 자 &nbsp;&nbsp;○○○ (인)</p>
+          <p style="margin-top:10px;">수임자 &nbsp;회계사무보조자 &nbsp;&nbsp;○○○ (인)</p>
         </div>
 
         <div class="note">
-          <p>【주】 ① 회계책임자는 회계사무보조자에게 정치자금의 지출을 위임할 수 있으며, 이 경우 위임장을 교부하여야 합니다.</p>
-          <p>② 위임장에는 지출목적, 지출의 대강의 내역, 지출한도금액 등을 기재하여야 합니다.</p>
+          <p>주：본 위임장은 증빙서류철에 보관·관리</p>
         </div>
       </div>`;
 
     case "10": // 회계사무보조자 정치자금 지출내역서
       return `<div class="page">
         <div class="title">회계사무보조자 정치자금 지출내역서</div>
-        <table>
-          <tr><th style="width:30%">정당(후원회 등)의 명칭</th><td>${orgName}</td></tr>
-          <tr><th>회계사무보조자 성명</th><td></td></tr>
-        </table>
 
         <p style="font-weight:bold; margin:12px 0 5px;">1. 총괄</p>
         <table>
@@ -708,10 +710,22 @@ function renderForm(id: string, o: OrgInfo): string {
           <p>「정치자금법」 제36조제3항(제60조에서 준용하는 경우를 포함한다)에 따라 위와 같이 정치자금 지출내역을 보고합니다.</p>
         </div>
 
+        <div class="note" style="margin-top:15px;">
+          <p>붙임</p>
+          <p>&nbsp;&nbsp;1. 사용내역 1부(별지 첨부시).</p>
+          <p>&nbsp;&nbsp;2. 영수증 등 증빙서류 2부.</p>
+          <p>&nbsp;&nbsp;3. 예금통장 사본 1부(예금통장으로 정치자금을 수입·지출한 경우에만 제출)</p>
+        </div>
+
         <div class="sign-area">
           <p>${todayStr}</p>
-          <p style="margin-top:15px;">보고인(회계사무보조자) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(서명 또는 인)</p>
-          <p style="margin-top:20px;">${orgName} 회계책임자 &nbsp;&nbsp;${acctName} &nbsp;귀하</p>
+          <p style="margin-top:15px;">제출자 &nbsp;회계사무보조자 &nbsp;&nbsp;○○○ (인)</p>
+          <p style="margin-top:20px;">회계책임자 &nbsp;&nbsp;○○○ &nbsp;귀하</p>
+        </div>
+
+        <div class="note">
+          <p>【주】 ① 회계사무보조자가 위임받은 정치자금을 지출한 때에는 그 지출내역서를 회계책임자에게 제출하여야 합니다.</p>
+          <p>② 세부지출내역이 많은 경우 별지를 사용합니다.</p>
         </div>
       </div>`;
 
@@ -768,10 +782,16 @@ function renderForm(id: string, o: OrgInfo): string {
           <p>「정치자금법」 제36조(제60조에서 준용하는 경우를 포함한다)에 따라 위와 같이 정치자금 지출내역을 보고합니다.</p>
         </div>
 
+        <div class="note" style="margin-top:15px;">
+          <p>붙임</p>
+          <p>&nbsp;&nbsp;1. 사용내역 1부(별지 첨부시)</p>
+          <p>&nbsp;&nbsp;2. 영수증 등 증빙서류 1부</p>
+        </div>
+
         <div class="sign-area">
           <p>${todayStr}</p>
-          <p style="margin-top:15px;">보고인(교부받은 자) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(서명 또는 인)</p>
-          <p style="margin-top:20px;">${orgName} 회계책임자 &nbsp;&nbsp;${acctName} &nbsp;귀하</p>
+          <p style="margin-top:15px;">제출자 &nbsp;선거사무원 &nbsp;&nbsp;○○○ (인)</p>
+          <p style="margin-top:20px;">회계책임자 &nbsp;귀하</p>
         </div>
       </div>`;
 
@@ -823,7 +843,14 @@ function renderForm(id: string, o: OrgInfo): string {
             <th style="width:6%">금회</th>
             <th style="width:6%">누계</th>
           </tr>
-          ${EMPTY_ROWS(10).map(() => `<tr>
+          <tr>
+            <td class="center" style="font-size:7pt;">별</td>
+            <td class="center" style="font-size:7pt;">첨</td>
+            <td class="center" style="font-size:7pt;">참</td>
+            <td class="center" style="font-size:7pt;">조</td>
+            <td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
+          </tr>
+          ${EMPTY_ROWS(9).map(() => `<tr>
             <td class="blank"></td><td></td>
             <td class="right"></td><td class="right"></td>
             <td class="right"></td><td class="right"></td>
@@ -835,15 +862,17 @@ function renderForm(id: string, o: OrgInfo): string {
           <p>「정치자금법」 제36조(제60조에서 준용하는 경우를 포함한다)에 따라 위와 같이 선거운동비용 지출내역을 보고합니다.</p>
         </div>
 
-        <div class="sign-area">
-          <p>${todayStr}</p>
-          <p style="margin-top:15px;">보고인((예비)후보자) &nbsp;&nbsp;${repName || ""} &nbsp;&nbsp;&nbsp;(서명 또는 인)</p>
-          <p style="margin-top:20px;">${orgName} 회계책임자 &nbsp;&nbsp;${acctName} &nbsp;귀하</p>
+        <div class="note" style="margin-top:15px;">
+          <p>붙임</p>
+          <p>&nbsp;&nbsp;1. 세부지출내역 1부(별지 첨부시).</p>
+          <p>&nbsp;&nbsp;2. 영수증 등 증빙서류 1부.</p>
+          <p>&nbsp;&nbsp;3. 예금통장 사본 1부(예금통장으로 정치자금을 수입·지출한 경우에만 제출)</p>
         </div>
 
-        <div class="note">
-          <p>【주】 ① (예비)후보자가 회계책임자로부터 선거운동비용을 수령하여 직접 지출한 경우에는 그 지출내역서를 회계책임자에게 제출하여야 합니다.</p>
-          <p>② 세부지출내역이 많은 경우 별지를 사용합니다.</p>
+        <div class="sign-area">
+          <p>${todayStr}</p>
+          <p style="margin-top:15px;">제출자 &nbsp;(예비)후보자 &nbsp;&nbsp;○ ○ ○ (인)</p>
+          <p style="margin-top:20px;">(예비)후보자 ○○○○ 회계책임자 &nbsp;귀하</p>
         </div>
       </div>`;
 
