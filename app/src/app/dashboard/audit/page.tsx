@@ -104,55 +104,128 @@ export default function AuditPage() {
   }, []);
 
   function handlePrintOpinion() {
+    const fmtDot = (d: string) => {
+      if (!d || d.length !== 8) return d;
+      return `${d.slice(0, 4)}. ${d.slice(4, 6)}. ${d.slice(6, 8)}.`;
+    };
     const html = `
-      <div class="title">감 사 의 견 서</div>
-      <table class="no-border">
-        <tr><td style="width:120px"><b>후원회명:</b></td><td>${orgName || ""}</td></tr>
-        <tr><td><b>회계기간:</b></td><td>${formatDate(opinion.acc_from)} ~ ${formatDate(opinion.acc_to)}</td></tr>
-        <tr><td><b>감사기간:</b></td><td>${formatDate(opinion.audit_from)} ~ ${formatDate(opinion.audit_to)}</td></tr>
-      </table>
-      <div style="margin: 20px 0; padding: 15px; border: 1px solid #ccc; background: #fafafa;">
-        <b>감사의견:</b><br/>
-        ${opinion.opinion || "(미입력)"}
+      <div style="border: 2px solid #000; padding: 40px 50px; margin: 20px;">
+        <div class="title" style="border-bottom: 2px solid #000; padding-bottom: 10px;">감 사 의 견 서</div>
+
+        <p style="margin-top: 30px; line-height: 1.8;">
+          「정치자금법」 제41조제1항에 따라 실시한 &nbsp;${formatDate(opinion.acc_from)}부터 ${formatDate(opinion.acc_to)}까지의<br/>
+          회계처리 내역에 대한 감사의견은 다음과 같습니다.
+        </p>
+
+        <div class="center" style="margin: 30px 0; font-size: 14pt; letter-spacing: 20px;">다 음</div>
+
+        <div style="margin: 20px 0;">
+          <p><b>1. 감사개요</b></p>
+          <p style="margin: 10px 0 5px 20px;">가. 감사기간 ： &nbsp;&nbsp;${fmtDot(opinion.audit_from)} &nbsp;~ &nbsp;${fmtDot(opinion.audit_to)}</p>
+          <p style="margin: 5px 0 5px 20px;">나. 감사대상</p>
+          <p style="margin: 3px 0 3px 40px;">○ &nbsp;재산상황</p>
+          <p style="margin: 3px 0 3px 40px;">○ &nbsp;정치자금의 수입과 지출에 관한 내역 및 결산내역</p>
+        </div>
+
+        <div style="margin: 20px 0;">
+          <p><b>2. 감사의견 ：</b> &nbsp;&nbsp;${opinion.opinion || "「정치자금법」 및 「정치자금사무관리 규칙」과 일반적으로 인정된 회계원칙에 따라 적정하게 처리함"}</p>
+        </div>
+
+        <div style="margin: 20px 0;">
+          <p><b>3. 특기사항 ：</b> &nbsp;&nbsp;없음</p>
+        </div>
+
+        <div class="center" style="margin: 40px 0 30px;">${formatDate(opinion.print_01 || opinion.audit_to)}</div>
+
+        <div class="center" style="margin: 20px 0;">
+          <p style="letter-spacing: 10px; margin-bottom: 15px;">감 사 자</p>
+          <table class="no-border" style="width: 50%; margin: 0 auto;">
+            <tr><td style="width:80px">(직 위)</td><td>${opinion.position || ""}</td><td></td></tr>
+            <tr><td>(주 소)</td><td>${opinion.addr || ""}</td><td></td></tr>
+            <tr><td>(성 명)</td><td>${opinion.name || ""}</td><td style="text-align:right">(인)</td></tr>
+          </table>
+        </div>
       </div>
-      <table class="no-border">
-        <tr><td style="width:120px"><b>일자:</b></td><td>${formatDate(opinion.print_01)}</td></tr>
-      </table>
-      <div class="sign-area" style="margin-top: 60px;">
-        <table class="no-border" style="width: 50%; margin: 0 auto;">
-          <tr><td style="width:80px">직 위:</td><td>${opinion.position}</td></tr>
-          <tr><td>주 소:</td><td>${opinion.addr}</td></tr>
-          <tr><td>성 명:</td><td>${opinion.name} <span class="sign-line"></span> (인)</td></tr>
-        </table>
+
+      <div style="margin: 20px 20px 0; font-size: 9pt; line-height: 1.6; color: #333;">
+        <p>【주】 ① 감사의견서의 양식에 관하여는 제한이 없으며, 회계보고에 관한 전반적인 사항을 권한 있는 기관이 감사하였음을 나타내고 있으면 이를 감사의견서로 인정할 수 있음.</p>
+        <p>② 감사기간은 감사대상기간이 아니라 회계보고서를 실제로 감사한 기간을 기재함.</p>
+        <p>③ 감사의견에는 정당의 회계처리가 "「정치자금법」 및 「정치자금사무관리 규칙」과 일반적으로 인정된 회계원칙"에 적합한 지의 여부에 관한 의견을 기재하여야 함.</p>
+        <p>④ 감사자의 직위 등은 당헌ㆍ당규 상에 규정된 사항을 기재하여야 하며, 당헌ㆍ당규 상에 감사기관에 관한 사항이 규정되지 않은 경우 대의기관이나 그 수임기관에서 임시감사기관을 구성하여야 함.</p>
       </div>
     `;
     printDocument("감사의견서", html);
   }
 
   function handlePrintResolution() {
-    const commNames = [opinion.comm_name01, opinion.comm_name02, opinion.comm_name03, opinion.comm_name04, opinion.comm_name05].filter(Boolean);
+    const commEntries = [
+      { name: opinion.comm_name01 },
+      { name: opinion.comm_name02 },
+      { name: opinion.comm_name03 },
+      { name: opinion.comm_name04 },
+      { name: opinion.comm_name05 },
+    ];
+    const fmtDot2 = (d: string) => {
+      if (!d || d.length !== 8) return d;
+      return `${d.slice(0, 4)}. ${d.slice(4, 6)}. ${d.slice(6, 8)}`;
+    };
     const html = `
-      <div class="title">심 사 의 결 서</div>
-      <table class="no-border">
-        <tr><td style="width:120px"><b>후원회명:</b></td><td>${orgName || ""}</td></tr>
-        <tr><td><b>수입지출기간:</b></td><td>${formatDate(opinion.judge_from)} ~ ${formatDate(opinion.judge_to)}</td></tr>
-      </table>
-      <table style="margin: 20px 0;">
-        <tr><th>구분</th><th>금액(원)</th></tr>
-        <tr><td>재산</td><td class="right">${formatAmt(opinion.estate_amt)}</td></tr>
-        <tr><td>수입</td><td class="right">${formatAmt(opinion.in_amt)}</td></tr>
-        <tr><td>지출</td><td class="right">${formatAmt(opinion.cm_amt)}</td></tr>
-        <tr><td><b>잔액</b></td><td class="right"><b>${formatAmt(opinion.balance_amt)}</b></td></tr>
-      </table>
-      <div style="margin: 20px 0;">
-        <p>위 금액이 정확함을 심사 의결합니다.</p>
+      <div style="text-align: right; margin-bottom: 10px;">
+        <span style="border: 1px solid #000; padding: 3px 10px; font-size: 10pt;">원본대조필</span>
+        &nbsp;&nbsp;(인)
       </div>
-      <table class="no-border">
-        <tr><td style="width:120px"><b>일자:</b></td><td>${formatDate(opinion.print_02)}</td></tr>
-      </table>
+
+      <div class="title">재산 및 수입·지출상황 등의 심사의결서</div>
+
+      <div style="margin: 30px 0;">
+        <p><b><i>1. 의결주문</i></b></p>
+        <p style="margin: 15px 0; line-height: 1.8;">
+          「정치자금법」 제41조 제1항에 따라 재산상황, 정치자금의 수입ㆍ지출내역 및<br/>
+          결산내역(내역별첨)을 심사하고 다음과 같이 확정ㆍ의결한다.
+        </p>
+
+        <table class="no-border" style="margin: 15px 0;">
+          <tr><td style="width:180px">가. 수입·지출기간 ：</td><td>${fmtDot2(opinion.judge_from || opinion.acc_from)} ~ ${fmtDot2(opinion.judge_to || opinion.acc_to)} 까지</td></tr>
+          <tr><td>나. 재 산 ：</td><td style="text-align:right; width:150px;">${formatAmt(opinion.estate_amt)} 원</td></tr>
+        </table>
+
+        <p style="margin: 10px 0 5px;">다. 정치자금의 수입·지출내역</p>
+        <table class="no-border" style="margin-left: 20px;">
+          <tr><td style="width:120px">○ 수 입 ：</td><td style="text-align:right; width:150px;">${formatAmt(opinion.in_amt)} 원</td></tr>
+          <tr><td>○ 지 출 ：</td><td style="text-align:right">${formatAmt(opinion.cm_amt)} 원</td></tr>
+          <tr><td>○ 잔 액 ：</td><td style="text-align:right">${formatAmt(opinion.balance_amt)} 원</td></tr>
+        </table>
+      </div>
+
+      <div class="center" style="margin: 30px 0;">
+        ${formatDate(opinion.print_02 || opinion.judge_to)}<br/>
+        <span style="font-size: 11pt;">${orgName || ""} &nbsp;${opinion.comm_desc || "예산결산위원회"}</span>
+      </div>
+
       <div style="margin: 20px 0;">
-        <p><b>${opinion.comm_desc || "운영위원회"}</b></p>
-        ${commNames.map((n, i) => `<p>운영위원 ${i + 1}: ${n} <span style="display:inline-block;width:150px;border-bottom:1px solid #000;margin-left:10px;"></span> (인)</p>`).join("")}
+        <table class="no-border" style="width: 70%; margin: 0 auto;">
+          ${commEntries.map((c) => `
+            <tr>
+              <td style="width:120px">직 위：운영위원</td>
+              <td>성 명：</td>
+              <td style="width:100px">${c.name || ""}</td>
+              <td style="width:40px; text-align:right">(인)</td>
+            </tr>
+          `).join("")}
+        </table>
+      </div>
+
+      <div style="margin: 30px 0;">
+        <p><b><i>2. 참고사항</i></b></p>
+        <p style="margin: 10px 0 3px;">가. 수입·지출내역 1부</p>
+        <p style="margin: 3px 0;">나. 심사보고서 1부</p>
+      </div>
+
+      <div style="margin-top: 30px; font-size: 9pt; line-height: 1.6; color: #333;">
+        <p>【주】 ① 사본은 정당한 권한을 가진 자(사무국장 등)의 인장으로 날인하여야 함.</p>
+        <p>② 의결서의 양식에 관하여는 제한이 없으며, 회계보고에 관한 전반적인 사항을 권한 있는 기관이 심사·의결하였음을 나타내고 있으면 이를 의결서로 인정할 수 있음.</p>
+        <p>③ 심사ㆍ의결에 참여한 자 전원의 직위, 성명을 기재하고 날인 또는 서명함.</p>
+        <p>④ 세부내역은 회계보고시 제출하는 명세서 등으로 대체할 수 있으며 그 사항을 명시하여야 함.</p>
       </div>
     `;
     printDocument("심사의결서", html);
@@ -170,10 +243,10 @@ export default function AuditPage() {
         <tr><td><b>발 신:</b></td><td>${opinion.acc_borgnm || orgName || ""}</td></tr>
       </table>
       <div class="title">회 계 보 고 서  제 출</div>
-      <div style="margin: 20px 0; line-height: 2;">
+      <div style="margin: 30px 0; line-height: 2;">
         <p>정치자금법 제40조의 규정에 의하여 회계보고서를 별첨과 같이 제출합니다.</p>
-        <p style="margin-top: 20px;"><b>별첨:</b></p>
-        <ol style="margin-left: 20px;">
+        <p style="margin-top: 30px;"><b>별첨:</b></p>
+        <ol style="margin-left: 20px; line-height: 2.2;">
           <li>정치자금 수입지출보고서 1부</li>
           <li>감사의견서 1부</li>
           <li>심사의결서 1부</li>
@@ -181,10 +254,10 @@ export default function AuditPage() {
           <li>정치자금 수입지출부 1부</li>
         </ol>
       </div>
-      <div style="text-align: center; margin-top: 40px;">
+      <div class="center" style="margin-top: 50px;">
         <p>${formatDate(opinion.acc_fdate)}</p>
-        <p style="margin-top: 20px; font-size: 14pt;"><b>${opinion.acc_borgnm || orgName || ""}</b></p>
-        <p style="margin-top: 10px;">${opinion.acc_repnm || ""} <span style="display:inline-block;width:150px;border-bottom:1px solid #000;margin-left:10px;"></span> (인)</p>
+        <p style="margin-top: 30px; font-size: 14pt;"><b>${opinion.acc_borgnm || orgName || ""}</b></p>
+        <p style="margin-top: 15px;">회계책임자 &nbsp;${opinion.acc_repnm || ""} &nbsp;(인)</p>
       </div>
     `;
     printDocument("회계보고서 제출문서", html);
