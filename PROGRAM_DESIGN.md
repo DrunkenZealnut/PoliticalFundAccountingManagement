@@ -53,11 +53,11 @@
 ### 1.4 외부 서비스 연결 정보
 ```env
 # Supabase
-NEXT_PUBLIC_SUPABASE_URL=https://ukviuatpsjvpdsklgnph.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=***REMOVED***
+NEXT_PUBLIC_SUPABASE_URL=<your-supabase-url>
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<your-supabase-anon-key>
 
 # 우정사업본부 우편번호 검색 API
-EPOST_API_KEY=***REMOVED***
+EPOST_API_KEY=<your-epost-api-key>
 
 # Supabase Service Role Key (서버사이드 전용, RLS 우회)
 SUPABASE_SERVICE_ROLE_KEY=<서버에서만 사용, .env.local에 설정>

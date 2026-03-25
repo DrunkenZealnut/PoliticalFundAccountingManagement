@@ -16,9 +16,15 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '***REMOVED***';
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ukviuatpsjvpdsklgnph.supabase.co';
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '***REMOVED***';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!GEMINI_API_KEY || !SUPABASE_URL || !SUPABASE_KEY) {
+  console.error('환경변수 필요: GEMINI_API_KEY, NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY');
+  console.error('실행: source ../app/.env.local && node scripts/rag-upload.mjs <file.md>');
+  process.exit(1);
+}
 
 // ─── 1. MD 파일 → 청크 분할 ────────────────────────────────────
 
