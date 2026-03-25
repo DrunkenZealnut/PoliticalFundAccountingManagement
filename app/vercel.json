@@ -1,5 +1,4 @@
 {
-  "installCommand": "npm install --force",
-  "buildCommand": "next build",
-  "framework": "nextjs"
+  "installCommand": "npm ci",
+  "buildCommand": "next build"
 }
