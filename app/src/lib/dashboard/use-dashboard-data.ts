@@ -52,6 +52,7 @@ interface AccBookRow {
   item_sec_cd: number;
   content: string;
   rcp_yn: string | null;
+  cust_id: number | null;
   customer: { name: string }[] | null;
 }
 
@@ -179,15 +180,12 @@ export function useDashboardData(orgId: number | null) {
     try {
       const supabase = createSupabaseBrowser();
 
-      const [accRes, custRes, codesRes] = await Promise.all([
+      const [accRes, codesRes] = await Promise.all([
         supabase
           .from("acc_book")
-          .select("acc_book_id, incm_sec_cd, acc_date, acc_amt, item_sec_cd, content, rcp_yn, customer:cust_id(name)")
+          .select("acc_book_id, incm_sec_cd, acc_date, acc_amt, item_sec_cd, content, rcp_yn, cust_id, customer:cust_id(name)")
           .eq("org_id", orgId)
           .order("acc_date", { ascending: false }),
-        supabase
-          .from("customer")
-          .select("*", { count: "exact", head: true }),
         fetch("/api/codes").then((r) => r.json()),
       ]);
 
@@ -196,7 +194,9 @@ export function useDashboardData(orgId: number | null) {
       const records = (accRes.data || []) as AccBookRow[];
       const codes = (codesRes.codeValues || []) as CodeValue[];
       const result = processData(records, codes);
-      result.summary.customerCount = custRes.count || 0;
+      // 해당 기관에서 사용 중인 고유 거래처 수
+      const uniqueCustIds = new Set(records.map((r) => r.cust_id).filter(Boolean));
+      result.summary.customerCount = uniqueCustIds.size;
 
       setData(result);
     } catch (err) {

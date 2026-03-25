@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useAuth } from "@/stores/auth";
 import { useSort, SortTh } from "@/hooks/use-sort";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +28,7 @@ interface Customer {
 }
 
 export default function CustomerPage() {
+  const { orgId } = useAuth();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [selected, setSelected] = useState<Customer | null>(null);
   const [loading, setLoading] = useState(true);
@@ -51,14 +53,15 @@ export default function CustomerPage() {
 
   function loadCustomers() {
     setLoading(true);
-    fetch("/api/customers")
+    const url = orgId ? `/api/customers?orgId=${orgId}` : "/api/customers";
+    fetch(url)
       .then((r) => r.json())
       .then((data) => { setCustomers(Array.isArray(data) ? data : []); setLoading(false); })
       .catch(() => setLoading(false));
   }
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- initial data fetch
-  useEffect(() => { loadCustomers(); }, []);
+  useEffect(() => { loadCustomers(); }, [orgId]);
 
   function resetForm() {
     setSelected(null);

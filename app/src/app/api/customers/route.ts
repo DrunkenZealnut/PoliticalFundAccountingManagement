@@ -7,16 +7,39 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const orgId = request.nextUrl.searchParams.get("orgId");
+
+  if (orgId) {
+    // 해당 기관에서 사용 중인 cust_id 목록 조회
+    const { data: usedCustIds } = await supabase
+      .from("acc_book")
+      .select("cust_id")
+      .eq("org_id", Number(orgId));
+
+    const custIds = [...new Set((usedCustIds || []).map((r: { cust_id: number }) => r.cust_id).filter(Boolean))];
+
+    if (custIds.length === 0) {
+      return NextResponse.json([]);
+    }
+
+    const { data, error } = await supabase
+      .from("customer")
+      .select("*")
+      .in("cust_id", custIds)
+      .order("cust_id", { ascending: true });
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json(data || []);
+  }
+
+  // orgId 없으면 전체 (하위 호환)
   const { data, error } = await supabase
     .from("customer")
     .select("*")
     .order("cust_id", { ascending: true });
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data || []);
 }
 
