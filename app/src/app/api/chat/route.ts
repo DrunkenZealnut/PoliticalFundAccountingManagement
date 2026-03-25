@@ -2,6 +2,9 @@ import { NextRequest } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createClient } from "@supabase/supabase-js";
 
+// Vercel serverless 함수 타임아웃 확장 (Hobby: 최대 60초)
+export const maxDuration = 60;
+
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -16,8 +19,9 @@ const SYSTEM_PROMPT = `당신은 중앙선거관리위원회의 정치자금 회
 2. 확실하지 않은 내용은 "확인이 필요합니다"라고 안내하세요.
 3. 법률 조문을 인용할 때는 정확한 조항을 명시하세요.
 4. 금액, 기한 등 숫자 정보는 정확하게 전달하세요.
-5. 답변 마지막에 관련 법조문이나 참고 페이지를 안내하세요.
+5. 답변 마지막에 관련 법조문이나 참고 페이지를 간단히 안내하세요.
 6. 한국어로 답변하세요.
+7. 답변은 핵심 위주로 간결하게 작성하세요 (최대 300자 내외).
 
 ⚠ 이 답변은 AI가 생성한 참고용이며, 중요 사항은 관할 선거관리위원회에 확인하세요.`;
 
