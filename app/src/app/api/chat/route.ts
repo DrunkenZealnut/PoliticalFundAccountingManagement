@@ -120,7 +120,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 1. Gemini Embedding 2로 질문 임베딩 생성 (1536차원 MRL)
-    const embedResult = await fetch(
+    const embedResponse = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2-preview:embedContent?key=${process.env.GEMINI_API_KEY}`,
       {
         method: "POST",
@@ -131,7 +131,13 @@ export async function POST(request: NextRequest) {
           outputDimensionality: 1536,
         }),
       }
-    ).then((r) => r.json());
+    );
+    if (!embedResponse.ok) {
+      const errText = await embedResponse.text();
+      console.error("Embedding API error:", embedResponse.status, errText);
+      return Response.json({ error: "임베딩 API 호출 실패" }, { status: 502 });
+    }
+    const embedResult = await embedResponse.json();
     const queryVector = embedResult?.embedding?.values;
     if (!queryVector || queryVector.length === 0) {
       return Response.json({ error: "임베딩 생성 실패" }, { status: 500 });
