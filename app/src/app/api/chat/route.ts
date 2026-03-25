@@ -32,10 +32,10 @@ export async function POST(request: NextRequest) {
     const queryVector = embedResult.embedding.values;
 
     // 2. Pinecone 벡터 검색
-    const index = pinecone.index(process.env.PINECONE_INDEX_NAME || "ddm");
+    const index = pinecone.index(process.env.PINECONE_INDEX_NAME || "ddm").namespace("accmanage");
     const searchResult = await index.query({
       vector: queryVector,
-      topK: 5,
+      topK: 8,
       includeMetadata: true,
     });
 
