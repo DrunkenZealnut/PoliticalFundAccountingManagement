@@ -10,6 +10,7 @@ import { HelpTooltip } from "@/components/help-tooltip";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { ChatBubble } from "@/components/chat/ChatBubble";
 
 const MENU_ITEMS = {
   party: [
@@ -256,6 +257,7 @@ export default function DashboardLayout({
           <ErrorBoundary>{children}</ErrorBoundary>
         </main>
       </div>
+      <ChatBubble />
     </div>
   );
 }
