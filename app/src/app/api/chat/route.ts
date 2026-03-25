@@ -12,18 +12,90 @@ const supabase = createClient(
 );
 
 const SYSTEM_PROMPT = `당신은 중앙선거관리위원회의 정치자금 회계 전문 상담사입니다.
-다음 참고 자료를 기반으로 정확하게 답변해 주세요.
+다음 참고 자료와 회계 데이터를 기반으로 정확하고 상세하게 답변해 주세요.
 
 규칙:
-1. 참고 자료에 있는 내용만으로 답변하세요.
-2. 확실하지 않은 내용은 "확인이 필요합니다"라고 안내하세요.
-3. 법률 조문을 인용할 때는 정확한 조항을 명시하세요.
-4. 금액, 기한 등 숫자 정보는 정확하게 전달하세요.
-5. 답변 마지막에 관련 법조문이나 참고 페이지를 간단히 안내하세요.
+1. 참고 자료와 회계 데이터에 있는 내용을 기반으로 충분히 상세하게 답변하세요.
+2. 회계 데이터가 제공된 경우, 실제 금액과 거래 내역을 구체적으로 인용하세요.
+3. 확실하지 않은 내용은 "확인이 필요합니다"라고 안내하세요.
+4. 법률 조문을 인용할 때는 정확한 조항을 명시하세요.
+5. 금액, 기한 등 숫자 정보는 정확하게 전달하세요.
 6. 한국어로 답변하세요.
-7. 답변은 핵심 위주로 간결하게 작성하세요 (최대 300자 내외).
+
+답변 형식:
+- 질문에 대한 핵심 답변을 먼저 제시하세요.
+- 관련 세부사항, 조건, 예외사항이 있으면 구체적으로 설명하세요.
+- 실무에 도움이 되는 절차나 주의사항을 포함하세요.
+- 답변 마지막에 근거 법조문이나 참고 자료 출처를 안내하세요.
 
 ⚠ 이 답변은 AI가 생성한 참고용이며, 중요 사항은 관할 선거관리위원회에 확인하세요.`;
+
+// ─── 회계 데이터 조회 키워드 감지 ─────────────────────────────
+const ACC_DATA_KEYWORDS = [
+  "수입", "지출", "잔액", "비용", "금액", "얼마", "합계", "총액",
+  "거래", "내역", "장부", "회계", "후원금", "보조금", "선거비용",
+  "공보", "현수막", "인건비", "임대", "문자", "명함",
+];
+
+function needsAccountingData(message: string): boolean {
+  return ACC_DATA_KEYWORDS.some((kw) => message.includes(kw));
+}
+
+interface AccBookRow {
+  acc_book_id: number;
+  incm_sec_cd: number;
+  acc_date: string;
+  content: string;
+  acc_amt: number;
+  customer: { name: string } | null;
+}
+
+async function fetchAccountingContext(message: string): Promise<string> {
+  // 수입/지출 요약
+  const { data: summary } = await supabase.rpc("calculate_balance", {
+    p_org_id: 1,
+  });
+
+  // 관련 거래 내역 검색 (키워드 매칭)
+  let query = supabase
+    .from("acc_book")
+    .select("acc_book_id, incm_sec_cd, acc_date, content, acc_amt, customer(name)")
+    .order("acc_date", { ascending: true })
+    .limit(30);
+
+  // 메시지에서 특정 키워드로 필터링
+  const contentKeywords = message.match(/공보|현수막|인건비|임대|문자|명함|조끼|모자|사무|다과|설치|철거|후원금|보조금|월세|수수료|전기|수도|정수기|라벨|봉투/g);
+  if (contentKeywords) {
+    const filters = contentKeywords.map((kw) => `content.ilike.%${kw}%`);
+    query = query.or(filters.join(","));
+  }
+
+  const { data: transactions } = await query;
+
+  if (!summary && !transactions?.length) return "";
+
+  let ctx = "\n\n📊 회계 데이터 (실제 거래 기록):\n";
+
+  if (summary?.[0]) {
+    const s = summary[0];
+    ctx += `\n[수입/지출 요약]\n`;
+    ctx += `- 총 수입: ${Number(s.income_total).toLocaleString()}원\n`;
+    ctx += `- 총 지출: ${Number(s.expense_total).toLocaleString()}원\n`;
+    ctx += `- 잔  액: ${Number(s.balance).toLocaleString()}원\n`;
+  }
+
+  if (transactions?.length) {
+    ctx += `\n[거래 내역 (${transactions.length}건)]\n`;
+    for (const t of transactions as AccBookRow[]) {
+      const type = t.incm_sec_cd === 1 ? "수입" : "지출";
+      const date = `${t.acc_date.slice(0, 4)}-${t.acc_date.slice(4, 6)}-${t.acc_date.slice(6)}`;
+      const name = t.customer?.name || "";
+      ctx += `- ${date} | ${type} | ${t.content} | ${Number(t.acc_amt).toLocaleString()}원 | ${name}\n`;
+    }
+  }
+
+  return ctx;
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -61,29 +133,41 @@ export async function POST(request: NextRequest) {
       console.error("RAG search error:", searchError.message);
     }
 
-    // 3. 검색 결과를 컨텍스트로 구성
-    const sources = (docs || []).map((d: { id: number; content: string; metadata: Record<string, unknown>; similarity: number }) => ({
-      id: String(d.id),
-      score: d.similarity || 0,
-      title: (d.metadata?.source as string) || "",
-      page: (d.metadata?.page as number) || 0,
-      content: (d.content || "").slice(0, 1000),
-    }));
+    // 3. 검색 결과를 컨텍스트로 구성 (유사도 0.3 이상만 사용)
+    const sources = (docs || [])
+      .filter((d: { similarity: number }) => (d.similarity || 0) >= 0.3)
+      .map((d: { id: number; content: string; metadata: Record<string, unknown>; similarity: number }) => ({
+        id: String(d.id),
+        score: d.similarity || 0,
+        title: (d.metadata?.source as string) || "",
+        page: (d.metadata?.page as number) || 0,
+        content: (d.content || "").slice(0, 1500),
+      }));
 
     const ragContext = sources
-      .map((s: { title: string; page: number; content: string }, i: number) =>
-        `[참고자료 ${i + 1}] (${s.title}${s.page ? ` p.${s.page}` : ""})\n${s.content}`
+      .map((s: { title: string; page: number; content: string; score: number }, i: number) =>
+        `[참고자료 ${i + 1}] (${s.title}${s.page ? ` p.${s.page}` : ""}) — ${Math.round(s.score * 100)}% 일치\n${s.content}`
       )
       .join("\n\n---\n\n");
 
-    // 4. Gemini 채팅 생성
+    // 4. 회계 데이터 조회 (질문이 회계 데이터 관련인 경우)
+    let accountingContext = "";
+    if (needsAccountingData(message)) {
+      try {
+        accountingContext = await fetchAccountingContext(message);
+      } catch (err) {
+        console.error("Accounting data fetch error:", err);
+      }
+    }
+
+    // 5. Gemini 채팅 생성
     const chatModel = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     const contextInfo = context
       ? `\n현재 사용자 환경:\n- 페이지: ${context.currentPage || "대시보드"}\n- 기관유형: ${context.orgType || "미정"}`
       : "";
 
-    const fullPrompt = `${SYSTEM_PROMPT}${contextInfo}\n\n참고 자료:\n---\n${ragContext || "(검색된 참고 자료 없음)"}\n---\n\n사용자 질문: ${message}`;
+    const fullPrompt = `${SYSTEM_PROMPT}${contextInfo}\n\n참고 자료:\n---\n${ragContext || "(검색된 참고 자료 없음)"}\n---${accountingContext}\n\n사용자 질문: ${message}`;
 
     // Build chat history
     const chatHistory = (history || []).map((h: { role: string; content: string }) => ({
@@ -93,7 +177,7 @@ export async function POST(request: NextRequest) {
 
     const chat = chatModel.startChat({
       history: chatHistory,
-      generationConfig: { maxOutputTokens: 2048 },
+      generationConfig: { maxOutputTokens: 4096, temperature: 0.3 },
     });
 
     // 5. 스트리밍 응답
