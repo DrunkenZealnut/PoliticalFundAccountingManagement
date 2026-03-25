@@ -31,8 +31,13 @@ export default function SubmitPage() {
         .eq("org_id", orgId)
         .eq("incm_sec_cd", 2),
       supabase
-        .from("customer")
-        .select("*", { count: "exact", head: true }),
+        .from("acc_book")
+        .select("cust_id")
+        .eq("org_id", orgId)
+        .then(async (res) => {
+          const custIds = [...new Set((res.data || []).map((r: { cust_id: number }) => r.cust_id).filter(Boolean))];
+          return { count: custIds.length };
+        }),
       supabase
         .from("estate")
         .select("*", { count: "exact", head: true })
