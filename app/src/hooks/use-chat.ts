@@ -14,6 +14,8 @@ interface ChatMessage {
 interface ChatContext {
   currentPage?: string;
   orgType?: string;
+  orgId?: number;
+  orgName?: string;
 }
 
 export function useChat(context?: ChatContext) {

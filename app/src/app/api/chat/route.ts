@@ -50,18 +50,39 @@ interface AccBookRow {
   customer: { name: string }[] | null;
 }
 
-async function fetchAccountingContext(message: string): Promise<string> {
-  // 수입/지출 요약
-  const { data: summary } = await supabase.rpc("calculate_balance", {
-    p_org_id: 1,
-  });
+async function fetchAccountingContext(message: string, orgId?: number): Promise<string> {
+  // 기관 ID가 없으면 전체 기관 조회
+  const orgIds: number[] = [];
+  if (orgId) {
+    orgIds.push(orgId);
+  } else {
+    const { data: organs } = await supabase.from("organ").select("org_id");
+    if (organs) orgIds.push(...organs.map((o: { org_id: number }) => o.org_id));
+  }
+
+  if (orgIds.length === 0) return "";
+
+  // 수입/지출 요약 (각 기관별)
+  let summaryCtx = "";
+  for (const oid of orgIds) {
+    const { data: summary } = await supabase.rpc("calculate_balance", { p_org_id: oid });
+    if (summary?.[0]) {
+      const { data: orgInfo } = await supabase.from("organ").select("org_name").eq("org_id", oid).single();
+      const s = summary[0];
+      summaryCtx += `\n[${orgInfo?.org_name || `기관 ${oid}`} 수입/지출 요약]\n`;
+      summaryCtx += `- 총 수입: ${Number(s.income_total).toLocaleString()}원\n`;
+      summaryCtx += `- 총 지출: ${Number(s.expense_total).toLocaleString()}원\n`;
+      summaryCtx += `- 잔  액: ${Number(s.balance).toLocaleString()}원\n`;
+    }
+  }
 
   // 관련 거래 내역 검색 (키워드 매칭)
   let query = supabase
     .from("acc_book")
-    .select("acc_book_id, incm_sec_cd, acc_date, content, acc_amt, customer(name)")
+    .select("acc_book_id, incm_sec_cd, acc_date, content, acc_amt, org_id, customer(name)")
+    .in("org_id", orgIds)
     .order("acc_date", { ascending: true })
-    .limit(30);
+    .limit(50);
 
   // 메시지에서 특정 키워드로 필터링
   const contentKeywords = message.match(/공보|현수막|인건비|임대|문자|명함|조끼|모자|사무|다과|설치|철거|후원금|보조금|월세|수수료|전기|수도|정수기|라벨|봉투/g);
@@ -72,17 +93,10 @@ async function fetchAccountingContext(message: string): Promise<string> {
 
   const { data: transactions } = await query;
 
-  if (!summary && !transactions?.length) return "";
+  if (!summaryCtx && !transactions?.length) return "";
 
-  let ctx = "\n\n📊 회계 데이터 (실제 거래 기록):\n";
-
-  if (summary?.[0]) {
-    const s = summary[0];
-    ctx += `\n[수입/지출 요약]\n`;
-    ctx += `- 총 수입: ${Number(s.income_total).toLocaleString()}원\n`;
-    ctx += `- 총 지출: ${Number(s.expense_total).toLocaleString()}원\n`;
-    ctx += `- 잔  액: ${Number(s.balance).toLocaleString()}원\n`;
-  }
+  let ctx = "\n\n📊 회계 데이터 (2022년 오준석 구의원후보 실제 거래 기록):\n";
+  ctx += summaryCtx;
 
   if (transactions?.length) {
     ctx += `\n[거래 내역 (${transactions.length}건)]\n`;
@@ -154,7 +168,8 @@ export async function POST(request: NextRequest) {
     let accountingContext = "";
     if (needsAccountingData(message)) {
       try {
-        accountingContext = await fetchAccountingContext(message);
+        const orgId = context?.orgId ? Number(context.orgId) : undefined;
+        accountingContext = await fetchAccountingContext(message, orgId);
       } catch (err) {
         console.error("Accounting data fetch error:", err);
       }
@@ -164,7 +179,7 @@ export async function POST(request: NextRequest) {
     const chatModel = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     const contextInfo = context
-      ? `\n현재 사용자 환경:\n- 페이지: ${context.currentPage || "대시보드"}\n- 기관유형: ${context.orgType || "미정"}`
+      ? `\n현재 사용자 환경:\n- 페이지: ${context.currentPage || "대시보드"}\n- 기관유형: ${context.orgType || "미정"}\n- 기관명: ${context.orgName || "미정"}\n- 기관ID: ${context.orgId || "미정"}`
       : "";
 
     const fullPrompt = `${SYSTEM_PROMPT}${contextInfo}\n\n참고 자료:\n---\n${ragContext || "(검색된 참고 자료 없음)"}\n---${accountingContext}\n\n사용자 질문: ${message}`;
