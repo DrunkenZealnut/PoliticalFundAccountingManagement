@@ -1,9 +1,12 @@
 import { NextRequest } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { Pinecone } from "@pinecone-database/pinecone";
+import { createClient } from "@supabase/supabase-js";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
-const pinecone = new Pinecone({ apiKey: process.env.PINECONE_API_KEY! });
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 const SYSTEM_PROMPT = `당신은 중앙선거관리위원회의 정치자금 회계 전문 상담사입니다.
 다음 참고 자료를 기반으로 정확하게 답변해 주세요.
@@ -26,30 +29,47 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: "message required" }, { status: 400 });
     }
 
-    // 1. Gemini로 질문 임베딩 생성
-    const embedModel = genAI.getGenerativeModel({ model: "text-embedding-004" });
-    const embedResult = await embedModel.embedContent(message);
-    const queryVector = embedResult.embedding.values;
+    // 1. Gemini Embedding 2로 질문 임베딩 생성 (1536차원 MRL)
+    const embedResult = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2-preview:embedContent?key=${process.env.GEMINI_API_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "models/gemini-embedding-2-preview",
+          content: { parts: [{ text: message }] },
+          outputDimensionality: 1536,
+        }),
+      }
+    ).then((r) => r.json());
+    const queryVector = embedResult?.embedding?.values;
+    if (!queryVector || queryVector.length === 0) {
+      return Response.json({ error: "임베딩 생성 실패" }, { status: 500 });
+    }
 
-    // 2. Pinecone 벡터 검색
-    const index = pinecone.index(process.env.PINECONE_INDEX_NAME || "ddm").namespace("accmanage");
-    const searchResult = await index.query({
-      vector: queryVector,
-      topK: 8,
-      includeMetadata: true,
+    // 2. Supabase pgvector 유사도 검색
+    const { data: docs, error: searchError } = await supabase.rpc("match_documents", {
+      query_embedding: JSON.stringify(queryVector),
+      match_count: 8,
     });
 
+    if (searchError) {
+      console.error("RAG search error:", searchError.message);
+    }
+
     // 3. 검색 결과를 컨텍스트로 구성
-    const sources = (searchResult.matches || []).map((m) => ({
-      id: m.id,
-      score: m.score || 0,
-      title: (m.metadata?.source as string) || "",
-      page: (m.metadata?.page as number) || 0,
-      content: (m.metadata?.text as string) || (m.metadata?.content as string) || "",
+    const sources = (docs || []).map((d: { id: number; content: string; metadata: Record<string, unknown>; similarity: number }) => ({
+      id: String(d.id),
+      score: d.similarity || 0,
+      title: (d.metadata?.source as string) || "",
+      page: (d.metadata?.page as number) || 0,
+      content: (d.content || "").slice(0, 1000),
     }));
 
     const ragContext = sources
-      .map((s, i) => `[참고자료 ${i + 1}] (${s.title}${s.page ? ` p.${s.page}` : ""})\n${s.content}`)
+      .map((s: { title: string; page: number; content: string }, i: number) =>
+        `[참고자료 ${i + 1}] (${s.title}${s.page ? ` p.${s.page}` : ""})\n${s.content}`
+      )
       .join("\n\n---\n\n");
 
     // 4. Gemini 채팅 생성
@@ -88,7 +108,6 @@ export async function POST(request: NextRequest) {
             }
           }
 
-          // 출처 정보 전송
           if (sources.length > 0) {
             controller.enqueue(
               encoder.encode(`data: ${JSON.stringify({ type: "sources", sources })}\n\n`)
