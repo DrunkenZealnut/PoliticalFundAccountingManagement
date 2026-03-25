@@ -47,7 +47,7 @@ interface AccBookRow {
   acc_date: string;
   content: string;
   acc_amt: number;
-  customer: { name: string } | null;
+  customer: { name: string }[] | null;
 }
 
 async function fetchAccountingContext(message: string): Promise<string> {
@@ -89,7 +89,7 @@ async function fetchAccountingContext(message: string): Promise<string> {
     for (const t of transactions as AccBookRow[]) {
       const type = t.incm_sec_cd === 1 ? "수입" : "지출";
       const date = `${t.acc_date.slice(0, 4)}-${t.acc_date.slice(4, 6)}-${t.acc_date.slice(6)}`;
-      const name = t.customer?.name || "";
+      const name = t.customer?.[0]?.name || "";
       ctx += `- ${date} | ${type} | ${t.content} | ${Number(t.acc_amt).toLocaleString()}원 | ${name}\n`;
     }
   }
