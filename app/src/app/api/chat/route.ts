@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
       .join("\n\n---\n\n");
 
     // 4. Gemini 채팅 생성
-    const chatModel = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    const chatModel = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     const contextInfo = context
       ? `\n현재 사용자 환경:\n- 페이지: ${context.currentPage || "대시보드"}\n- 기관유형: ${context.orgType || "미정"}`
