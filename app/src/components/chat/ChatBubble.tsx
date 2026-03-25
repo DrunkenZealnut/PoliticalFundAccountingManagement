@@ -22,12 +22,14 @@ export function ChatBubble() {
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState("");
   const pathname = usePathname();
-  const { orgType } = useAuth();
+  const { orgId, orgName, orgType } = useAuth();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const { messages, isLoading, error, sendMessage, clearMessages } = useChat({
     currentPage: pathname,
     orgType: orgType || undefined,
+    orgId: orgId || undefined,
+    orgName: orgName || undefined,
   });
 
   useEffect(() => {

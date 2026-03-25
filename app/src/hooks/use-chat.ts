@@ -14,6 +14,8 @@ interface ChatMessage {
 interface ChatContext {
   currentPage?: string;
   orgType?: string;
+  orgId?: number;
+  orgName?: string;
 }
 
 export function useChat(context?: ChatContext) {
@@ -47,7 +49,10 @@ export function useChat(context?: ChatContext) {
         throw new Error(err.error || "채팅 요청 실패");
       }
 
-      const reader = response.body!.getReader();
+      if (!response.body) {
+        throw new Error("응답 스트림을 읽을 수 없습니다");
+      }
+      const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let fullContent = "";
 
