@@ -25,6 +25,7 @@ interface CustomerSearchDialogProps {
   open: boolean;
   onClose: () => void;
   onSelect: (customer: Customer) => void;
+  orgId?: number | null;
 }
 
 const CUST_TYPES = [
@@ -48,6 +49,7 @@ export function CustomerSearchDialog({
   open,
   onClose,
   onSelect,
+  orgId,
 }: CustomerSearchDialogProps) {
   const [keyword, setKeyword] = useState("");
   const [results, setResults] = useState<Customer[]>([]);
@@ -65,10 +67,29 @@ export function CustomerSearchDialog({
   const search = useCallback(async () => {
     setLoading(true);
     const supabase = createSupabaseBrowser();
+
+    // orgId가 있으면 해당 기관에서 사용 중인 거래처만 검색
+    let custIds: number[] | null = null;
+    if (orgId) {
+      const { data: used } = await supabase
+        .from("acc_book")
+        .select("cust_id")
+        .eq("org_id", orgId);
+      custIds = [...new Set((used || []).map((r: { cust_id: number }) => r.cust_id).filter(Boolean))];
+    }
+
     let query = supabase
       .from("customer")
       .select("cust_id, cust_sec_cd, name, reg_num, job, tel")
       .order("name");
+
+    if (custIds && custIds.length > 0) {
+      query = query.in("cust_id", custIds);
+    } else if (custIds && custIds.length === 0) {
+      setResults([]);
+      setLoading(false);
+      return;
+    }
 
     if (keyword.trim()) {
       query = query.or(`name.ilike.%${keyword}%,reg_num.ilike.%${keyword}%`);
@@ -77,7 +98,7 @@ export function CustomerSearchDialog({
     const { data } = await query.limit(50);
     setResults(data || []);
     setLoading(false);
-  }, [keyword]);
+  }, [keyword, orgId]);
 
   function handleSelect(c: Customer) {
     onSelect(c);
