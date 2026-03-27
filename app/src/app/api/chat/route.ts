@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createClient } from "@supabase/supabase-js";
 import { ELECTION_COST_GUIDE } from "@/lib/chat/election-cost-guide";
+import { SAMPLE_ACCOUNTING_DATA } from "@/lib/chat/sample-accounting-data";
 
 // Vercel serverless 함수 타임아웃 확장 (Hobby: 최대 60초)
 export const maxDuration = 60;
@@ -169,7 +170,7 @@ export async function POST(request: NextRequest) {
       ? `\n현재 사용자 환경:\n- 페이지: ${context.currentPage || "대시보드"}\n- 기관유형: ${context.orgType || "미정"}\n- 기관명: ${context.orgName || "미정"}\n- 기관ID: ${context.orgId || "미정"}`
       : "";
 
-    const fullPrompt = `${SYSTEM_PROMPT}${contextInfo}\n${accountingContext}\n\n📋 선거비용 보전항목 가이드:\n${ELECTION_COST_GUIDE}\n\n사용자 질문: ${message}`;
+    const fullPrompt = `${SYSTEM_PROMPT}${contextInfo}\n${accountingContext}\n\n📋 선거비용 보전항목 가이드:\n${ELECTION_COST_GUIDE}\n\n📊 샘플 회계 데이터 (항목별 과목 분류 참고):\n${SAMPLE_ACCOUNTING_DATA}\n\n사용자 질문: ${message}`;
 
     const chatHistory = (history || []).map((h: { role: string; content: string }) => ({
       role: h.role === "user" ? "user" : "model",
