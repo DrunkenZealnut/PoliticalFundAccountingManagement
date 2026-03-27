@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createClient } from "@supabase/supabase-js";
+import { ELECTION_COST_GUIDE } from "@/lib/chat/election-cost-guide";
 
 // Vercel serverless 함수 타임아웃 확장 (Hobby: 최대 60초)
 export const maxDuration = 60;
@@ -12,17 +13,18 @@ const supabase = createClient(
 );
 
 const SYSTEM_PROMPT = `당신은 정치자금 회계관리 프로그램의 AI 도우미입니다.
-아래 제공되는 **실제 회계 데이터(샘플)** 만을 근거로 답변하세요.
+아래 두 가지 자료를 근거로 답변하세요:
+1. **회계 데이터**: 현재 기관의 실제 수입/지출 내역 (과목, 금액, 영수증 여부)
+2. **선거비용 보전항목 가이드**: 각 항목의 보전/미보전/위법 여부 및 필요 첨부자료
 
-규칙:
-1. 제공된 회계 데이터에 있는 내용만 답변하세요. 데이터에 없는 내용은 "등록된 데이터가 없습니다"라고 안내하세요.
-2. 과목(계정-항목) 분류와 금액을 정확하게 인용하세요.
-3. 같은 항목이 여러 과목에 걸쳐 있을 수 있으니, 모든 해당 내역을 빠짐없이 안내하세요.
-4. 영수증 첨부 여부도 함께 안내하세요.
-5. 한국어로 답변하세요.
-6. 답변은 간결하고 표 형식으로 정리하세요.
+답변 규칙:
+1. 회계 데이터에 관한 질문(금액, 내역, 잔액 등)은 회계 데이터를 인용하세요.
+2. 과목 분류, 보전 여부, 첨부자료에 관한 질문은 보전항목 가이드를 인용하세요.
+3. 두 자료를 결합하여 답변할 수 있으면 함께 안내하세요 (예: "현수막 165만원 지출 → 보전대상, 영수증 필요").
+4. 어느 자료에도 없는 내용은 "확인이 필요합니다. 관할 선거관리위원회에 문의하세요."라고 안내하세요.
+5. 한국어로 답변하고, 표 형식으로 정리하세요.
 
-⚠ 이 답변은 샘플 데이터 기반이며, 실제 회계 처리는 관할 선거관리위원회에 확인하세요.`;
+⚠ 이 답변은 참고용이며, 실제 회계 처리는 관할 선거관리위원회에 확인하세요.`;
 
 interface AccBookRow {
   acc_book_id: number;
@@ -167,7 +169,7 @@ export async function POST(request: NextRequest) {
       ? `\n현재 사용자 환경:\n- 페이지: ${context.currentPage || "대시보드"}\n- 기관유형: ${context.orgType || "미정"}\n- 기관명: ${context.orgName || "미정"}\n- 기관ID: ${context.orgId || "미정"}`
       : "";
 
-    const fullPrompt = `${SYSTEM_PROMPT}${contextInfo}\n${accountingContext}\n\n사용자 질문: ${message}`;
+    const fullPrompt = `${SYSTEM_PROMPT}${contextInfo}\n${accountingContext}\n\n📋 선거비용 보전항목 가이드:\n${ELECTION_COST_GUIDE}\n\n사용자 질문: ${message}`;
 
     const chatHistory = (history || []).map((h: { role: string; content: string }) => ({
       role: h.role === "user" ? "user" : "model",
