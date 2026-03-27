@@ -14,18 +14,90 @@ const supabase = createClient(
 );
 
 const SYSTEM_PROMPT = `당신은 정치자금 회계관리 프로그램의 AI 도우미입니다.
-아래 두 가지 자료를 근거로 답변하세요:
-1. **회계 데이터**: 현재 기관의 실제 수입/지출 내역 (과목, 금액, 영수증 여부)
-2. **선거비용 보전항목 가이드**: 각 항목의 보전/미보전/위법 여부 및 필요 첨부자료
+아래 제공되는 자료를 근거로 답변하세요.
 
 답변 규칙:
-1. 회계 데이터에 관한 질문(금액, 내역, 잔액 등)은 회계 데이터를 인용하세요.
-2. 과목 분류, 보전 여부, 첨부자료에 관한 질문은 보전항목 가이드를 인용하세요.
-3. 두 자료를 결합하여 답변할 수 있으면 함께 안내하세요 (예: "현수막 165만원 지출 → 보전대상, 영수증 필요").
-4. 어느 자료에도 없는 내용은 "확인이 필요합니다. 관할 선거관리위원회에 문의하세요."라고 안내하세요.
-5. 한국어로 답변하고, 표 형식으로 정리하세요.
+1. 제공된 자료에 근거하여 정확하게 답변하세요.
+2. 과목 분류, 보전 여부, 관련 법조항을 함께 안내하세요.
+3. 답변은 **간결하게** 작성하세요. 빈 줄을 반복하지 마세요.
+4. 표는 5행 이내로 핵심만 정리하세요. 긴 표 대신 항목별 요약을 사용하세요.
+5. 자료에 없는 내용은 "관할 선거관리위원회에 문의하세요"라고 안내하세요.
+6. 한국어로 답변하세요.
 
 ⚠ 이 답변은 참고용이며, 실제 회계 처리는 관할 선거관리위원회에 확인하세요.`;
+
+// ─── 키워드 기반 관련 섹션 추출 ─────────────────────────────
+const SECTION_KEYWORDS: Record<string, string[]> = {
+  "기탁금": ["제56조", "제60조의2", "기탁금"],
+  "홈페이지|인터넷|앱|모바일": ["제59조", "인터넷 홈페이지"],
+  "사무소|월세|임차|전기|수도|정수기|사무용|문구|다과|개소식|관리비|계약금": ["제60조의3.*선거사무소", "제61조.*후보자의 선거사무소", "사무소 관련"],
+  "간판|현수막|현판|설치|철거": ["간판.*현수막", "제61조.*간판", "제67조", "현수막 관련"],
+  "명함|피켓": ["명함", "제60조의3.*명함", "명함 관련"],
+  "전화|문자|이메일|전자우편|통화|메시지": ["전자우편.*전화.*문자", "제59조.*전자우편", "제82조의4", "전화.*문자"],
+  "홍보물|공보물|봉투|발송|라벨": ["홍보물", "제60조의3.*홍보물", "제65조", "선거벽보.*선거공보"],
+  "어깨띠|조끼|모자|소품|장갑": ["어깨띠", "제68조", "소품"],
+  "공약|공약집": ["공약집", "제60조의4"],
+  "방송|광고|신문": ["방송광고", "방송연설", "신문광고", "인터넷 광고", "제69조", "제70조", "제71조", "제82조의7"],
+  "연설|대담|차량|유세|래핑|확성": ["공개장소", "제79조", "제104조"],
+  "수당|실비|식사|식대|취사|숙박": ["수당.*실비", "제135조"],
+  "여론조사": ["여론조사", "제108조"],
+  "기부|식비": ["기부행위", "제112조"],
+  "답례|인사서신": ["답례", "제118조"],
+  "자동차|표지|벽보|코팅": ["확성장치.*자동차", "제91조"],
+  "행렬|자전거": ["행렬", "제105조"],
+  "점자|시각장애": ["점자형", "제65조.*점자", "점자형 선거공보"],
+  "후원|후원금|기명|익명": ["후원금 수입"],
+  "보전|미보전|선거비용": ["보전대상", "비보전대상", "선거비용과 선거비용이 아닌"],
+};
+
+function extractRelevantSections(message: string, fullText: string): string {
+  const messageLower = message.toLowerCase();
+
+  // 매칭되는 키워드 그룹 찾기
+  const matchedPatterns: string[] = [];
+  for (const [keywords, patterns] of Object.entries(SECTION_KEYWORDS)) {
+    const keywordList = keywords.split("|");
+    if (keywordList.some((kw) => messageLower.includes(kw))) {
+      matchedPatterns.push(...patterns);
+    }
+  }
+
+  // 매칭 없으면 일반 안내만 반환
+  if (matchedPatterns.length === 0) {
+    return "(질문과 관련된 구체적인 항목 정보가 없습니다. 항목명을 포함하여 다시 질문해주세요.)";
+  }
+
+  // 전체 텍스트에서 관련 섹션 추출 (## 기준으로 분리)
+  const sections = fullText.split(/(?=^## )/m);
+  const matched: string[] = [];
+
+  for (const section of sections) {
+    const sectionLower = section.toLowerCase();
+    for (const pattern of matchedPatterns) {
+      try {
+        if (new RegExp(pattern, "i").test(section) || sectionLower.includes(pattern.toLowerCase())) {
+          if (!matched.includes(section)) {
+            matched.push(section.trim());
+          }
+          break;
+        }
+      } catch {
+        if (sectionLower.includes(pattern.toLowerCase())) {
+          if (!matched.includes(section)) {
+            matched.push(section.trim());
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  // 최대 3개 섹션, 각 섹션 최대 2000자로 제한
+  return matched
+    .slice(0, 3)
+    .map((s) => s.slice(0, 2000))
+    .join("\n\n---\n\n");
+}
 
 interface AccBookRow {
   acc_book_id: number;
@@ -56,90 +128,45 @@ async function fetchAccountingContext(orgId?: number): Promise<string> {
 
   if (orgIds.length === 0) return "(등록된 기관이 없습니다)";
 
-  // 코드값 조회 (과목명 매핑용)
   const { data: codes } = await supabase.from("codevalue").select("cv_id, cs_id, cv_name");
   const codeMap: Record<number, string> = {};
   (codes || []).forEach((c: CodeValue) => { codeMap[c.cv_id] = c.cv_name; });
 
-  // 기관 정보
   const { data: orgInfo } = await supabase
     .from("organ")
     .select("org_id, org_name, org_sec_cd")
     .in("org_id", orgIds);
 
-  // 잔액 요약
   let summaryCtx = "";
   for (const oid of orgIds) {
     const { data: summary } = await supabase.rpc("calculate_balance", { p_org_id: oid });
     if (summary?.[0]) {
       const org = (orgInfo || []).find((o: { org_id: number }) => o.org_id === oid);
       const s = summary[0];
-      summaryCtx += `\n[${org?.org_name || `기관 ${oid}`} 요약]\n`;
-      summaryCtx += `- 총 수입: ${Number(s.income_total).toLocaleString()}원\n`;
-      summaryCtx += `- 총 지출: ${Number(s.expense_total).toLocaleString()}원\n`;
-      summaryCtx += `- 잔  액: ${Number(s.balance).toLocaleString()}원\n`;
+      summaryCtx += `[${org?.org_name || `기관 ${oid}`}] 수입: ${Number(s.income_total).toLocaleString()}원, 지출: ${Number(s.expense_total).toLocaleString()}원, 잔액: ${Number(s.balance).toLocaleString()}원\n`;
     }
   }
 
-  // 전체 거래 내역 (과목 매핑 포함)
   const { data: transactions } = await supabase
     .from("acc_book")
     .select("acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_date, content, acc_amt, rcp_yn, customer:cust_id(name)")
     .in("org_id", orgIds)
     .order("acc_date", { ascending: true });
 
-  let ctx = "\n\n📊 회계 데이터:\n";
-  ctx += summaryCtx;
+  let ctx = "\n📊 현재 기관 회계 요약:\n" + summaryCtx;
 
   if (transactions?.length) {
-    // 수입 내역
-    const incomeItems = (transactions as AccBookRow[]).filter((t) => t.incm_sec_cd === 1);
-    if (incomeItems.length > 0) {
-      ctx += `\n[수입 내역 (${incomeItems.length}건)]\n`;
-      ctx += "날짜 | 내용 | 계정 | 항목 | 금액 | 거래처 | 영수증\n";
-      for (const t of incomeItems) {
-        const date = `${t.acc_date.slice(0, 4)}-${t.acc_date.slice(4, 6)}-${t.acc_date.slice(6)}`;
-        const accName = codeMap[t.acc_sec_cd] || String(t.acc_sec_cd);
-        const itemName = codeMap[t.item_sec_cd] || String(t.item_sec_cd);
-        const name = t.customer?.[0]?.name || "";
-        ctx += `${date} | ${t.content} | ${accName} | ${itemName} | ${Number(t.acc_amt).toLocaleString()}원 | ${name} | ${t.rcp_yn === "Y" ? "O" : "X"}\n`;
-      }
-    }
-
-    // 지출 내역
     const expenseItems = (transactions as AccBookRow[]).filter((t) => t.incm_sec_cd === 2);
     if (expenseItems.length > 0) {
-      ctx += `\n[지출 내역 (${expenseItems.length}건)]\n`;
-      ctx += "날짜 | 내용 | 계정 | 항목 | 금액 | 거래처 | 영수증\n";
-      for (const t of expenseItems) {
+      ctx += `\n지출 내역 (${expenseItems.length}건):\n`;
+      for (const t of expenseItems.slice(0, 30)) {
         const date = `${t.acc_date.slice(0, 4)}-${t.acc_date.slice(4, 6)}-${t.acc_date.slice(6)}`;
         const accName = codeMap[t.acc_sec_cd] || String(t.acc_sec_cd);
         const itemName = codeMap[t.item_sec_cd] || String(t.item_sec_cd);
         const name = t.customer?.[0]?.name || "";
-        ctx += `${date} | ${t.content} | ${accName} | ${itemName} | ${Number(t.acc_amt).toLocaleString()}원 | ${name} | ${t.rcp_yn === "Y" ? "O" : "X"}\n`;
+        ctx += `${date} | ${t.content} | ${accName}>${itemName} | ${Number(t.acc_amt).toLocaleString()}원 | ${name} | 영수증:${t.rcp_yn === "Y" ? "O" : "X"}\n`;
       }
     }
-
-    // 과목별 지출 요약 (항목-과목 매핑 참고표)
-    ctx += "\n[과목별 지출 분류 요약]\n";
-    ctx += "계정 | 항목 | 대표 내용 | 건수 | 합계\n";
-    const categoryMap = new Map<string, { contents: string[]; total: number; count: number }>();
-    for (const t of expenseItems) {
-      const accName = codeMap[t.acc_sec_cd] || String(t.acc_sec_cd);
-      const itemName = codeMap[t.item_sec_cd] || String(t.item_sec_cd);
-      const key = `${accName} | ${itemName}`;
-      const entry = categoryMap.get(key) || { contents: [], total: 0, count: 0 };
-      entry.contents.push(t.content);
-      entry.total += t.acc_amt;
-      entry.count += 1;
-      categoryMap.set(key, entry);
-    }
-    for (const [key, val] of categoryMap) {
-      const uniqueContents = [...new Set(val.contents)].slice(0, 3).join(", ");
-      ctx += `${key} | ${uniqueContents} | ${val.count}건 | ${val.total.toLocaleString()}원\n`;
-    }
-  } else {
-    ctx += "\n(등록된 거래 내역이 없습니다)\n";
   }
 
   return ctx;
@@ -153,7 +180,7 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: "message required" }, { status: 400 });
     }
 
-    // 1. 회계 데이터 조회 (항상 조회 — 샘플 데이터 기반 답변)
+    // 1. 회계 데이터 조회
     let accountingContext = "";
     try {
       const orgId = context?.orgId ? Number(context.orgId) : undefined;
@@ -163,14 +190,18 @@ export async function POST(request: NextRequest) {
       accountingContext = "(회계 데이터 조회 실패)";
     }
 
-    // 2. Gemini 채팅 생성 (RAG 없이 회계 데이터만 사용)
+    // 2. 질문 관련 섹션만 추출 (컨텍스트 최적화)
+    const relevantGuide = extractRelevantSections(message, ELECTION_COST_GUIDE);
+    const relevantSample = extractRelevantSections(message, SAMPLE_ACCOUNTING_DATA);
+
+    // 3. Gemini 채팅 생성
     const chatModel = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     const contextInfo = context
-      ? `\n현재 사용자 환경:\n- 페이지: ${context.currentPage || "대시보드"}\n- 기관유형: ${context.orgType || "미정"}\n- 기관명: ${context.orgName || "미정"}\n- 기관ID: ${context.orgId || "미정"}`
+      ? `\n사용자: ${context.orgName || "미정"} (${context.orgType || "미정"})`
       : "";
 
-    const fullPrompt = `${SYSTEM_PROMPT}${contextInfo}\n${accountingContext}\n\n📋 선거비용 보전항목 가이드:\n${ELECTION_COST_GUIDE}\n\n📊 샘플 회계 데이터 (항목별 과목 분류 참고):\n${SAMPLE_ACCOUNTING_DATA}\n\n사용자 질문: ${message}`;
+    const fullPrompt = `${SYSTEM_PROMPT}${contextInfo}\n${accountingContext}\n\n📋 관련 보전항목 가이드:\n${relevantGuide}\n\n📊 관련 샘플 데이터:\n${relevantSample}\n\n사용자 질문: ${message}`;
 
     const chatHistory = (history || []).map((h: { role: string; content: string }) => ({
       role: h.role === "user" ? "user" : "model",
@@ -179,10 +210,10 @@ export async function POST(request: NextRequest) {
 
     const chat = chatModel.startChat({
       history: chatHistory,
-      generationConfig: { maxOutputTokens: 4096, temperature: 0.3 },
+      generationConfig: { maxOutputTokens: 2048, temperature: 0.3 },
     });
 
-    // 3. 스트리밍 응답
+    // 4. 스트리밍 응답
     const result = await chat.sendMessageStream(fullPrompt);
     const encoder = new TextEncoder();
 
