@@ -290,7 +290,10 @@ export async function POST(request: NextRequest) {
       });
       const deduplicated = rows.length - uniqueRows.length;
       const r = await bulkInsert("acc_rel", uniqueRows);
-      report.ACC_REL = { imported: r.imported, skipped: r.skipped + deduplicated };
+      report.ACC_REL = { imported: r.imported, skipped: r.skipped };
+      if (deduplicated > 0) {
+        report.ACC_REL_DEDUP = { imported: 0, skipped: 0, error: `${deduplicated}건 중복 제거됨` };
+      }
       totalImported += r.imported;
     }
 

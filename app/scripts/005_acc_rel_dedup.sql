@@ -10,7 +10,14 @@ WHERE acc_rel_id NOT IN (
   GROUP BY org_sec_cd, incm_sec_cd, acc_sec_cd, item_sec_cd, exp_sec_cd
 );
 
--- 2. UNIQUE 제약조건 추가 (향후 중복 삽입 방지)
-ALTER TABLE acc_rel
-ADD CONSTRAINT acc_rel_unique_mapping
-UNIQUE (org_sec_cd, incm_sec_cd, acc_sec_cd, item_sec_cd, exp_sec_cd);
+-- 2. UNIQUE 제약조건 추가 (멱등성 확보: 이미 존재하면 무시)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'acc_rel_unique_mapping'
+  ) THEN
+    ALTER TABLE acc_rel
+    ADD CONSTRAINT acc_rel_unique_mapping
+    UNIQUE (org_sec_cd, incm_sec_cd, acc_sec_cd, item_sec_cd, exp_sec_cd);
+  END IF;
+END $$;
