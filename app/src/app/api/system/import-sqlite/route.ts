@@ -276,12 +276,21 @@ export async function POST(request: NextRequest) {
     }
 
     // ACC_REL — has GENERATED ALWAYS identity, strip it and insert fresh
+    // Deduplicate by (org_sec_cd, incm_sec_cd, acc_sec_cd, item_sec_cd, exp_sec_cd)
+    // to prevent duplicate account-relation mappings from exported DBs
     if (existingTables.has("ACC_REL")) {
-      // Delete all existing first (shared reference data)
       await supabase.from("acc_rel").delete().gt("acc_rel_id", 0);
       const rows = readSqliteTable(db, "ACC_REL", ["acc_rel_id"]);
-      const r = await bulkInsert("acc_rel", rows);
-      report.ACC_REL = r;
+      const seen = new Set<string>();
+      const uniqueRows = rows.filter((row) => {
+        const key = `${row.org_sec_cd}|${row.incm_sec_cd}|${row.acc_sec_cd}|${row.item_sec_cd}|${row.exp_sec_cd}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      const deduplicated = rows.length - uniqueRows.length;
+      const r = await bulkInsert("acc_rel", uniqueRows);
+      report.ACC_REL = { imported: r.imported, skipped: r.skipped + deduplicated };
       totalImported += r.imported;
     }
 

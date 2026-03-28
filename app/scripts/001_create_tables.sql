@@ -110,7 +110,8 @@ CREATE TABLE acc_rel (
   item_sec_cd INTEGER NOT NULL,
   exp_sec_cd INTEGER NOT NULL,
   input_yn CHAR(1) NOT NULL,
-  acc_order INTEGER NOT NULL
+  acc_order INTEGER NOT NULL,
+  UNIQUE (org_sec_cd, incm_sec_cd, acc_sec_cd, item_sec_cd, exp_sec_cd)
 );
 
 -- 7. 계정관계2 (ACC_REL2) - 확장용
