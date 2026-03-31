@@ -800,13 +800,24 @@ export default function ExpensePage() {
             )}
           </tbody>
           {records.length > 0 && (
-            <tfoot className="bg-red-50 border-t-2 border-red-200">
-              <tr>
+            <tfoot>
+              {checkedIds.size > 0 && (
+                <tr className="bg-yellow-50 border-t border-yellow-300">
+                  <td colSpan={orgType !== "supporter" ? 8 : 7} className="px-3 py-2 text-right font-semibold text-sm text-yellow-800">
+                    선택 합계 ({checkedIds.size}건)
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono font-bold text-yellow-700">
+                    {fmt(records.filter((r) => checkedIds.has(r.acc_book_id)).reduce((s, r) => s + r.acc_amt, 0))}원
+                  </td>
+                  <td colSpan={2} />
+                </tr>
+              )}
+              <tr className="bg-red-50 border-t-2 border-red-200">
                 <td colSpan={orgType !== "supporter" ? 8 : 7} className="px-3 py-2 text-right font-semibold text-sm">
-                  검색결과 합계 ({filteredTotal.count}건)
+                  전체 합계 ({filteredTotal.count}건)
                 </td>
                 <td className="px-3 py-2 text-right font-mono font-bold text-red-700">
-                  {fmt(filteredTotal.amount)}
+                  {fmt(filteredTotal.amount)}원
                 </td>
                 <td colSpan={2} />
               </tr>
