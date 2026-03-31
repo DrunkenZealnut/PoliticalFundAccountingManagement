@@ -63,6 +63,7 @@ export default function ExpensePage() {
   const [selected, setSelected] = useState<AccBook | null>(null);
   const [loading, setLoading] = useState(false);
   const [summary, setSummary] = useState({ income: 0, expense: 0, balance: 0 });
+  const [filteredTotal, setFilteredTotal] = useState({ amount: 0, count: 0 });
   const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
   const [selectedCustomerName, setSelectedCustomerName] = useState("");
   const [activeFilters, setActiveFilters] = useState<SearchFilters | null>(null);
@@ -112,7 +113,9 @@ export default function ExpensePage() {
     if (filters) query = applyFiltersToQuery(query, filters);
 
     const { data } = await query.order("acc_date").order("acc_sort_num");
-    setRecords(data || []);
+    const recs = data || [];
+    setRecords(recs);
+    setFilteredTotal({ amount: recs.reduce((s: number, r: AccBook) => s + r.acc_amt, 0), count: recs.length });
 
     const { data: allData } = await sb.from("acc_book").select("incm_sec_cd, acc_amt").eq("org_id", orgId);
     if (allData) {
@@ -131,7 +134,9 @@ export default function ExpensePage() {
         .order("acc_date").order("acc_sort_num"),
       sb.from("acc_book").select("incm_sec_cd, acc_amt").eq("org_id", orgId),
     ]).then(([recRes, sumRes]) => {
-      setRecords(recRes.data || []);
+      const recs = recRes.data || [];
+      setRecords(recs);
+      setFilteredTotal({ amount: recs.reduce((s: number, r: { acc_amt: number }) => s + r.acc_amt, 0), count: recs.length });
       if (sumRes.data) {
         const inc = sumRes.data.filter((r) => r.incm_sec_cd === 1).reduce((s, r) => s + r.acc_amt, 0);
         const exp = sumRes.data.filter((r) => r.incm_sec_cd === 2).reduce((s, r) => s + r.acc_amt, 0);
@@ -794,6 +799,30 @@ export default function ExpensePage() {
               ))
             )}
           </tbody>
+          {records.length > 0 && (
+            <tfoot>
+              {checkedIds.size > 0 && (
+                <tr className="bg-yellow-50 border-t border-yellow-300">
+                  <td colSpan={orgType !== "supporter" ? 8 : 7} className="px-3 py-2 text-right font-semibold text-sm text-yellow-800">
+                    선택 합계 ({checkedIds.size}건)
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono font-bold text-yellow-700">
+                    {fmt(records.filter((r) => checkedIds.has(r.acc_book_id)).reduce((s, r) => s + r.acc_amt, 0))}원
+                  </td>
+                  <td colSpan={2} />
+                </tr>
+              )}
+              <tr className="bg-red-50 border-t-2 border-red-200">
+                <td colSpan={orgType !== "supporter" ? 8 : 7} className="px-3 py-2 text-right font-semibold text-sm">
+                  전체 합계 ({filteredTotal.count}건)
+                </td>
+                <td className="px-3 py-2 text-right font-mono font-bold text-red-700">
+                  {fmt(filteredTotal.amount)}원
+                </td>
+                <td colSpan={2} />
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
 

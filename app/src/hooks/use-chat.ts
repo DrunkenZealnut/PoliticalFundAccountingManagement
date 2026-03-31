@@ -104,5 +104,9 @@ export function useChat(context?: ChatContext) {
     setError(null);
   }, []);
 
-  return { messages, isLoading, error, sendMessage, clearMessages };
+  const addMessages = useCallback((msgs: Array<{ role: "user" | "assistant"; content: string }>) => {
+    setMessages((prev) => [...prev, ...msgs]);
+  }, []);
+
+  return { messages, isLoading, error, sendMessage, clearMessages, addMessages };
 }

@@ -21,10 +21,21 @@ export default function HomePage() {
     async function checkAndRedirect() {
       const supabase = createSupabaseBrowser();
 
-      // 1. Check current session
-      const {
-        data: { user: sessionUser },
-      } = await supabase.auth.getUser();
+      // 1. Check current session (with timeout to avoid infinite hang)
+      let sessionUser = null;
+      try {
+        const result = await Promise.race([
+          supabase.auth.getUser(),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("timeout")), 3000)
+          ),
+        ]);
+        sessionUser = result.data?.user ?? null;
+      } catch {
+        // Timeout or error — treat as not logged in
+        router.replace("/login");
+        return;
+      }
 
       if (!sessionUser) {
         router.replace("/login");
