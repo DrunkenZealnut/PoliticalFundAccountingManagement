@@ -131,7 +131,7 @@ export function ChatBubble() {
                     <div className="grid grid-cols-2 gap-2">
                       {FAQ_DATA.map((ch, idx) => (
                         <button
-                          key={ch.chapter}
+                          key={ch.label}
                           onClick={() => handleSelectChapter(idx)}
                           className="text-sm text-left px-3 py-2.5 rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50 transition-colors"
                         >

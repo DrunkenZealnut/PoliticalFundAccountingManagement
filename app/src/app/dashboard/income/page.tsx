@@ -43,6 +43,7 @@ export default function IncomePage() {
   const [selected, setSelected] = useState<AccBook | null>(null);
   const [loading, setLoading] = useState(false);
   const [summary, setSummary] = useState({ income: 0, expense: 0, balance: 0 });
+  const [filteredSummary, setFilteredSummary] = useState({ income: 0, expense: 0, balance: 0, count: 0 });
   const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
   const [selectedCustomerName, setSelectedCustomerName] = useState("");
   const [activeFilters, setActiveFilters] = useState<SearchFilters | null>(null);
@@ -91,6 +92,7 @@ export default function IncomePage() {
       const json = await res.json();
       setRecords(json.records || []);
       if (json.summary) setSummary(json.summary);
+      if (json.filteredSummary) setFilteredSummary(json.filteredSummary);
     } catch { /* ignore */ }
     setLoading(false);
   }
@@ -670,6 +672,19 @@ export default function IncomePage() {
               ))
             )}
           </tbody>
+          {records.length > 0 && (
+            <tfoot className="bg-blue-50 border-t-2 border-blue-200">
+              <tr>
+                <td colSpan={7} className="px-3 py-2 text-right font-semibold text-sm">
+                  검색결과 합계 ({filteredSummary.count}건)
+                </td>
+                <td className="px-3 py-2 text-right font-mono font-bold text-blue-700">
+                  {formatAmount(filteredSummary.income)}
+                </td>
+                <td colSpan={2} />
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
 
