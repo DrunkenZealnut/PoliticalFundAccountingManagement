@@ -20,6 +20,7 @@ export function ChatBubble() {
   const [selectedChapter, setSelectedChapter] = useState<number | null>(null);
   const [selectedSubsection, setSelectedSubsection] = useState<number | null>(null);
   const [faqCollapsed, setFaqCollapsed] = useState(false);
+  const [highlightIndex, setHighlightIndex] = useState<number | null>(null);
 
   const { messages, isLoading, error, sendMessage, clearMessages, addMessages } = useChat({
     currentPage: pathname,
@@ -39,6 +40,17 @@ export function ChatBubble() {
   }
 
   function handleFaqItem(item: FaqItem) {
+    // 이미 같은 질문이 있으면 해당 위치로 스크롤
+    const existingIndex = messages.findIndex((msg) => msg.role === "user" && msg.content === item.q);
+    if (existingIndex !== -1) {
+      const el = document.getElementById(`msg-${existingIndex}`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        setHighlightIndex(existingIndex);
+        setTimeout(() => setHighlightIndex(null), 1500);
+      }
+      return;
+    }
     addMessages([
       { role: "user", content: item.q },
       { role: "assistant", content: item.a },
@@ -222,7 +234,7 @@ export function ChatBubble() {
             </div>
 
             {messages.map((msg, i) => (
-              <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+              <div key={i} id={`msg-${i}`} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"} ${highlightIndex !== null && (i === highlightIndex || i === highlightIndex + 1) ? "ring-2 ring-yellow-400 rounded-lg transition-all duration-300" : ""}`}>
                 <div
                   className={`max-w-[85%] rounded-lg px-4 py-3 text-base ${
                     msg.role === "user"
