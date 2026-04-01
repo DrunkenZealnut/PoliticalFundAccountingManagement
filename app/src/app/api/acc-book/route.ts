@@ -39,7 +39,8 @@ export async function GET(request: NextRequest) {
 
   const { data, error } = await query
     .order("acc_date", { ascending: true })
-    .order("acc_sort_num", { ascending: true });
+    .order("acc_sort_num", { ascending: true })
+    .limit(100000);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -47,20 +48,20 @@ export async function GET(request: NextRequest) {
   const { data: allData } = await supabase
     .from("acc_book")
     .select("incm_sec_cd, acc_amt")
-    .eq("org_id", Number(orgId));
+    .eq("org_id", Number(orgId))
+    .limit(100000);
 
   const inc = (allData || []).filter((r) => r.incm_sec_cd === 1).reduce((s, r) => s + r.acc_amt, 0);
   const exp = (allData || []).filter((r) => r.incm_sec_cd === 2).reduce((s, r) => s + r.acc_amt, 0);
 
   // Filtered summary (sum of currently returned records)
   const records = data || [];
-  const filteredInc = records.filter((r: { incm_sec_cd: number }) => r.incm_sec_cd === 1).reduce((s: number, r: { acc_amt: number }) => s + r.acc_amt, 0);
-  const filteredExp = records.filter((r: { incm_sec_cd: number }) => r.incm_sec_cd === 2).reduce((s: number, r: { acc_amt: number }) => s + r.acc_amt, 0);
+  const filteredTotal = records.reduce((s: number, r: { acc_amt: number }) => s + r.acc_amt, 0);
 
   return NextResponse.json({
     records,
     summary: { income: inc, expense: exp, balance: inc - exp },
-    filteredSummary: { income: filteredInc, expense: filteredExp, balance: filteredInc - filteredExp, count: records.length },
+    filteredSummary: { income: filteredTotal, expense: filteredTotal, balance: 0, count: records.length },
   });
 }
 

@@ -269,7 +269,7 @@ export default function IncomePage() {
     }
 
     resetForm();
-    loadRecords();
+    loadRecords(activeFilters);
   }
 
   async function handleDelete() {
@@ -298,7 +298,7 @@ export default function IncomePage() {
     }
 
     resetForm();
-    loadRecords();
+    loadRecords(activeFilters);
   }
 
   async function handleBatchDelete() {
@@ -582,10 +582,12 @@ export default function IncomePage() {
         itemOptions={searchItemOptions}
         onSearch={(f) => {
           setActiveFilters(f);
+          setCheckedIds(new Set());
           loadRecords(f);
         }}
         onReset={() => {
           setActiveFilters(null);
+          setCheckedIds(new Set());
           loadRecords(null);
         }}
         onItemOptionsChange={setSearchAccSecCd}

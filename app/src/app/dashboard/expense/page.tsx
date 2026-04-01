@@ -112,12 +112,12 @@ export default function ExpensePage() {
       .eq("org_id", orgId).eq("incm_sec_cd", 2);
     if (filters) query = applyFiltersToQuery(query, filters);
 
-    const { data } = await query.order("acc_date").order("acc_sort_num");
+    const { data } = await query.order("acc_date").order("acc_sort_num").limit(100000);
     const recs = data || [];
     setRecords(recs);
     setFilteredTotal({ amount: recs.reduce((s: number, r: AccBook) => s + r.acc_amt, 0), count: recs.length });
 
-    const { data: allData } = await sb.from("acc_book").select("incm_sec_cd, acc_amt").eq("org_id", orgId);
+    const { data: allData } = await sb.from("acc_book").select("incm_sec_cd, acc_amt").eq("org_id", orgId).limit(100000);
     if (allData) {
       const inc = allData.filter((r) => r.incm_sec_cd === 1).reduce((s, r) => s + r.acc_amt, 0);
       const exp = allData.filter((r) => r.incm_sec_cd === 2).reduce((s, r) => s + r.acc_amt, 0);
@@ -131,8 +131,8 @@ export default function ExpensePage() {
     const sb = createSupabaseBrowser();
     Promise.all([
       sb.from("acc_book").select("*, customer:cust_id(name)").eq("org_id", orgId).eq("incm_sec_cd", 2)
-        .order("acc_date").order("acc_sort_num"),
-      sb.from("acc_book").select("incm_sec_cd, acc_amt").eq("org_id", orgId),
+        .order("acc_date").order("acc_sort_num").limit(100000),
+      sb.from("acc_book").select("incm_sec_cd, acc_amt").eq("org_id", orgId).limit(100000),
     ]).then(([recRes, sumRes]) => {
       const recs = recRes.data || [];
       setRecords(recs);
@@ -363,7 +363,7 @@ export default function ExpensePage() {
       }
     }
     resetForm();
-    loadRecords();
+    loadRecords(activeFilters);
   }
 
   async function handleDelete() {
@@ -393,7 +393,7 @@ export default function ExpensePage() {
       return;
     }
     resetForm();
-    loadRecords();
+    loadRecords(activeFilters);
   }
 
   async function handleBatchDelete() {
@@ -697,10 +697,12 @@ export default function ExpensePage() {
         itemOptions={searchItemOptions}
         onSearch={(f) => {
           setActiveFilters(f);
+          setCheckedIds(new Set());
           loadRecords(f);
         }}
         onReset={() => {
           setActiveFilters(null);
+          setCheckedIds(new Set());
           loadRecords(null);
         }}
         onItemOptionsChange={setSearchAccSecCd}
@@ -803,23 +805,23 @@ export default function ExpensePage() {
             <tfoot>
               {checkedIds.size > 0 && (
                 <tr className="bg-yellow-50 border-t border-yellow-300">
-                  <td colSpan={orgType !== "supporter" ? 8 : 7} className="px-3 py-2 text-right font-semibold text-sm text-yellow-800">
+                  <td colSpan={7} className="px-3 py-2 text-right font-semibold text-sm text-yellow-800">
                     선택 합계 ({checkedIds.size}건)
                   </td>
                   <td className="px-3 py-2 text-right font-mono font-bold text-yellow-700">
                     {fmt(records.filter((r) => checkedIds.has(r.acc_book_id)).reduce((s, r) => s + r.acc_amt, 0))}원
                   </td>
-                  <td colSpan={2} />
+                  <td colSpan={orgType !== "supporter" ? 3 : 2} />
                 </tr>
               )}
               <tr className="bg-red-50 border-t-2 border-red-200">
-                <td colSpan={orgType !== "supporter" ? 8 : 7} className="px-3 py-2 text-right font-semibold text-sm">
+                <td colSpan={7} className="px-3 py-2 text-right font-semibold text-sm">
                   전체 합계 ({filteredTotal.count}건)
                 </td>
                 <td className="px-3 py-2 text-right font-mono font-bold text-red-700">
                   {fmt(filteredTotal.amount)}원
                 </td>
-                <td colSpan={2} />
+                <td colSpan={orgType !== "supporter" ? 3 : 2} />
               </tr>
             </tfoot>
           )}
