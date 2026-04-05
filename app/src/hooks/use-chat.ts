@@ -3,6 +3,7 @@ import { useState, useCallback } from "react";
 interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  source?: "faq" | "user";
   sources?: Array<{
     title: string;
     page: number;
@@ -104,7 +105,7 @@ export function useChat(context?: ChatContext) {
     setError(null);
   }, []);
 
-  const addMessages = useCallback((msgs: Array<{ role: "user" | "assistant"; content: string }>) => {
+  const addMessages = useCallback((msgs: Array<{ role: "user" | "assistant"; content: string; source?: "faq" | "user" }>) => {
     setMessages((prev) => [...prev, ...msgs]);
   }, []);
 

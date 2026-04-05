@@ -21,6 +21,13 @@ export function ChatBubble() {
   const [selectedSubsection, setSelectedSubsection] = useState<number | null>(null);
   const [faqCollapsed, setFaqCollapsed] = useState(false);
   const [highlightIndex, setHighlightIndex] = useState<number | null>(null);
+  const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+    };
+  }, []);
 
   const { messages, isLoading, error, sendMessage, clearMessages, addMessages } = useChat({
     currentPage: pathname,
@@ -40,20 +47,23 @@ export function ChatBubble() {
   }
 
   function handleFaqItem(item: FaqItem) {
-    // 이미 같은 질문이 있으면 해당 위치로 스크롤
-    const existingIndex = messages.findIndex((msg) => msg.role === "user" && msg.content === item.q);
+    // 이미 같은 FAQ 질문이 있으면 해당 위치로 스크롤 (FAQ 메시지만 매칭)
+    const existingIndex = messages.findIndex(
+      (msg) => msg.role === "user" && msg.source === "faq" && msg.content === item.q
+    );
     if (existingIndex !== -1) {
       const el = document.getElementById(`msg-${existingIndex}`);
       if (el) {
         el.scrollIntoView({ behavior: "smooth", block: "center" });
         setHighlightIndex(existingIndex);
-        setTimeout(() => setHighlightIndex(null), 1500);
+        if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+        highlightTimeoutRef.current = setTimeout(() => setHighlightIndex(null), 1500);
       }
       return;
     }
     addMessages([
-      { role: "user", content: item.q },
-      { role: "assistant", content: item.a },
+      { role: "user", content: item.q, source: "faq" },
+      { role: "assistant", content: item.a, source: "faq" },
     ]);
   }
 
@@ -63,6 +73,9 @@ export function ChatBubble() {
     setFaqView("categories");
     setSelectedChapter(null);
     setSelectedSubsection(null);
+    setFaqCollapsed(false);
+    setHighlightIndex(null);
+    if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
   }
 
   function handleSelectChapter(index: number) {
@@ -233,8 +246,12 @@ export function ChatBubble() {
               )}
             </div>
 
-            {messages.map((msg, i) => (
-              <div key={i} id={`msg-${i}`} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"} ${highlightIndex !== null && (i === highlightIndex || i === highlightIndex + 1) ? "ring-2 ring-yellow-400 rounded-lg transition-all duration-300" : ""}`}>
+            {messages.map((msg, i) => {
+              const alignment = msg.role === "user" ? "justify-end" : "justify-start";
+              const isHighlighted = highlightIndex !== null && (i === highlightIndex || i === highlightIndex + 1);
+              const msgClassName = `flex ${alignment} ${isHighlighted ? "ring-2 ring-yellow-400 rounded-lg transition-all duration-300" : ""}`;
+              return (
+              <div key={i} id={`msg-${i}`} className={msgClassName}>
                 <div
                   className={`max-w-[85%] rounded-lg px-4 py-3 text-base ${
                     msg.role === "user"
@@ -269,7 +286,8 @@ export function ChatBubble() {
                   )}
                 </div>
               </div>
-            ))}
+              );
+            })}
 
             {error && (
               <div className="text-sm text-red-500 text-center bg-red-50 rounded p-2">
