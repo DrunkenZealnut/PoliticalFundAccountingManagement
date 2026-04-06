@@ -29,9 +29,15 @@
 
 ## P3 - Quality
 
+### Extract FaqBrowser as a separate component from ChatBubble
+- **What:** Split `ChatBubble.tsx` into `FaqBrowser` (FAQ navigation: 3 state vars, 4 handlers, ~100 lines JSX) and `ChatPanel` (chat messages, input, header).
+- **Why:** ChatBubble is 313 lines with 8 `useState` hooks handling two distinct responsibilities (FAQ navigation + chat). Cross-model review agreement that this coupling creates unnecessary bug surface area (stale state interactions, combinatorial test explosion).
+- **Context:** The only coupling point is `handleFaqItem` (FAQ → chat messages). `FaqBrowser` needs: a callback for item selection, and visibility into `messages` array for duplicate detection. The prop interface is clean.
+- **Depends on:** Nothing (test framework now set up in v0.1.1.0). Having tests makes refactoring safe.
+- **Added:** 2026-04-05 (eng review of feat/faq-back-navigation, cross-model consensus)
+
+## Completed
+
 ### Set up test framework (vitest + testing-library)
 - **What:** Add vitest, @testing-library/react, and happy-dom to the project. Write initial tests for core components (tfoot summaries, auth flow, API route).
-- **Why:** 0% test coverage across the entire project. 18 untested code paths identified in the search-total-summary feature alone. For a financial compliance system, test coverage is important for preventing regressions.
-- **Context:** `app/package.json` has no test runner. No test directories exist. Start with unit tests for the API route (pure request/response, easy to test) and component tests for the tfoot summary rendering.
-- **Depends on:** Nothing. Can be done independently.
-- **Added:** 2026-04-01 (eng review)
+- **Completed:** v0.1.1.0 (2026-04-05) — vitest + @testing-library/react + happy-dom installed. 19 tests for ChatBubble component. `npm run test` runs vitest.

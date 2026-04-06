@@ -19,6 +19,15 @@ export function ChatBubble() {
   const [faqView, setFaqView] = useState<"categories" | "subsections" | "items">("categories");
   const [selectedChapter, setSelectedChapter] = useState<number | null>(null);
   const [selectedSubsection, setSelectedSubsection] = useState<number | null>(null);
+  const [faqCollapsed, setFaqCollapsed] = useState(false);
+  const [highlightIndex, setHighlightIndex] = useState<number | null>(null);
+  const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+    };
+  }, []);
 
   const { messages, isLoading, error, sendMessage, clearMessages, addMessages } = useChat({
     currentPage: pathname,
@@ -38,9 +47,23 @@ export function ChatBubble() {
   }
 
   function handleFaqItem(item: FaqItem) {
+    // 이미 같은 FAQ 질문이 있으면 해당 위치로 스크롤 (FAQ 메시지만 매칭)
+    const existingIndex = messages.findIndex(
+      (msg) => msg.role === "user" && msg.source === "faq" && msg.content === item.q
+    );
+    if (existingIndex !== -1) {
+      const el = document.getElementById(`msg-${existingIndex}`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        setHighlightIndex(existingIndex);
+        if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+        highlightTimeoutRef.current = setTimeout(() => setHighlightIndex(null), 1500);
+      }
+      return;
+    }
     addMessages([
-      { role: "user", content: item.q },
-      { role: "assistant", content: item.a },
+      { role: "user", content: item.q, source: "faq" },
+      { role: "assistant", content: item.a, source: "faq" },
     ]);
   }
 
@@ -50,6 +73,9 @@ export function ChatBubble() {
     setFaqView("categories");
     setSelectedChapter(null);
     setSelectedSubsection(null);
+    setFaqCollapsed(false);
+    setHighlightIndex(null);
+    if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
   }
 
   function handleSelectChapter(index: number) {
@@ -118,94 +144,115 @@ export function ChatBubble() {
 
           {/* Messages */}
           <div className="flex-1 overflow-y-auto p-4 space-y-3">
-            {messages.length === 0 && (
-              <div className="space-y-4">
+            {/* FAQ 탐색: 항상 표시, 메시지 있을 때 접기/펼치기 */}
+            <div className="space-y-4">
+              {messages.length === 0 && (
                 <p className="text-base text-gray-500 text-center">
                   정치자금 회계처리에 대해 질문해 보세요.
                 </p>
+              )}
 
-                {/* FAQ 탐색: 카테고리 → subsection → Q&A */}
-                {faqView === "categories" && (
-                  <div>
-                    <p className="text-sm text-gray-400 mb-2 font-medium">자주 묻는 질문</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      {FAQ_DATA.map((ch, idx) => (
+              {messages.length > 0 && (
+                <button
+                  onClick={() => setFaqCollapsed(!faqCollapsed)}
+                  className="w-full text-sm text-left px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 transition-colors flex items-center justify-between"
+                >
+                  <span className="font-medium">📚 자주 묻는 질문</span>
+                  <span className="text-emerald-400">{faqCollapsed ? "▼ 펼치기" : "▲ 접기"}</span>
+                </button>
+              )}
+
+              {(messages.length === 0 || !faqCollapsed) && (
+                <>
+                  {faqView === "categories" && (
+                    <div>
+                      {messages.length === 0 && (
+                        <p className="text-sm text-gray-400 mb-2 font-medium">자주 묻는 질문</p>
+                      )}
+                      <div className="grid grid-cols-2 gap-2">
+                        {FAQ_DATA.map((ch, idx) => (
+                          <button
+                            key={ch.label}
+                            onClick={() => handleSelectChapter(idx)}
+                            className="text-sm text-left px-3 py-2.5 rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50 transition-colors"
+                          >
+                            <span className="font-medium">{ch.shortLabel}</span>
+                            <span className="ml-1 text-emerald-400 text-xs">({getChapterItemCount(ch)})</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {faqView === "subsections" && selectedChapter !== null && (
+                    <div>
+                      <div className="flex items-center gap-2 mb-2">
                         <button
-                          key={ch.label}
-                          onClick={() => handleSelectChapter(idx)}
-                          className="text-sm text-left px-3 py-2.5 rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50 transition-colors"
+                          onClick={handleBack}
+                          className="text-sm text-blue-600 hover:text-blue-800 font-medium"
                         >
-                          <span className="font-medium">{ch.shortLabel}</span>
-                          <span className="ml-1 text-emerald-400 text-xs">({getChapterItemCount(ch)})</span>
+                          ← 전체 목록
                         </button>
-                      ))}
+                        <span className="text-sm text-gray-500">|</span>
+                        <span className="text-sm font-medium text-gray-700 truncate">
+                          {FAQ_DATA[selectedChapter].shortLabel}
+                        </span>
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        {FAQ_DATA[selectedChapter].subsections?.map((sub, idx) => (
+                          <button
+                            key={sub.label}
+                            onClick={() => handleSelectSubsection(idx)}
+                            className="w-full text-sm text-left px-3 py-2.5 rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50 transition-colors"
+                          >
+                            <span className="font-medium">{sub.label}</span>
+                            <span className="ml-1 text-emerald-400 text-xs">({sub.items.length})</span>
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
 
-                {faqView === "subsections" && selectedChapter !== null && (
-                  <div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <button
-                        onClick={handleBack}
-                        className="text-sm text-blue-600 hover:text-blue-800 font-medium"
-                      >
-                        ← 전체 목록
-                      </button>
-                      <span className="text-sm text-gray-500">|</span>
-                      <span className="text-sm font-medium text-gray-700 truncate">
-                        {FAQ_DATA[selectedChapter].shortLabel}
-                      </span>
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      {FAQ_DATA[selectedChapter].subsections!.map((sub, idx) => (
+                  {faqView === "items" && selectedChapter !== null && (
+                    <div>
+                      <div className="flex items-center gap-2 mb-2">
                         <button
-                          key={sub.label}
-                          onClick={() => handleSelectSubsection(idx)}
-                          className="w-full text-sm text-left px-3 py-2.5 rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50 transition-colors"
+                          onClick={handleBack}
+                          className="text-sm text-blue-600 hover:text-blue-800 font-medium"
                         >
-                          <span className="font-medium">{sub.label}</span>
-                          <span className="ml-1 text-emerald-400 text-xs">({sub.items.length})</span>
+                          ← 뒤로
                         </button>
-                      ))}
+                        <span className="text-sm text-gray-500">|</span>
+                        <span className="text-sm font-medium text-gray-700 truncate">
+                          {selectedSubsection !== null
+                            ? FAQ_DATA[selectedChapter].subsections?.[selectedSubsection]?.label
+                            : FAQ_DATA[selectedChapter].shortLabel}
+                        </span>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        {getCurrentItems().map((item, idx) => (
+                          <button
+                            key={idx}
+                            data-testid={`faq-item-${idx}`}
+                            onClick={() => handleFaqItem(item)}
+                            className="w-full text-sm text-left px-3 py-2.5 rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50 transition-colors leading-relaxed"
+                          >
+                            {item.q}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
+                </>
+              )}
+            </div>
 
-                {faqView === "items" && selectedChapter !== null && (
-                  <div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <button
-                        onClick={handleBack}
-                        className="text-sm text-blue-600 hover:text-blue-800 font-medium"
-                      >
-                        ← 뒤로
-                      </button>
-                      <span className="text-sm text-gray-500">|</span>
-                      <span className="text-sm font-medium text-gray-700 truncate">
-                        {selectedSubsection !== null
-                          ? FAQ_DATA[selectedChapter].subsections![selectedSubsection].label
-                          : FAQ_DATA[selectedChapter].shortLabel}
-                      </span>
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      {getCurrentItems().map((item, idx) => (
-                        <button
-                          key={idx}
-                          onClick={() => handleFaqItem(item)}
-                          className="w-full text-sm text-left px-3 py-2.5 rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50 transition-colors leading-relaxed"
-                        >
-                          {item.q}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {messages.map((msg, i) => (
-              <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+            {messages.map((msg, i) => {
+              const alignment = msg.role === "user" ? "justify-end" : "justify-start";
+              const isHighlighted = highlightIndex !== null && (i === highlightIndex || i === highlightIndex + 1);
+              const msgClassName = `flex ${alignment} ${isHighlighted ? "ring-2 ring-yellow-400 rounded-lg transition-all duration-300" : ""}`;
+              return (
+              <div key={i} id={`msg-${i}`} className={msgClassName}>
                 <div
                   className={`max-w-[85%] rounded-lg px-4 py-3 text-base ${
                     msg.role === "user"
@@ -240,7 +287,8 @@ export function ChatBubble() {
                   )}
                 </div>
               </div>
-            ))}
+              );
+            })}
 
             {error && (
               <div className="text-sm text-red-500 text-center bg-red-50 rounded p-2">
