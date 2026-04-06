@@ -142,10 +142,10 @@ describe("ChatBubble", () => {
 
   describe("duplicate FAQ prevention", () => {
     function clickFaqButton(text: string) {
-      // When messages exist, the FAQ item text appears both in the FAQ button
-      // and in the message bubble. Target the button specifically.
-      const buttons = screen.getAllByText(text);
-      const faqButton = buttons.find((el) => el.tagName === "BUTTON");
+      // Use data-testid to reliably target FAQ buttons, avoiding ambiguity
+      // when the same text appears in both FAQ buttons and message bubbles.
+      const allFaqButtons = screen.getAllByTestId(/^faq-item-/);
+      const faqButton = allFaqButtons.find((el) => el.textContent === text);
       if (!faqButton) throw new Error(`FAQ button with text "${text}" not found`);
       fireEvent.click(faqButton);
     }

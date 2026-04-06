@@ -1,6 +1,6 @@
 {
   "name": "app",
-  "version": "0.1.0",
+  "version": "0.1.1.0",
   "private": true,
   "scripts": {
     "dev": "lsof -ti :3001 | xargs kill -9 2>/dev/null; next dev --port 3001",

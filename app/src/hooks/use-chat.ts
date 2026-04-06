@@ -105,7 +105,7 @@ export function useChat(context?: ChatContext) {
     setError(null);
   }, []);
 
-  const addMessages = useCallback((msgs: Array<{ role: "user" | "assistant"; content: string; source?: "faq" | "user" }>) => {
+  const addMessages = useCallback((msgs: ChatMessage[]) => {
     setMessages((prev) => [...prev, ...msgs]);
   }, []);
 

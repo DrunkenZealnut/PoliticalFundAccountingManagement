@@ -199,7 +199,7 @@ export function ChatBubble() {
                         </span>
                       </div>
                       <div className="flex flex-col gap-1.5">
-                        {FAQ_DATA[selectedChapter].subsections!.map((sub, idx) => (
+                        {FAQ_DATA[selectedChapter].subsections?.map((sub, idx) => (
                           <button
                             key={sub.label}
                             onClick={() => handleSelectSubsection(idx)}
@@ -225,7 +225,7 @@ export function ChatBubble() {
                         <span className="text-sm text-gray-500">|</span>
                         <span className="text-sm font-medium text-gray-700 truncate">
                           {selectedSubsection !== null
-                            ? FAQ_DATA[selectedChapter].subsections![selectedSubsection].label
+                            ? FAQ_DATA[selectedChapter].subsections?.[selectedSubsection]?.label
                             : FAQ_DATA[selectedChapter].shortLabel}
                         </span>
                       </div>
@@ -233,6 +233,7 @@ export function ChatBubble() {
                         {getCurrentItems().map((item, idx) => (
                           <button
                             key={idx}
+                            data-testid={`faq-item-${idx}`}
                             onClick={() => handleFaqItem(item)}
                             className="w-full text-sm text-left px-3 py-2.5 rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50 transition-colors leading-relaxed"
                           >
