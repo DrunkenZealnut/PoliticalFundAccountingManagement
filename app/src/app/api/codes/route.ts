@@ -5,7 +5,8 @@ import { createClient } from "@supabase/supabase-js";
 // Code tables are read-only shared reference data
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  { db: { schema: "pfam" } }
 );
 
 let cache: { codeValues: unknown[]; accRels: unknown[]; ts: number } | null = null;

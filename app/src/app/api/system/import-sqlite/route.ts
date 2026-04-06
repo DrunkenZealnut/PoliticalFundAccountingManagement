@@ -6,7 +6,8 @@ import { readFileSync } from "fs";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  { db: { schema: "pfam" } }
 );
 
 // Reverse mapping: SQLite UPPER_CASE → PostgreSQL snake_case

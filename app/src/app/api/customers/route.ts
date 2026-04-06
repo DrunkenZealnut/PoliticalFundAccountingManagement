@@ -4,7 +4,8 @@ import { createClient } from "@supabase/supabase-js";
 // Server-side route using service role key to bypass RLS
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  { db: { schema: "pfam" } }
 );
 
 export async function GET(request: NextRequest) {

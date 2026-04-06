@@ -1,5 +1,5 @@
 export type Database = {
-  public: {
+  pfam: {
     Tables: {
       codeset: {
         Row: {
@@ -100,10 +100,10 @@ export type Database = {
           acc_to: string | null;
           code_date: string | null;
         };
-        Insert: Omit<Database["public"]["Tables"]["organ"]["Row"], "org_id"> & {
+        Insert: Omit<Database["pfam"]["Tables"]["organ"]["Row"], "org_id"> & {
           org_id?: number;
         };
-        Update: Partial<Database["public"]["Tables"]["organ"]["Row"]>;
+        Update: Partial<Database["pfam"]["Tables"]["organ"]["Row"]>;
       };
       customer: {
         Row: {
@@ -186,10 +186,10 @@ export type Database = {
           exp_group2_cd: string | null;
           exp_group3_cd: string | null;
         };
-        Insert: Omit<Database["public"]["Tables"]["acc_book"]["Row"], "acc_book_id"> & {
+        Insert: Omit<Database["pfam"]["Tables"]["acc_book"]["Row"], "acc_book_id"> & {
           acc_book_id?: number;
         };
-        Update: Partial<Database["public"]["Tables"]["acc_book"]["Row"]>;
+        Update: Partial<Database["pfam"]["Tables"]["acc_book"]["Row"]>;
       };
       acc_book_bak: {
         Row: {
@@ -224,10 +224,10 @@ export type Database = {
           exp_group2_cd: string | null;
           exp_group3_cd: string | null;
         };
-        Insert: Omit<Database["public"]["Tables"]["acc_book_bak"]["Row"], "bak_id"> & {
+        Insert: Omit<Database["pfam"]["Tables"]["acc_book_bak"]["Row"], "bak_id"> & {
           bak_id?: number;
         };
-        Update: Partial<Database["public"]["Tables"]["acc_book_bak"]["Row"]>;
+        Update: Partial<Database["pfam"]["Tables"]["acc_book_bak"]["Row"]>;
       };
       acc_rel: {
         Row: {
@@ -240,10 +240,10 @@ export type Database = {
           input_yn: string;
           acc_order: number;
         };
-        Insert: Omit<Database["public"]["Tables"]["acc_rel"]["Row"], "acc_rel_id"> & {
+        Insert: Omit<Database["pfam"]["Tables"]["acc_rel"]["Row"], "acc_rel_id"> & {
           acc_rel_id?: number;
         };
-        Update: Partial<Database["public"]["Tables"]["acc_rel"]["Row"]>;
+        Update: Partial<Database["pfam"]["Tables"]["acc_rel"]["Row"]>;
       };
       estate: {
         Row: {
@@ -258,10 +258,10 @@ export type Database = {
           reg_date: string | null;
           estate_order: number | null;
         };
-        Insert: Omit<Database["public"]["Tables"]["estate"]["Row"], "estate_id"> & {
+        Insert: Omit<Database["pfam"]["Tables"]["estate"]["Row"], "estate_id"> & {
           estate_id?: number;
         };
-        Update: Partial<Database["public"]["Tables"]["estate"]["Row"]>;
+        Update: Partial<Database["pfam"]["Tables"]["estate"]["Row"]>;
       };
       opinion: {
         Row: {
@@ -299,8 +299,8 @@ export type Database = {
           acc_borgnm: string | null;
           acc_repnm: string | null;
         };
-        Insert: Database["public"]["Tables"]["opinion"]["Row"];
-        Update: Partial<Database["public"]["Tables"]["opinion"]["Row"]>;
+        Insert: Database["pfam"]["Tables"]["opinion"]["Row"];
+        Update: Partial<Database["pfam"]["Tables"]["opinion"]["Row"]>;
       };
       customer_addr: {
         Row: {
@@ -312,8 +312,8 @@ export type Database = {
           addr: string | null;
           addr_detail: string | null;
         };
-        Insert: Database["public"]["Tables"]["customer_addr"]["Row"];
-        Update: Partial<Database["public"]["Tables"]["customer_addr"]["Row"]>;
+        Insert: Database["pfam"]["Tables"]["customer_addr"]["Row"];
+        Update: Partial<Database["pfam"]["Tables"]["customer_addr"]["Row"]>;
       };
       user_organ: {
         Row: {
@@ -323,11 +323,11 @@ export type Database = {
           is_default: boolean | null;
           created_at: string | null;
         };
-        Insert: Omit<Database["public"]["Tables"]["user_organ"]["Row"], "id" | "created_at"> & {
+        Insert: Omit<Database["pfam"]["Tables"]["user_organ"]["Row"], "id" | "created_at"> & {
           id?: number;
           created_at?: string | null;
         };
-        Update: Partial<Database["public"]["Tables"]["user_organ"]["Row"]>;
+        Update: Partial<Database["pfam"]["Tables"]["user_organ"]["Row"]>;
       };
       backup_history: {
         Row: {
@@ -340,11 +340,11 @@ export type Database = {
           created_at: string | null;
           created_by: string | null;
         };
-        Insert: Omit<Database["public"]["Tables"]["backup_history"]["Row"], "id" | "created_at"> & {
+        Insert: Omit<Database["pfam"]["Tables"]["backup_history"]["Row"], "id" | "created_at"> & {
           id?: number;
           created_at?: string | null;
         };
-        Update: Partial<Database["public"]["Tables"]["backup_history"]["Row"]>;
+        Update: Partial<Database["pfam"]["Tables"]["backup_history"]["Row"]>;
       };
     };
     Functions: {
