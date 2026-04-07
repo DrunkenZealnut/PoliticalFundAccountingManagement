@@ -45,6 +45,7 @@ export default function IncomePage() {
   const [summary, setSummary] = useState({ income: 0, expense: 0, balance: 0 });
   const [filteredSummary, setFilteredSummary] = useState({ income: 0, expense: 0, balance: 0, count: 0 });
   const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
+  const [customerDialogMode, setCustomerDialogMode] = useState<"search" | "register">("search");
   const [selectedCustomerName, setSelectedCustomerName] = useState("");
   const [activeFilters, setActiveFilters] = useState<SearchFilters | null>(null);
   const [searchAccSecCd, setSearchAccSecCd] = useState(0);
@@ -524,16 +525,24 @@ export default function IncomePage() {
               <Input
                 value={selectedCustomerName}
                 readOnly
-                placeholder="검색 버튼 클릭"
+                placeholder="검색 또는 등록"
                 className="flex-1"
               />
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setCustomerDialogOpen(true)}
+                onClick={() => { setCustomerDialogMode("search"); setCustomerDialogOpen(true); }}
                 className="shrink-0"
               >
                 검색
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => { setCustomerDialogMode("register"); setCustomerDialogOpen(true); }}
+                className="shrink-0"
+              >
+                등록
               </Button>
             </div>
           </div>
@@ -557,21 +566,41 @@ export default function IncomePage() {
               <select
                 className="w-full mt-1 border rounded px-3 py-2 text-sm"
                 value={form.rcp_yn}
-                onChange={(e) => setForm({ ...form, rcp_yn: e.target.value })}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setForm({
+                    ...form,
+                    rcp_yn: val,
+                    // 전환 시 반대쪽 필드 초기화
+                    ...(val === "Y" ? { bigo: "" } : { rcp_no: "" }),
+                  });
+                }}
               >
                 <option value="Y">첨부</option>
                 <option value="N">미첨부</option>
               </select>
             </div>
-            <div>
-              <HelpTooltip id="income.receipt-no">
-                <Label>증빙서번호</Label>
-              </HelpTooltip>
-              <Input
-                value={form.rcp_no}
-                onChange={(e) => setForm({ ...form, rcp_no: e.target.value })}
-              />
-            </div>
+            {form.rcp_yn === "Y" ? (
+              <div>
+                <HelpTooltip id="income.receipt-no">
+                  <Label>증빙서번호</Label>
+                </HelpTooltip>
+                <Input
+                  value={form.rcp_no}
+                  onChange={(e) => setForm({ ...form, rcp_no: e.target.value })}
+                  placeholder="증빙서번호"
+                />
+              </div>
+            ) : (
+              <div>
+                <Label>미첨부사유</Label>
+                <Input
+                  value={form.bigo}
+                  onChange={(e) => setForm({ ...form, bigo: e.target.value })}
+                  placeholder="미첨부사유 입력"
+                />
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -613,7 +642,7 @@ export default function IncomePage() {
               <SortTh label="내역" sortKey="content" current={sort} onToggle={toggle} className="text-left" />
               <SortTh label="금액" sortKey="acc_amt" current={sort} onToggle={toggle} className="text-right" />
               <SortTh label="증빙" sortKey="rcp_yn" current={sort} onToggle={toggle} className="text-center" />
-              <SortTh label="비고" sortKey="bigo" current={sort} onToggle={toggle} className="text-left" />
+              <SortTh label="증빙서번호/미첨부사유" sortKey="rcp_no" current={sort} onToggle={toggle} className="text-left" />
             </tr>
           </thead>
           <tbody>
@@ -667,9 +696,19 @@ export default function IncomePage() {
                     {formatAmount(r.acc_amt)}
                   </td>
                   <td className="px-3 py-2 text-center">
-                    {r.rcp_yn === "Y" ? "O" : "-"}
+                    {r.rcp_yn === "Y" ? (
+                      <span className="text-green-600">O</span>
+                    ) : (
+                      <span className="text-red-500">X</span>
+                    )}
                   </td>
-                  <td className="px-3 py-2 text-gray-500">{r.bigo}</td>
+                  <td className="px-3 py-2 text-gray-600">
+                    {r.rcp_yn === "Y" ? (
+                      r.rcp_no || ""
+                    ) : (
+                      <span className="text-orange-600">{r.bigo || ""}</span>
+                    )}
+                  </td>
                 </tr>
               ))
             )}
@@ -705,6 +744,7 @@ export default function IncomePage() {
       <CustomerSearchDialog
         open={customerDialogOpen}
         onClose={() => setCustomerDialogOpen(false)}
+        initialMode={customerDialogMode}
         onSelect={(c) => {
           setForm({ ...form, cust_id: c.cust_id });
           setSelectedCustomerName(c.name || "");

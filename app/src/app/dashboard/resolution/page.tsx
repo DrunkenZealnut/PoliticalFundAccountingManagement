@@ -24,6 +24,33 @@ const PAY_METHODS: Record<string, string> = {
 
 const MAX_EXCEL_ITEMS = 10;
 
+/** 계정명 → 증빙서 접두어 */
+const ACC_PREFIX_MAP: Record<string, string> = {
+  "후보자등자산": "자",
+  "후원회기부금": "후",
+  "보조금": "보",
+  "보조금외지원금": "기",
+};
+
+/** 증빙서이름 생성: 예) 자(비)-1, 보-3 */
+function buildReceiptLabel(
+  accName: string,
+  itemName: string,
+  rcpNo: string | null,
+): string {
+  if (!rcpNo) return "";
+  // 계정 접두어
+  let prefix = "";
+  for (const [key, val] of Object.entries(ACC_PREFIX_MAP)) {
+    if (accName.includes(key)) { prefix = val; break; }
+  }
+  if (!prefix) prefix = accName.charAt(0) || "?";
+  // 과목: 선거비용외 → (비), 선거비용 → 없음
+  const isNonElection = itemName.includes("선거비용외") || itemName.includes("비용외");
+  const suffix = isNonElection ? "(비)" : "";
+  return `${prefix}${suffix}-${rcpNo}`;
+}
+
 interface ResolutionRow {
   acc_book_id: number;
   acc_sec_cd: number;
@@ -156,7 +183,7 @@ export default function ResolutionPage() {
     const headerRow = sheet.getRow(6);
     const headers = [
       "번호", "지출일자", "계정", "과목", "지출대상자",
-      "지출내역", "금액", "지출방법",
+      "지출내역", "금액", "지출방법", "증빙", "증빙서이름",
     ];
     headers.forEach((h, i) => {
       headerRow.getCell(i + 1).value = h;
@@ -178,6 +205,10 @@ export default function ResolutionPage() {
       row.getCell(8).value = r.acc_ins_type
         ? PAY_METHODS[r.acc_ins_type] || r.acc_ins_type
         : "-";
+      row.getCell(9).value = r.rcp_yn === "Y" ? "O" : "X";
+      row.getCell(10).value = r.rcp_yn === "Y" && r.rcp_no
+        ? buildReceiptLabel(getName(r.acc_sec_cd), getName(r.item_sec_cd), r.rcp_no)
+        : "";
       totalAmt += r.acc_amt;
     });
 
@@ -198,6 +229,8 @@ export default function ResolutionPage() {
     sheet.getColumn(6).width = 30;
     sheet.getColumn(7).width = 15;
     sheet.getColumn(8).width = 12;
+    sheet.getColumn(9).width = 6;
+    sheet.getColumn(10).width = 14;
 
     const buffer = await workbook.xlsx.writeBuffer();
     const blob = new Blob([buffer], {
@@ -357,13 +390,14 @@ export default function ResolutionPage() {
               <SortTh label="금액" sortKey="acc_amt" current={sort} onToggle={toggle} className="text-right" />
               <SortTh label="지출방법" sortKey="acc_ins_type" current={sort} onToggle={toggle} className="text-left" />
               <SortTh label="증빙" sortKey="rcp_yn" current={sort} onToggle={toggle} className="text-center" />
+              <th className="px-3 py-2 text-left">증빙서이름</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
                 <td
-                  colSpan={10}
+                  colSpan={11}
                   className="px-3 py-8 text-center text-gray-400"
                 >
                   로딩 중...
@@ -372,7 +406,7 @@ export default function ResolutionPage() {
             ) : records.length === 0 ? (
               <tr>
                 <td
-                  colSpan={10}
+                  colSpan={11}
                   className="px-3 py-8 text-center text-gray-400"
                 >
                   조건을 설정 후 [조회]를 클릭하세요.
@@ -411,6 +445,11 @@ export default function ResolutionPage() {
                   </td>
                   <td className="px-3 py-2 text-center">
                     {r.rcp_yn === "Y" ? "O" : "-"}
+                  </td>
+                  <td className="px-3 py-2 text-blue-700 font-mono">
+                    {r.rcp_yn === "Y" && r.rcp_no
+                      ? buildReceiptLabel(getName(r.acc_sec_cd), getName(r.item_sec_cd), r.rcp_no)
+                      : ""}
                   </td>
                 </tr>
               ))

@@ -7,7 +7,6 @@ import { createSupabaseBrowser } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { HelpTooltip } from "@/components/help-tooltip";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -681,7 +680,7 @@ function buildLedgerSheet(
 
 export default function ReportsPage() {
   const { orgId, orgName, orgSecCd, acctName } = useAuth();
-  const { getName, loading: codesLoading } = useCodeValues();
+  const { getName, getAccounts, getItems, loading: codesLoading } = useCodeValues();
 
   const [covers, setCovers] = useState({
     incomeCover: true,
@@ -689,11 +688,67 @@ export default function ReportsPage() {
     accountCover: true,
     subjectCover: true,
   });
+  const [docNumber, setDocNumber] = useState("");
   const [electionName, setElectionName] = useState("");
   const [districtName, setDistrictName] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [generating, setGenerating] = useState(false);
+
+  // 계정/과목 옵션 (ACC_REL 기반)
+  const incomeAccounts = orgSecCd ? getAccounts(orgSecCd, 1) : [];
+  const expenseAccounts = orgSecCd ? getAccounts(orgSecCd, 2) : [];
+  const allAccountIds = [...new Set([...incomeAccounts, ...expenseAccounts].map((a) => a.cv_id))];
+
+  // 선택 상태: 계정별, 수입 과목, 지출 과목
+  const [selectedAccounts, setSelectedAccounts] = useState<Set<number>>(new Set());
+  const [selectedIncomeItems, setSelectedIncomeItems] = useState<Set<number>>(new Set());
+  const [selectedExpenseItems, setSelectedExpenseItems] = useState<Set<number>>(new Set());
+  const [initialized, setInitialized] = useState(false);
+
+  // 초기화: 모든 항목 선택
+  if (!initialized && allAccountIds.length > 0) {
+    setSelectedAccounts(new Set(allAccountIds));
+    const incItems = new Set<number>();
+    const expItems = new Set<number>();
+    for (const acc of incomeAccounts) {
+      for (const item of getItems(orgSecCd!, 1, acc.cv_id)) incItems.add(item.cv_id);
+    }
+    for (const acc of expenseAccounts) {
+      for (const item of getItems(orgSecCd!, 2, acc.cv_id)) expItems.add(item.cv_id);
+    }
+    setSelectedIncomeItems(incItems);
+    setSelectedExpenseItems(expItems);
+    setInitialized(true);
+  }
+
+  // 수입/지출 과목 목록 (선택된 계정 기준)
+  const incomeItemOptions = orgSecCd
+    ? [...new Map(
+        incomeAccounts
+          .filter((a) => selectedAccounts.has(a.cv_id))
+          .flatMap((a) => getItems(orgSecCd, 1, a.cv_id))
+          .map((i) => [i.cv_id, i])
+      ).values()]
+    : [];
+  const expenseItemOptions = orgSecCd
+    ? [...new Map(
+        expenseAccounts
+          .filter((a) => selectedAccounts.has(a.cv_id))
+          .flatMap((a) => getItems(orgSecCd, 2, a.cv_id))
+          .map((i) => [i.cv_id, i])
+      ).values()]
+    : [];
+
+  function toggleSet<T>(set: Set<T>, val: T): Set<T> {
+    const next = new Set(set);
+    if (next.has(val)) next.delete(val); else next.add(val);
+    return next;
+  }
+
+  function toggleAll<T>(set: Set<T>, all: T[]): Set<T> {
+    return set.size === all.length ? new Set() : new Set(all);
+  }
 
   function handleCoverChange(key: keyof typeof covers) {
     setCovers((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -787,12 +842,19 @@ export default function ReportsPage() {
         }
       }
 
-      const combos = Array.from(comboMap.values()).sort(
-        (a, b) =>
-          a.incmSecCd - b.incmSecCd ||
-          a.accSecCd - b.accSecCd ||
-          a.itemSecCd - b.itemSecCd,
-      );
+      const combos = Array.from(comboMap.values())
+        .filter((c) => {
+          if (!selectedAccounts.has(c.accSecCd)) return false;
+          if (c.incmSecCd === 1 && !selectedIncomeItems.has(c.itemSecCd)) return false;
+          if (c.incmSecCd === 2 && !selectedExpenseItems.has(c.itemSecCd)) return false;
+          return true;
+        })
+        .sort(
+          (a, b) =>
+            a.incmSecCd - b.incmSecCd ||
+            a.accSecCd - b.accSecCd ||
+            a.itemSecCd - b.itemSecCd,
+        );
 
       // Track which account covers we have already added
       const addedAccCovers = new Set<string>();
@@ -891,43 +953,25 @@ export default function ReportsPage() {
     );
   }
 
+  const chkCls = "flex items-center gap-1.5 text-sm cursor-pointer";
+  const sectionCls = "bg-gray-50 rounded-lg p-3 space-y-2";
+  const sectionTitleCls = "text-sm font-bold";
+
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold">보고서 및 과목별 수입지출부 출력</h2>
 
-      <div className="bg-white rounded-lg border p-4 space-y-6">
-        {/* 표지 선택 */}
-        <div>
-          <HelpTooltip id="report.cover">
-            <Label className="text-base font-semibold">표지선택</Label>
-          </HelpTooltip>
-          <p className="text-xs text-gray-400 mt-1">
-            별도 안내가 없으면 모두 체크하세요.
-          </p>
-          <div className="flex flex-wrap gap-6 mt-2">
-            {[
-              { key: "incomeCover" as const, label: "수입부표지" },
-              { key: "expenseCover" as const, label: "지출부표지" },
-              { key: "accountCover" as const, label: "계정표지" },
-              { key: "subjectCover" as const, label: "과목표지" },
-            ].map(({ key, label }) => (
-              <label
-                key={key}
-                className="flex items-center gap-2 text-sm cursor-pointer"
-              >
-                <input
-                  type="checkbox"
-                  checked={covers[key]}
-                  onChange={() => handleCoverChange(key)}
-                />
-                {label}
-              </label>
-            ))}
+      <div className="bg-white rounded-lg border p-4 space-y-5">
+        {/* 기본정보 */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <Label>문서번호</Label>
+            <Input
+              value={docNumber}
+              onChange={(e) => setDocNumber(e.target.value)}
+              placeholder="문서번호 입력"
+            />
           </div>
-        </div>
-
-        {/* 선거 정보 */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <Label>선거명</Label>
             <Input
@@ -947,32 +991,116 @@ export default function ReportsPage() {
         </div>
 
         {/* 기간 설정 */}
+        <div className="flex items-center gap-2">
+          <Label className="shrink-0">기간</Label>
+          <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-44" />
+          <span className="text-gray-400">~</span>
+          <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-44" />
+        </div>
+
+        {/* 3파트 선택 영역 */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* 파트1: 계정별 */}
+          <div className={sectionCls}>
+            <div className="flex items-center justify-between">
+              <span className={sectionTitleCls}>계정별</span>
+              <button
+                className="text-xs text-blue-600 hover:underline"
+                onClick={() => setSelectedAccounts(toggleAll(selectedAccounts, allAccountIds))}
+              >
+                {selectedAccounts.size === allAccountIds.length ? "전체해제" : "전체선택"}
+              </button>
+            </div>
+            {[...new Map([...incomeAccounts, ...expenseAccounts].map((a) => [a.cv_id, a])).values()].map((acc) => (
+              <label key={acc.cv_id} className={chkCls}>
+                <input
+                  type="checkbox"
+                  checked={selectedAccounts.has(acc.cv_id)}
+                  onChange={() => setSelectedAccounts(toggleSet(selectedAccounts, acc.cv_id))}
+                />
+                {acc.cv_name}
+              </label>
+            ))}
+          </div>
+
+          {/* 파트2: 수입 과목 */}
+          <div className={sectionCls}>
+            <div className="flex items-center justify-between">
+              <span className={sectionTitleCls}>수입 (과목)</span>
+              <button
+                className="text-xs text-blue-600 hover:underline"
+                onClick={() => setSelectedIncomeItems(toggleAll(selectedIncomeItems, incomeItemOptions.map((i) => i.cv_id)))}
+              >
+                {selectedIncomeItems.size === incomeItemOptions.length ? "전체해제" : "전체선택"}
+              </button>
+            </div>
+            {incomeItemOptions.length === 0 ? (
+              <p className="text-xs text-gray-400">계정을 먼저 선택하세요</p>
+            ) : (
+              incomeItemOptions.map((item) => (
+                <label key={item.cv_id} className={chkCls}>
+                  <input
+                    type="checkbox"
+                    checked={selectedIncomeItems.has(item.cv_id)}
+                    onChange={() => setSelectedIncomeItems(toggleSet(selectedIncomeItems, item.cv_id))}
+                  />
+                  {item.cv_name}
+                </label>
+              ))
+            )}
+          </div>
+
+          {/* 파트3: 지출 과목 */}
+          <div className={sectionCls}>
+            <div className="flex items-center justify-between">
+              <span className={sectionTitleCls}>지출 (과목)</span>
+              <button
+                className="text-xs text-blue-600 hover:underline"
+                onClick={() => setSelectedExpenseItems(toggleAll(selectedExpenseItems, expenseItemOptions.map((i) => i.cv_id)))}
+              >
+                {selectedExpenseItems.size === expenseItemOptions.length ? "전체해제" : "전체선택"}
+              </button>
+            </div>
+            {expenseItemOptions.length === 0 ? (
+              <p className="text-xs text-gray-400">계정을 먼저 선택하세요</p>
+            ) : (
+              expenseItemOptions.map((item) => (
+                <label key={item.cv_id} className={chkCls}>
+                  <input
+                    type="checkbox"
+                    checked={selectedExpenseItems.has(item.cv_id)}
+                    onChange={() => setSelectedExpenseItems(toggleSet(selectedExpenseItems, item.cv_id))}
+                  />
+                  {item.cv_name}
+                </label>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* 표지 선택 */}
         <div>
-          <Label className="text-base font-semibold">기간 설정</Label>
-          <div className="flex items-center gap-2 mt-2">
-            <Input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              className="w-48"
-            />
-            <span className="text-gray-500">~</span>
-            <Input
-              type="date"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              className="w-48"
-            />
+          <Label className="text-sm font-semibold">표지 포함</Label>
+          <div className="flex flex-wrap gap-6 mt-1">
+            {[
+              { key: "incomeCover" as const, label: "수입부표지" },
+              { key: "expenseCover" as const, label: "지출부표지" },
+              { key: "accountCover" as const, label: "계정표지" },
+              { key: "subjectCover" as const, label: "과목표지" },
+            ].map(({ key, label }) => (
+              <label key={key} className={chkCls}>
+                <input type="checkbox" checked={covers[key]} onChange={() => handleCoverChange(key)} />
+                {label}
+              </label>
+            ))}
           </div>
         </div>
 
         {/* 버튼 */}
         <div className="flex gap-2 pt-4 border-t">
-          <HelpTooltip id="report.batch-print">
-            <Button onClick={handleBatchExcel} disabled={generating}>
-              {generating ? "생성 중..." : "보고서 일괄출력 (엑셀)"}
-            </Button>
-          </HelpTooltip>
+          <Button onClick={handleBatchExcel} disabled={generating}>
+            {generating ? "생성 중..." : "보고서 일괄출력 (엑셀)"}
+          </Button>
           <Button variant="outline" onClick={handleSingleExcel}>
             수입부 개별출력
           </Button>
@@ -981,14 +1109,9 @@ export default function ReportsPage() {
 
       {/* 안내 */}
       <div className="bg-blue-50 rounded-lg border border-blue-200 p-4 text-sm text-blue-700 space-y-1">
-        <p>
-          현재 사용기관: <b>{orgName || "미선택"}</b>
-        </p>
-        <p>
-          일괄출력: 총 7종 보고서(총괄표, 재산명세서, 세부내역서, 표지,
-          계정/과목별 수입지출부)를 하나의 엑셀 파일로 생성합니다.
-        </p>
-        <p>개별출력: 수입부를 개별 엑셀 파일로 다운로드합니다.</p>
+        <p>사용기관: <b>{orgName || "미선택"}</b></p>
+        <p>계정별/수입/지출 파트를 선택하면 해당 조합의 수입지출부만 생성합니다.</p>
+        <p>선택 항목: 계정 {selectedAccounts.size}개, 수입 과목 {selectedIncomeItems.size}개, 지출 과목 {selectedExpenseItems.size}개</p>
       </div>
     </div>
   );

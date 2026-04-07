@@ -1,27 +1,62 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useAuth } from "@/stores/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { HelpTooltip } from "@/components/help-tooltip";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+/* ------------------------------------------------------------------ */
+/*  Types                                                              */
+/* ------------------------------------------------------------------ */
 
 interface ParsedRow {
   rowNum: number;
-  account: string;
-  subject: string;
-  date: string;
-  content: string;
-  provider: string;
-  regNum: string;
-  amount: number;
-  receiptYn: string;
-  receiptNo: string;
-  custType: string;
-  error?: string;
+  account: string;   // A: 계정
+  subject: string;   // B: 과목
+  date: string;      // C: 수입(지출)일자
+  content: string;   // D: 내역
+  provider: string;  // E: 수입제공자/지출대상자
+  regNum: string;    // F: 생년월일(사업자번호)
+  postCode: string;  // G: 우편번호
+  addr: string;      // H: 주소
+  addrDetail: string;// I: 상세주소
+  job: string;       // J: 직업(업종)
+  tel: string;       // K: 전화번호
+  amount: number;    // L: 금액
+  receiptYn: string; // M: 증빙서첨부
+  receiptNo: string; // N: 영수증번호/미첨부사유
+  custType: string;  // O: 수입지출처구분
+  bigo: string;      // P: 비고
 }
+
+interface ErrorRow extends ParsedRow {
+  errorType: "required" | "format";
+  error: string;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                            */
+/* ------------------------------------------------------------------ */
+
+function fmt(n: number) { return n.toLocaleString("ko-KR"); }
+
+function fmtDate(d: string) {
+  const s = d.replace(/[.\-\/]/g, "").slice(0, 8);
+  if (s.length === 8) return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+  return d;
+}
+
+function cellStr(v: unknown): string {
+  if (v == null) return "";
+  if (typeof v === "object" && "result" in (v as Record<string, unknown>)) return String((v as Record<string, unknown>).result ?? "");
+  return String(v);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Page                                                               */
+/* ------------------------------------------------------------------ */
 
 export default function BatchImportPage() {
   const { orgId, orgType } = useAuth();
@@ -29,16 +64,25 @@ export default function BatchImportPage() {
   const [tab, setTab] = useState("income");
   const [file, setFile] = useState<File | null>(null);
   const [parsed, setParsed] = useState<ParsedRow[]>([]);
-  const [errors, setErrors] = useState<ParsedRow[]>([]);
+  const [requiredErrors, setRequiredErrors] = useState<ErrorRow[]>([]);
+  const [formatErrors, setFormatErrors] = useState<ErrorRow[]>([]);
   const [validated, setValidated] = useState(false);
   const [saving, setSaving] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
+  const totalAmount = parsed.reduce((s, r) => s + r.amount, 0);
+  const errorCount = requiredErrors.length + formatErrors.length;
+  const isExpense = tab === "expense";
+  const typeLabel = isExpense ? "지출" : "수입";
+
+  /* ---- Excel parsing ---- */
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
     if (!f) return;
     setFile(f);
     setParsed([]);
-    setErrors([]);
+    setRequiredErrors([]);
+    setFormatErrors([]);
     setValidated(false);
 
     const ExcelJS = await import("exceljs");
@@ -46,143 +90,134 @@ export default function BatchImportPage() {
     const buffer = await f.arrayBuffer();
     await workbook.xlsx.load(buffer);
 
-    const sheet = workbook.worksheets[0];
+    // Find first visible data sheet (skip DB sheet)
+    const sheet = workbook.worksheets.find((ws) => ws.name !== "DB") || workbook.worksheets[0];
     if (!sheet) { alert("엑셀 시트를 찾을 수 없습니다."); return; }
 
+    // Find header row (row 5 in template: *계정, *과목, ...)
+    let headerRow = 5;
+    for (let r = 1; r <= 10; r++) {
+      const val = cellStr(sheet.getRow(r).getCell(1).value);
+      if (val.includes("계정")) { headerRow = r; break; }
+    }
+    const dataStartRow = headerRow + 1;
+
     const rows: ParsedRow[] = [];
-    const startRow = sheet.getRow(1).getCell(1).value ? 2 : 9;
-
     sheet.eachRow((row, rowNum) => {
-      if (rowNum < startRow) return;
-      const cells = row.values as (string | number | null)[];
-      if (!cells || cells.length < 5) return;
+      if (rowNum < dataStartRow) return;
+      const c = (col: number) => cellStr(row.getCell(col).value);
+      // Skip entirely empty rows
+      if (!c(1) && !c(3) && !c(4) && !c(5) && !c(12)) return;
 
-      const isImportFormat = cells.length > 14;
-
-      const parsed: ParsedRow = {
+      rows.push({
         rowNum,
-        account: String(cells[1] || ""),
-        subject: String(cells[2] || ""),
-        date: String(cells[3] || ""),
-        content: String(cells[4] || ""),
-        provider: String(cells[5] || ""),
-        regNum: String(cells[6] || ""),
-        amount: isImportFormat ? Number(cells[12] || 0) : Number(cells[3] || 0),
-        receiptYn: String(cells[isImportFormat ? 13 : 0] || "N"),
-        receiptNo: String(cells[isImportFormat ? 14 : 0] || ""),
-        custType: String(cells[isImportFormat ? 15 : 0] || "개인"),
-      };
-
-      // 정치후원금센터 탭: 자동 필드 설정
-      if (tab === "supporter-center") {
-        parsed.content = parsed.content || "기명후원금(후원금센터)";
-      }
-
-      rows.push(parsed);
+        account: c(1),
+        subject: c(2),
+        date: c(3),
+        content: c(4),
+        provider: c(5),
+        regNum: c(6),
+        postCode: c(7),
+        addr: c(8),
+        addrDetail: c(9),
+        job: c(10),
+        tel: c(11),
+        amount: Number(c(12)) || 0,
+        receiptYn: c(13).toUpperCase() || "N",
+        receiptNo: c(14),
+        custType: c(15) || "개인",
+        bigo: c(16),
+      });
     });
 
     setParsed(rows);
   }
 
+  /* ---- Validation ---- */
   function handleValidate() {
-    const errs: ParsedRow[] = [];
-    for (const row of parsed) {
-      const errMsgs: string[] = [];
-      if (!row.date) errMsgs.push("수입일자 누락");
-      if (!row.amount || row.amount === 0) errMsgs.push("금액 누락");
-      if (!row.content && !row.provider) errMsgs.push("내역 또는 수입제공자 누락");
+    const reqErrs: ErrorRow[] = [];
+    const fmtErrs: ErrorRow[] = [];
 
-      // 날짜 형식 검증
+    for (const row of parsed) {
+      // 필수 입력 오류
+      const missing: string[] = [];
+      if (!row.account) missing.push("계정");
+      if (!row.subject) missing.push("과목");
+      if (!row.date) missing.push(`${typeLabel}일자`);
+      if (!row.content) missing.push("내역");
+      if (!row.amount) missing.push("금액");
+      if (!row.receiptYn) missing.push("증빙서첨부");
+      if (!row.custType) missing.push("수입지출처구분");
+
+      if (missing.length > 0) {
+        reqErrs.push({ ...row, errorType: "required", error: `필수항목 누락: ${missing.join(", ")}` });
+      }
+
+      // 데이터 형식 오류
+      const fmtMsgs: string[] = [];
       const dateClean = row.date.replace(/[.\-\/]/g, "").slice(0, 8);
       if (dateClean && (dateClean.length !== 8 || isNaN(Number(dateClean)))) {
-        errMsgs.push("날짜 형식 오류 (YYYYMMDD)");
+        fmtMsgs.push("일자 형식 오류 (YYYYMMDD 또는 YYYY-MM-DD)");
+      }
+      if (row.amount && isNaN(row.amount)) {
+        fmtMsgs.push("금액은 숫자만 입력");
+      }
+      if (row.receiptYn && !["Y", "N"].includes(row.receiptYn)) {
+        fmtMsgs.push("증빙서첨부는 Y 또는 N");
       }
 
-      if (errMsgs.length > 0) {
-        errs.push({ ...row, error: errMsgs.join(", ") });
+      if (fmtMsgs.length > 0) {
+        fmtErrs.push({ ...row, errorType: "format", error: fmtMsgs.join(", ") });
       }
     }
-    setErrors(errs);
+
+    setRequiredErrors(reqErrs);
+    setFormatErrors(fmtErrs);
     setValidated(true);
 
-    if (errs.length > 0) {
-      alert(`오류 ${errs.length}건 발견. 오류가 있으면 저장할 수 없습니다.\n[오류 엑셀 다운로드] 버튼으로 확인하세요.`);
+    const total = reqErrs.length + fmtErrs.length;
+    if (total > 0) {
+      alert(`오류 ${total}건 발견 (필수입력 ${reqErrs.length}건, 형식 ${fmtErrs.length}건).\n오류를 수정한 후 다시 업로드하세요.`);
     } else {
       alert(`${parsed.length}건 검증 완료. 오류 없음. [저장] 가능합니다.`);
     }
   }
 
-  // 오류 엑셀 다운로드
-  async function handleDownloadErrors() {
-    if (errors.length === 0) return;
-
-    const ExcelJS = (await import("exceljs")).default;
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet("오류목록");
-
-    const headers = ["행번호", "오류내용", "일자", "내역", "수입지출처", "금액", "생년월일"];
-    const headerRow = sheet.getRow(1);
-    headers.forEach((h, i) => {
-      const cell = headerRow.getCell(i + 1);
-      cell.value = h;
-      cell.font = { bold: true };
-      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFC7CE" } };
-    });
-
-    errors.forEach((e, i) => {
-      const row = sheet.getRow(i + 2);
-      row.getCell(1).value = e.rowNum;
-      row.getCell(2).value = e.error;
-      row.getCell(3).value = e.date;
-      row.getCell(4).value = e.content;
-      row.getCell(5).value = e.provider;
-      row.getCell(6).value = e.amount;
-      row.getCell(7).value = e.regNum;
-    });
-
-    sheet.columns = [
-      { width: 8 }, { width: 30 }, { width: 12 }, { width: 20 },
-      { width: 15 }, { width: 12 }, { width: 15 },
-    ];
-
-    const buffer = await workbook.xlsx.writeBuffer();
-    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `일괄등록_오류목록_${new Date().toISOString().slice(0, 10)}.xlsx`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
+  /* ---- Save ---- */
   async function handleSave() {
-    if (!orgId || errors.length > 0 || !validated) {
+    if (!orgId || errorCount > 0 || !validated) {
       alert("먼저 [저장 전 자료확인]을 실행하세요.");
       return;
     }
+    if (!confirm(`${parsed.length}건을 일괄 등록하시겠습니까?`)) return;
 
     setSaving(true);
-    const incmSecCd = tab === "expense" ? 2 : 1;
-    const isSupporterCenter = tab === "supporter-center";
+    const incmSecCd = isExpense ? 2 : 1;
 
-    // Build rows for API batch insert
     const rows = parsed.map((row) => {
       const dateStr = row.date.replace(/[.\-\/]/g, "").slice(0, 8);
       return {
         org_id: orgId,
         incm_sec_cd: incmSecCd,
-        acc_sec_cd: isSupporterCenter ? 3 : 0,
-        item_sec_cd: isSupporterCenter ? 93 : 0,
+        acc_sec_cd: 0,
+        item_sec_cd: 0,
         exp_sec_cd: 0,
         acc_date: dateStr,
-        content: isSupporterCenter ? (row.content || "기명후원금(후원금센터)") : (row.content || row.subject),
+        content: row.content,
         acc_amt: row.amount,
         rcp_yn: row.receiptYn === "Y" ? "Y" : "N",
-        rcp_no: row.receiptNo || null,
-        // Internal fields for customer matching (stripped by API)
+        rcp_no: row.receiptYn === "Y" ? (row.receiptNo || null) : null,
+        bigo: row.receiptYn === "N" ? (row.receiptNo || null) : (row.bigo || null),
         _provider: row.provider,
         _regNum: row.regNum,
         _custType: row.custType,
+        _account: row.account,
+        _subject: row.subject,
+        _addr: row.addr,
+        _addrDetail: row.addrDetail,
+        _job: row.job,
+        _tel: row.tel,
+        _postCode: row.postCode,
       };
     });
 
@@ -196,138 +231,236 @@ export default function BatchImportPage() {
 
       if (res.ok) {
         alert(`${result.success}/${parsed.length}건 등록 완료${result.failed > 0 ? `\n실패: ${result.failed}건` : ""}`);
+        handleReset();
       } else {
         alert(`등록 실패: ${result.error}`);
       }
     } catch {
       alert("등록 중 오류가 발생했습니다.");
     }
-
     setSaving(false);
-    setParsed([]);
-    setErrors([]);
-    setValidated(false);
-    setFile(null);
   }
 
-  return (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold">수입지출내역 일괄등록</h2>
+  /* ---- Error Excel download ---- */
+  async function handleDownloadErrors() {
+    const allErrors = [...requiredErrors, ...formatErrors];
+    if (allErrors.length === 0) return;
 
-      <Tabs value={tab} onValueChange={(v) => { setTab(v); setParsed([]); setErrors([]); setValidated(false); setFile(null); }}>
+    const ExcelJS = (await import("exceljs")).default;
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("오류목록");
+    const headers = ["행번호", "오류유형", "오류내용", "계정", "과목", "일자", "내역", "수입제공자", "금액"];
+    const hr = ws.getRow(1);
+    headers.forEach((h, i) => {
+      const cell = hr.getCell(i + 1);
+      cell.value = h;
+      cell.font = { bold: true };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFC7CE" } };
+    });
+    allErrors.forEach((e, i) => {
+      const row = ws.getRow(i + 2);
+      row.getCell(1).value = e.rowNum;
+      row.getCell(2).value = e.errorType === "required" ? "필수입력" : "형식오류";
+      row.getCell(3).value = e.error;
+      row.getCell(4).value = e.account;
+      row.getCell(5).value = e.subject;
+      row.getCell(6).value = e.date;
+      row.getCell(7).value = e.content;
+      row.getCell(8).value = e.provider;
+      row.getCell(9).value = e.amount;
+    });
+    ws.columns = [{ width: 8 }, { width: 10 }, { width: 35 }, { width: 12 }, { width: 12 }, { width: 12 }, { width: 20 }, { width: 15 }, { width: 12 }];
+    const buffer = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `일괄등록_오류_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function handleReset() {
+    setFile(null);
+    setParsed([]);
+    setRequiredErrors([]);
+    setFormatErrors([]);
+    setValidated(false);
+    if (fileRef.current) fileRef.current.value = "";
+  }
+
+  /* ---- Error table component ---- */
+  function ErrorTable({ rows, title }: { rows: ErrorRow[]; title: string }) {
+    if (rows.length === 0) return <p className="text-sm text-gray-400 py-4 text-center">{title} 없음</p>;
+    return (
+      <div className="overflow-auto max-h-[250px]">
+        <table className="w-full text-xs">
+          <thead className="bg-gray-50 border-b sticky top-0">
+            <tr>
+              <th className="px-2 py-1 text-left">번호</th>
+              <th className="px-2 py-1 text-left">구분</th>
+              <th className="px-2 py-1 text-left">{typeLabel}제공자</th>
+              <th className="px-2 py-1 text-left">생년월일(사업자번호)</th>
+              <th className="px-2 py-1 text-left">내역</th>
+              <th className="px-2 py-1 text-left">오류내용</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={i} className="border-b hover:bg-red-50/50">
+                <td className="px-2 py-1">{r.rowNum}</td>
+                <td className="px-2 py-1">{r.account}/{r.subject}</td>
+                <td className="px-2 py-1">{r.provider}</td>
+                <td className="px-2 py-1">{r.regNum}</td>
+                <td className="px-2 py-1">{r.content}</td>
+                <td className="px-2 py-1 text-red-600">{r.error}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  /* ---- Render ---- */
+  const thCls = "px-2 py-1.5 text-left text-xs font-semibold bg-gray-50 border-b whitespace-nowrap";
+  const tdCls = "px-2 py-1 text-xs border-b whitespace-nowrap";
+
+  return (
+    <div className="space-y-4">
+      {/* Header + actions */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold">수입 지출내역 일괄등록</h2>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={handleValidate} disabled={parsed.length === 0}>
+            저장 전 자료확인
+          </Button>
+          <Button size="sm" onClick={handleSave} disabled={!validated || errorCount > 0 || saving}>
+            {saving ? "저장 중..." : "저장"}
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleReset}>
+            초기화
+          </Button>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <Tabs value={tab} onValueChange={(v) => { setTab(v); handleReset(); }}>
         <TabsList>
-          <TabsTrigger value="income">수입내역</TabsTrigger>
-          <TabsTrigger value="expense">지출내역</TabsTrigger>
+          <TabsTrigger value="income">수 입 내 역</TabsTrigger>
+          <TabsTrigger value="expense">지 출 내 역</TabsTrigger>
           {orgType === "supporter" && (
-            <TabsTrigger value="supporter-center">정치후원금센터 후원금 자료</TabsTrigger>
+            <TabsTrigger value="supporter-center">정치후원금센터 후원금 자료 (수입)</TabsTrigger>
           )}
         </TabsList>
 
         <TabsContent value={tab} className="space-y-4">
-          {tab === "supporter-center" && (
-            <div className="bg-blue-50 rounded-lg border border-blue-200 p-3 text-sm text-blue-800">
-              <p className="font-semibold">정치후원금센터 후원금 자료 일괄등록</p>
-              <ul className="list-disc pl-5 mt-1 space-y-1">
-                <li>계정: 보조금외, 과목: 기명후원금 자동 설정</li>
-                <li>내역: &quot;기명후원금(후원금센터)&quot; 자동 입력</li>
-                <li>수입지출처 정보가 없는 경우 생년월일은 9999로 자동 채움</li>
-              </ul>
+          {/* Upper grid: parsed data preview */}
+          <div className="bg-white rounded-lg border">
+            <div className="flex items-center justify-between px-3 py-2 border-b bg-gray-50">
+              <span className="text-sm font-semibold">{typeLabel}내역 미리보기</span>
+              <span className="text-sm">
+                자 료 <b className="text-blue-600 mx-1">{parsed.length}</b>건
+                <span className="ml-4">{fmt(totalAmount)}</span> 원
+              </span>
             </div>
-          )}
+            <div className="overflow-auto max-h-[320px]">
+              <table className="w-full text-left">
+                <thead className="sticky top-0 z-10">
+                  <tr>
+                    <th className={thCls}>번호</th>
+                    <th className={thCls}>계정</th>
+                    <th className={thCls}>과목</th>
+                    <th className={thCls}>{typeLabel}일자</th>
+                    <th className={thCls}>내역</th>
+                    <th className={thCls}>{typeLabel}제공자</th>
+                    <th className={thCls}>생년월일(사업자번호)</th>
+                    <th className={thCls}>주소</th>
+                    <th className={thCls}>직업(업종)</th>
+                    <th className={thCls}>전화번호</th>
+                    <th className={`${thCls} text-right`}>금액</th>
+                    <th className={thCls}>증빙</th>
+                    <th className={thCls}>증빙서번호/미첨부사유</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {parsed.length === 0 ? (
+                    <tr><td colSpan={13} className="px-3 py-8 text-center text-gray-400 text-sm">엑셀파일을 업로드하면 여기에 미리보기가 표시됩니다.</td></tr>
+                  ) : (
+                    parsed.map((r, i) => (
+                      <tr key={i} className="hover:bg-gray-50">
+                        <td className={tdCls}>{i + 1}</td>
+                        <td className={tdCls}>{r.account}</td>
+                        <td className={tdCls}>{r.subject}</td>
+                        <td className={tdCls}>{fmtDate(r.date)}</td>
+                        <td className={tdCls}>{r.content}</td>
+                        <td className={tdCls}>{r.provider}</td>
+                        <td className={tdCls}>{r.regNum}</td>
+                        <td className={tdCls}>{[r.addr, r.addrDetail].filter(Boolean).join(" ")}</td>
+                        <td className={tdCls}>{r.job}</td>
+                        <td className={tdCls}>{r.tel}</td>
+                        <td className={`${tdCls} text-right font-mono`}>{fmt(r.amount)}</td>
+                        <td className={tdCls}>{r.receiptYn === "Y" ? <span className="text-green-600">O</span> : <span className="text-red-500">X</span>}</td>
+                        <td className={tdCls}>{r.receiptNo}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
 
+          {/* Lower section: file upload + errors */}
           <div className="bg-white rounded-lg border p-4 space-y-4">
+            {/* File upload row */}
             <div className="flex items-end gap-4 flex-wrap">
-              <div className="flex-1 min-w-[200px]">
-                <Label>엑셀파일 선택</Label>
-                <Input type="file" accept=".xlsx,.xls" onChange={handleFileSelect} />
+              <div className="flex items-end gap-2 flex-1 min-w-[300px]">
+                <div className="flex-1">
+                  <Label>엑셀파일</Label>
+                  <Input ref={fileRef} type="file" accept=".xlsx,.xls" onChange={handleFileSelect} />
+                </div>
               </div>
-              <HelpTooltip id="batch.validate">
-                <Button variant="outline" onClick={handleValidate} disabled={parsed.length === 0}>
-                  저장 전 자료확인
-                </Button>
-              </HelpTooltip>
-              <Button onClick={handleSave} disabled={!validated || errors.length > 0 || saving}>
-                {saving ? "저장 중..." : "저장"}
+              <div className="flex items-center gap-4 text-sm">
+                {file && <span className="text-gray-500">{file.name}</span>}
+                <span>엑셀파일 내 자료건수 <b className="text-blue-600">{parsed.length}</b></span>
+                <span>오류건수 <b className={errorCount > 0 ? "text-red-600" : "text-gray-600"}>{errorCount}</b></span>
+              </div>
+              <Button variant="outline" size="sm" onClick={handleDownloadErrors} disabled={errorCount === 0}>
+                오류 엑셀
               </Button>
             </div>
 
-            {file && (
-              <p className="text-sm text-gray-500">
-                파일: {file.name} | 파싱된 건수: {parsed.length}건
-                {validated && errors.length === 0 && " | ✅ 오류 없음"}
-                {validated && errors.length > 0 && ` | ❌ 오류 ${errors.length}건`}
-              </p>
+            {/* Sample download */}
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-gray-500">샘플 양식:</span>
+              <a
+                href="/templates/수입지출_일괄등록_샘플.xlsx"
+                download
+                className="text-blue-600 hover:underline"
+              >
+                수입지출 일괄등록 엑셀 샘플 다운로드
+              </a>
+              <span className="text-gray-400 text-xs">
+                (* 계정, 과목, {typeLabel}일자, 내역, 금액, 증빙서첨부, 수입지출처구분 필수)
+              </span>
+            </div>
+
+            {/* Error tabs */}
+            {validated && (
+              <Tabs defaultValue={0}>
+                <TabsList variant="line">
+                  <TabsTrigger value={0}>필수 입력 오류 ({requiredErrors.length})</TabsTrigger>
+                  <TabsTrigger value={1}>데이터 형식 오류 ({formatErrors.length})</TabsTrigger>
+                </TabsList>
+                <TabsContent value={0} className="pt-2">
+                  <ErrorTable rows={requiredErrors} title="필수 입력 오류" />
+                </TabsContent>
+                <TabsContent value={1} className="pt-2">
+                  <ErrorTable rows={formatErrors} title="데이터 형식 오류" />
+                </TabsContent>
+              </Tabs>
             )}
           </div>
-
-          {/* 오류 목록 */}
-          {errors.length > 0 && (
-            <div className="bg-red-50 rounded-lg border border-red-200 p-4">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="font-semibold text-red-700">오류 목록 ({errors.length}건)</h3>
-                <Button variant="outline" size="sm" onClick={handleDownloadErrors}>
-                  오류 엑셀 다운로드
-                </Button>
-              </div>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-red-200">
-                    <th className="px-2 py-1 text-left">행</th>
-                    <th className="px-2 py-1 text-left">오류 내용</th>
-                    <th className="px-2 py-1 text-left">수입제공자</th>
-                    <th className="px-2 py-1 text-left">일자</th>
-                    <th className="px-2 py-1 text-right">금액</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {errors.map((e) => (
-                    <tr key={e.rowNum} className="border-b border-red-100">
-                      <td className="px-2 py-1">{e.rowNum}</td>
-                      <td className="px-2 py-1 text-red-600">{e.error}</td>
-                      <td className="px-2 py-1">{e.provider}</td>
-                      <td className="px-2 py-1">{e.date}</td>
-                      <td className="px-2 py-1 text-right">{e.amount?.toLocaleString()}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* 파싱 결과 미리보기 */}
-          {parsed.length > 0 && errors.length === 0 && (
-            <div className="bg-white rounded-lg border overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 border-b">
-                  <tr>
-                    <th className="px-2 py-2 text-left">행</th>
-                    <th className="px-2 py-2 text-left">일자</th>
-                    <th className="px-2 py-2 text-left">내역</th>
-                    <th className="px-2 py-2 text-left">수입/지출처</th>
-                    <th className="px-2 py-2 text-left">생년월일</th>
-                    <th className="px-2 py-2 text-right">금액</th>
-                    <th className="px-2 py-2 text-center">증빙</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {parsed.slice(0, 50).map((r) => (
-                    <tr key={r.rowNum} className="border-b">
-                      <td className="px-2 py-1">{r.rowNum}</td>
-                      <td className="px-2 py-1">{r.date}</td>
-                      <td className="px-2 py-1">{r.content || r.subject}</td>
-                      <td className="px-2 py-1">{r.provider}</td>
-                      <td className="px-2 py-1 text-gray-500">{r.regNum || "-"}</td>
-                      <td className="px-2 py-1 text-right font-mono">{r.amount.toLocaleString()}</td>
-                      <td className="px-2 py-1 text-center">{r.receiptYn}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {parsed.length > 50 && (
-                <p className="p-2 text-sm text-gray-400">... 외 {parsed.length - 50}건 더</p>
-              )}
-            </div>
-          )}
         </TabsContent>
       </Tabs>
     </div>
