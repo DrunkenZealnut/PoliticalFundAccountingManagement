@@ -37,6 +37,182 @@ interface AccBook {
   customer?: { name: string | null } | null;
 }
 
+/* ------------------------------------------------------------------ */
+/*  3-level expense type data (지출유형 3단계)                          */
+/* ------------------------------------------------------------------ */
+
+interface ExpType2 {
+  label: string;
+  level3: string[];
+}
+
+interface ExpType1 {
+  label: string;
+  level2: ExpType2[];
+}
+
+// 선거비용 지출유형 (원본 프로그램 반영)
+const ELECTION_EXP_TYPES: ExpType1[] = [
+  {
+    label: "인쇄물",
+    level2: [
+      { label: "선거벽보", level3: ["기획/도안료", "인쇄비", "운송비", "기타"] },
+      { label: "선거공보", level3: ["기획/도안료", "인쇄비", "운송비", "기타"] },
+      { label: "선거공약서", level3: ["기획/도안료", "인쇄비", "운송비", "기타"] },
+      { label: "후보자사진", level3: ["촬영비", "기타"] },
+      { label: "명함", level3: ["인쇄비", "기타"] },
+      { label: "예비후보자홍보물", level3: ["기획/도안료", "인쇄비", "우편요금", "기타"] },
+    ],
+  },
+  {
+    label: "광고",
+    level2: [
+      { label: "신문광고", level3: ["광고료", "기획/도안료", "기타"] },
+      { label: "TV광고", level3: ["광고료", "기획/도안료", "제작비", "기타"] },
+      { label: "라디오방송광고", level3: ["광고료", "기획/도안료", "제작비", "기타"] },
+      { label: "인터넷광고", level3: ["광고료", "기획/도안료", "동영상제작비", "배너/팝업제작비", "대행수수료", "기타"] },
+    ],
+  },
+  {
+    label: "방송연설",
+    level2: [
+      { label: "TV방송연설", level3: ["시설이용료", "제작비", "기획/도안료", "기타"] },
+      { label: "라디오방송연설", level3: ["시설이용료", "제작비", "기획/도안료", "기타"] },
+    ],
+  },
+  {
+    label: "소품",
+    level2: [
+      { label: "어깨띠", level3: ["제작비", "기타"] },
+      { label: "윗옷", level3: ["구입비", "기호등인쇄비", "기타"] },
+      { label: "모자", level3: ["구입비", "기호등인쇄비", "기타"] },
+      { label: "소품", level3: ["구입/임차비", "기타"] },
+    ],
+  },
+  {
+    label: "거리게시용현수막",
+    level2: [
+      { label: "거리게시용현수막", level3: ["제작비", "이동게시비", "장비임차료", "기타"] },
+    ],
+  },
+  {
+    label: "공개장소연설대담",
+    level2: [
+      { label: "차량", level3: ["임차비", "유류비", "기사인부임", "임차비(유류비/기사인부임포함)", "기타"] },
+      { label: "무대연단", level3: ["설치/철거비", "홍보물설치관련", "기획/도안료", "기타"] },
+      { label: "확성장치", level3: ["차량용임차비", "휴대용임차비", "기타"] },
+      { label: "래핑비", level3: ["설치/철거비", "기타"] },
+      { label: "발전기", level3: ["발전기임차비", "인버터임차비", "기타"] },
+      { label: "녹화기", level3: ["LED전광판임차비", "녹화물제작비", "녹화물기획도안료", "기타"] },
+      { label: "로고송", level3: ["제작비", "저작권료", "인격권료", "기타"] },
+      { label: "수화통역자", level3: ["인건비", "기타"] },
+      { label: "그밖의선거운동", level3: ["녹음기", "LED문자전광판/간판", "기타"] },
+    ],
+  },
+  {
+    label: "전화/전자우편/문자메시지",
+    level2: [
+      { label: "전화/인터넷포함", level3: ["설치비", "통화요금", "임차비", "기타"] },
+      { label: "문자메시지", level3: ["발송비", "장비임차료", "기타"] },
+      { label: "전자우편", level3: ["발송비", "SNS전송용동영상제작비", "기타"] },
+    ],
+  },
+  {
+    label: "선거사무관계자",
+    level2: [
+      { label: "선거사무관계자수당", level3: ["선거사무장", "선거연락소장", "회계책임자", "선거사무원", "활동보조인"] },
+      { label: "동행자식대", level3: ["식대"] },
+    ],
+  },
+  {
+    label: "그밖의선거운동",
+    level2: [
+      { label: "그밖의선거운동", level3: ["홈페이지개설운영비", "인터넷홈페이지/문비발급", "기타"] },
+    ],
+  },
+  {
+    label: "선거사무소",
+    level2: [
+      { label: "간판", level3: ["제작비", "장비임차", "기타"] },
+      { label: "현판", level3: ["제작비", "기타"] },
+      { label: "현수막", level3: ["제작비", "장비임차", "로프이용료", "기타"] },
+      { label: "유지비용", level3: ["수도요금", "전기요금", "기타"] },
+      { label: "옥상구조물", level3: ["제작비", "기타"] },
+    ],
+  },
+  {
+    label: "기타",
+    level2: [
+      { label: "위법비용", level3: ["위법비용"] },
+    ],
+  },
+];
+
+// 선거비용외 지출유형 (원본 프로그램 반영)
+const NON_ELECTION_EXP_TYPES: ExpType1[] = [
+  {
+    label: "선거사무소",
+    level2: [
+      { label: "임차보증금", level3: [] },
+      { label: "사무집기류임차비", level3: [] },
+      { label: "소모품구입비", level3: [] },
+      { label: "내외부설치유지비", level3: [] },
+      { label: "인건비", level3: [] },
+      { label: "개소식관련", level3: ["다과비", "초대장발송비", "기타"] },
+      { label: "기타", level3: [] },
+      { label: "유지비용", level3: ["관리비"] },
+    ],
+  },
+  {
+    label: "납부금",
+    level2: [
+      { label: "기탁금", level3: [] },
+      { label: "세대부명단교부비", level3: [] },
+      { label: "기타", level3: [] },
+    ],
+  },
+  {
+    label: "예비후보자공약집",
+    level2: [
+      { label: "예비후보자공약집", level3: [] },
+    ],
+  },
+  {
+    label: "기타차량",
+    level2: [
+      { label: "선거벽보/공보/공약서부착차량", level3: ["임차비", "유류비", "기사인건비", "기타"] },
+      { label: "후보자승용자동차", level3: ["임차비", "유류비", "기사인건비", "기타"] },
+    ],
+  },
+  {
+    label: "후보자등숙박비",
+    level2: [
+      { label: "숙박비", level3: [] },
+    ],
+  },
+  {
+    label: "선거운동준비비용",
+    level2: [
+      { label: "컨설팅비용", level3: [] },
+      { label: "여론조사비용", level3: [] },
+      { label: "기타", level3: [] },
+    ],
+  },
+  {
+    label: "기타",
+    level2: [
+      { label: "기타", level3: [] },
+    ],
+  },
+];
+
+/** 과목명으로 지출유형 데이터 반환 */
+function getExpTypeData(itemName: string): ExpType1[] {
+  if (itemName.includes("선거비용외")) return NON_ELECTION_EXP_TYPES;
+  if (itemName.includes("선거비용")) return ELECTION_EXP_TYPES;
+  return [];
+}
+
 const PAY_METHODS = [
   { value: "118", label: "계좌입금" },
   { value: "119", label: "카드" },
@@ -65,6 +241,7 @@ export default function ExpensePage() {
   const [summary, setSummary] = useState({ income: 0, expense: 0, balance: 0 });
   const [filteredTotal, setFilteredTotal] = useState({ amount: 0, count: 0 });
   const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
+  const [customerDialogMode, setCustomerDialogMode] = useState<"search" | "register">("search");
   const [selectedCustomerName, setSelectedCustomerName] = useState("");
   const [activeFilters, setActiveFilters] = useState<SearchFilters | null>(null);
   const [searchAccSecCd, setSearchAccSecCd] = useState(0);
@@ -526,40 +703,114 @@ export default function ExpensePage() {
           </HelpTooltip>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <HelpTooltip id="income.account">
-            <CodeSelect
-              label="계정"
-              value={form.acc_sec_cd}
-              onChange={(v) =>
-                setForm({ ...form, acc_sec_cd: v, item_sec_cd: 0, exp_sec_cd: 0 })
-              }
-              options={accountOptions}
-              placeholder="계정 선택"
-            />
-          </HelpTooltip>
+        {/* 1행: 계정 + 과목 + (경비구분) + 지출유형1 + 지출유형2 + 지출유형3 */}
+        {(() => {
+          const itemName = form.item_sec_cd ? getName(form.item_sec_cd) : "";
+          const expTypes = orgType !== "supporter" ? getExpTypeData(itemName) : [];
+          const level2Items = expTypes.find((t) => t.label === form.exp_group1_cd)?.level2 || [];
+          const level3Items = level2Items.find((t) => t.label === form.exp_group2_cd)?.level3 || [];
+          const showType = expTypes.length > 0;
 
-          <HelpTooltip id="income.subject">
-            <CodeSelect
-              label="과목"
-              value={form.item_sec_cd}
-              onChange={(v) => setForm({ ...form, item_sec_cd: v, exp_sec_cd: 0 })}
-              options={itemOptions}
-              placeholder="과목 선택"
-              disabled={!form.acc_sec_cd}
-            />
-          </HelpTooltip>
+          return (
+            <div className="grid grid-cols-[1fr_1fr_1.5fr_2fr_1.5fr] gap-3 mb-4">
+              <div>
+                <HelpTooltip id="income.account">
+                  <CodeSelect
+                    label="계정"
+                    value={form.acc_sec_cd}
+                    onChange={(v) =>
+                      setForm({ ...form, acc_sec_cd: v, item_sec_cd: 0, exp_sec_cd: 0 })
+                    }
+                    options={accountOptions}
+                    placeholder="계정"
+                  />
+                </HelpTooltip>
+              </div>
+              <div>
+                <HelpTooltip id="income.subject">
+                  <CodeSelect
+                    label="과목"
+                    value={form.item_sec_cd}
+                    onChange={(v) => setForm({ ...form, item_sec_cd: v, exp_sec_cd: 0, exp_group1_cd: "", exp_group2_cd: "", exp_group3_cd: "" })}
+                    options={itemOptions}
+                    placeholder="과목"
+                    disabled={!form.acc_sec_cd}
+                  />
+                </HelpTooltip>
+              </div>
+              {showType ? (
+                <>
+                  <div>
+                    <HelpTooltip id="expense.exp-type">
+                      <Label>지출유형1</Label>
+                    </HelpTooltip>
+                    <select
+                      className="w-full mt-1 border rounded px-2 py-2 text-sm"
+                      value={form.exp_group1_cd}
+                      onChange={(e) =>
+                        setForm({ ...form, exp_group1_cd: e.target.value, exp_group2_cd: "", exp_group3_cd: "" })
+                      }
+                    >
+                      <option value="">선택</option>
+                      {expTypes.map((t) => (
+                        <option key={t.label} value={t.label}>{t.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <Label>지출유형2</Label>
+                    <select
+                      className="w-full mt-1 border rounded px-2 py-2 text-sm"
+                      value={form.exp_group2_cd}
+                      onChange={(e) =>
+                        setForm({ ...form, exp_group2_cd: e.target.value, exp_group3_cd: "" })
+                      }
+                      disabled={!form.exp_group1_cd}
+                    >
+                      <option value="">선택</option>
+                      {level2Items.map((t) => (
+                        <option key={t.label} value={t.label}>{t.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <Label>지출유형3</Label>
+                    <select
+                      className="w-full mt-1 border rounded px-2 py-2 text-sm"
+                      value={form.exp_group3_cd}
+                      onChange={(e) =>
+                        setForm({ ...form, exp_group3_cd: e.target.value })
+                      }
+                      disabled={!form.exp_group2_cd || level3Items.length === 0}
+                    >
+                      <option value="">{level3Items.length === 0 ? "-" : "선택"}</option>
+                      {level3Items.map((v) => (
+                        <option key={v} value={v}>{v}</option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              ) : (
+                <div className="col-span-3" />
+              )}
+            </div>
+          );
+        })()}
 
-          {showExpCategory && (
+        {showExpCategory && (
+          <div className="mb-4 w-48">
             <CodeSelect
               label="경비구분"
               value={form.exp_sec_cd}
               onChange={(v) => setForm({ ...form, exp_sec_cd: v })}
               options={expCategoryOptions}
-              placeholder="경비 선택"
+              placeholder="경비"
             />
-          )}
+          </div>
+        )}
 
+        {/* 2행~: 나머지 입력 필드 */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div>
             <Label>지출일자</Label>
             <Input
@@ -589,16 +840,24 @@ export default function ExpensePage() {
               <Input
                 value={selectedCustomerName}
                 readOnly
-                placeholder="검색 버튼 클릭"
+                placeholder="검색 또는 등록"
                 className="flex-1"
               />
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setCustomerDialogOpen(true)}
+                onClick={() => { setCustomerDialogMode("search"); setCustomerDialogOpen(true); }}
                 className="shrink-0"
               >
                 검색
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => { setCustomerDialogMode("register"); setCustomerDialogOpen(true); }}
+                className="shrink-0"
+              >
+                등록
               </Button>
             </div>
           </div>
@@ -638,56 +897,39 @@ export default function ExpensePage() {
               <select
                 className="w-full mt-1 border rounded px-3 py-2 text-sm"
                 value={form.rcp_yn}
-                onChange={(e) => setForm({ ...form, rcp_yn: e.target.value })}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setForm({
+                    ...form,
+                    rcp_yn: val,
+                    ...(val === "Y" ? { bigo: "" } : { rcp_no: "" }),
+                  });
+                }}
               >
                 <option value="Y">첨부</option>
                 <option value="N">미첨부</option>
               </select>
             </div>
-            <div>
-              <Label>증빙서번호</Label>
-              <Input
-                value={form.rcp_no}
-                onChange={(e) => setForm({ ...form, rcp_no: e.target.value })}
-              />
-            </div>
+            {form.rcp_yn === "Y" ? (
+              <div>
+                <Label>증빙서번호</Label>
+                <Input
+                  value={form.rcp_no}
+                  onChange={(e) => setForm({ ...form, rcp_no: e.target.value })}
+                  placeholder="증빙서번호"
+                />
+              </div>
+            ) : (
+              <div>
+                <Label>미첨부사유</Label>
+                <Input
+                  value={form.bigo}
+                  onChange={(e) => setForm({ ...form, bigo: e.target.value })}
+                  placeholder="미첨부사유 입력"
+                />
+              </div>
+            )}
           </div>
-
-          {/* 지출유형 (후원회는 미표시) */}
-          {orgType !== "supporter" && (
-            <>
-              <div>
-                <HelpTooltip id="expense.exp-type">
-                  <Label>지출유형 대분류</Label>
-                </HelpTooltip>
-                <Input
-                  value={form.exp_group1_cd}
-                  onChange={(e) =>
-                    setForm({ ...form, exp_group1_cd: e.target.value })
-                  }
-                  placeholder="예: 인쇄물"
-                />
-              </div>
-              <div>
-                <Label>중분류</Label>
-                <Input
-                  value={form.exp_group2_cd}
-                  onChange={(e) =>
-                    setForm({ ...form, exp_group2_cd: e.target.value })
-                  }
-                />
-              </div>
-              <div>
-                <Label>소분류</Label>
-                <Input
-                  value={form.exp_group3_cd}
-                  onChange={(e) =>
-                    setForm({ ...form, exp_group3_cd: e.target.value })
-                  }
-                />
-              </div>
-            </>
-          )}
         </div>
       </div>
 
@@ -731,13 +973,14 @@ export default function ExpensePage() {
                 <SortTh label="지출유형" sortKey="exp_group1_cd" current={sort} onToggle={toggle} className="text-left" />
               )}
               <SortTh label="증빙" sortKey="rcp_yn" current={sort} onToggle={toggle} className="text-center" />
+              <SortTh label="증빙서번호/미첨부사유" sortKey="rcp_no" current={sort} onToggle={toggle} className="text-left" />
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
                 <td
-                  colSpan={orgType !== "supporter" ? 11 : 10}
+                  colSpan={orgType !== "supporter" ? 12 : 11}
                   className="px-3 py-8 text-center text-gray-400"
                 >
                   로딩 중...
@@ -746,7 +989,7 @@ export default function ExpensePage() {
             ) : records.length === 0 ? (
               <tr>
                 <td
-                  colSpan={orgType !== "supporter" ? 11 : 10}
+                  colSpan={orgType !== "supporter" ? 12 : 11}
                   className="px-3 py-8 text-center text-gray-400"
                 >
                   지출내역이 없습니다.
@@ -795,7 +1038,18 @@ export default function ExpensePage() {
                     </td>
                   )}
                   <td className="px-3 py-2 text-center">
-                    {r.rcp_yn === "Y" ? "O" : "-"}
+                    {r.rcp_yn === "Y" ? (
+                      <span className="text-green-600">O</span>
+                    ) : (
+                      <span className="text-red-500">X</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-gray-600">
+                    {r.rcp_yn === "Y" ? (
+                      r.rcp_no || ""
+                    ) : (
+                      <span className="text-orange-600">{r.bigo || ""}</span>
+                    )}
                   </td>
                 </tr>
               ))
@@ -811,7 +1065,7 @@ export default function ExpensePage() {
                   <td className="px-3 py-2 text-right font-mono font-bold text-yellow-700">
                     {fmt(records.filter((r) => checkedIds.has(r.acc_book_id)).reduce((s, r) => s + r.acc_amt, 0))}원
                   </td>
-                  <td colSpan={orgType !== "supporter" ? 3 : 2} />
+                  <td colSpan={orgType !== "supporter" ? 4 : 3} />
                 </tr>
               )}
               <tr className="bg-red-50 border-t-2 border-red-200">
@@ -821,7 +1075,7 @@ export default function ExpensePage() {
                 <td className="px-3 py-2 text-right font-mono font-bold text-red-700">
                   {fmt(filteredTotal.amount)}원
                 </td>
-                <td colSpan={orgType !== "supporter" ? 3 : 2} />
+                <td colSpan={orgType !== "supporter" ? 4 : 3} />
               </tr>
             </tfoot>
           )}
@@ -831,6 +1085,7 @@ export default function ExpensePage() {
       <CustomerSearchDialog
         open={customerDialogOpen}
         onClose={() => setCustomerDialogOpen(false)}
+        initialMode={customerDialogMode}
         onSelect={(c) => {
           setForm({ ...form, cust_id: c.cust_id });
           setSelectedCustomerName(c.name || "");

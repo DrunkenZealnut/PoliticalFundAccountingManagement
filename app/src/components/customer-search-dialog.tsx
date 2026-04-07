@@ -26,6 +26,8 @@ interface CustomerSearchDialogProps {
   onClose: () => void;
   onSelect: (customer: Customer) => void;
   orgId?: number | null;
+  /** "register"로 설정하면 등록 모드로 바로 열림 */
+  initialMode?: "search" | "register";
 }
 
 const CUST_TYPES = [
@@ -50,11 +52,12 @@ export function CustomerSearchDialog({
   onClose,
   onSelect,
   orgId,
+  initialMode = "search",
 }: CustomerSearchDialogProps) {
   const [keyword, setKeyword] = useState("");
   const [results, setResults] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(false);
-  const [showRegister, setShowRegister] = useState(false);
+  const [showRegister, setShowRegister] = useState(initialMode === "register");
   const [regLoading, setRegLoading] = useState(false);
   const [regForm, setRegForm] = useState({
     cust_sec_cd: 63,
@@ -62,6 +65,7 @@ export function CustomerSearchDialog({
     reg_num: "",
     job: "",
     tel: "",
+    addr: "",
   });
 
   const search = useCallback(async () => {
@@ -108,7 +112,7 @@ export function CustomerSearchDialog({
 
   function resetRegForm() {
     setShowRegister(false);
-    setRegForm({ cust_sec_cd: 63, name: "", reg_num: "", job: "", tel: "" });
+    setRegForm({ cust_sec_cd: 63, name: "", reg_num: "", job: "", tel: "", addr: "" });
   }
 
   async function handleRegister() {
@@ -154,7 +158,14 @@ export function CustomerSearchDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) { onClose(); resetRegForm(); } }}>
+    <Dialog open={open} onOpenChange={(v) => {
+      if (v) {
+        setShowRegister(initialMode === "register");
+      } else {
+        onClose();
+        resetRegForm();
+      }
+    }}>
       <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle>
@@ -211,7 +222,7 @@ export function CustomerSearchDialog({
                           onClick={() => {
                             setShowRegister(true);
                             if (keyword.trim()) {
-                              setRegForm({ ...regForm, name: keyword.trim() });
+                              setRegForm({ ...regForm, name: keyword.trim(), addr: "" });
                             }
                           }}
                         >
@@ -297,6 +308,16 @@ export function CustomerSearchDialog({
                     onChange={(e) =>
                       setRegForm({ ...regForm, tel: e.target.value })
                     }
+                  />
+                </div>
+                <div className="col-span-2">
+                  <Label>주소</Label>
+                  <Input
+                    value={regForm.addr}
+                    onChange={(e) =>
+                      setRegForm({ ...regForm, addr: e.target.value })
+                    }
+                    placeholder="주소 입력"
                   />
                 </div>
               </div>
