@@ -222,7 +222,7 @@ export function CustomerSearchDialog({
                           onClick={() => {
                             setShowRegister(true);
                             if (keyword.trim()) {
-                              setRegForm({ ...regForm, name: keyword.trim(), addr: "" });
+                              setRegForm({ cust_sec_cd: 63, name: keyword.trim(), reg_num: "", job: "", tel: "", addr: "" });
                             }
                           }}
                         >

@@ -167,18 +167,25 @@ export async function POST(request: NextRequest) {
           const csc = custType === "사업자" ? 62 : 63;
           const { data: newCust } = await supabase
             .from("customer")
-            .insert({ cust_sec_cd: csc, name: provider, reg_num: rn })
+            .insert({
+              cust_sec_cd: csc,
+              name: provider,
+              reg_num: rn,
+              addr: row._addr as string || null,
+              job: row._job as string || null,
+              tel: row._tel as string || null,
+            })
             .select("cust_id")
             .single();
           if (newCust) custId = (newCust as { cust_id: number }).cust_id;
         }
       }
 
-      // Remove internal fields before insert
+      // Remove all internal (_-prefixed) fields before insert
       const insertData: Record<string, unknown> = { ...row, cust_id: custId };
-      delete insertData._provider;
-      delete insertData._regNum;
-      delete insertData._custType;
+      for (const key of Object.keys(insertData)) {
+        if (key.startsWith("_")) delete insertData[key];
+      }
 
       const { error } = await supabase.from("acc_book").insert(insertData);
       if (error) errors.push(`row: ${error.message}`);

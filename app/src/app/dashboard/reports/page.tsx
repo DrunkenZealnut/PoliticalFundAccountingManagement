@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/stores/auth";
 import { useCodeValues } from "@/hooks/use-code-values";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
@@ -579,7 +579,7 @@ function buildLedgerSheet(
   ws.getRow(6).getCell(6).value = "누 계";
 
   ws.mergeCells("G5:G6"); // 잔액
-  ws.getRow(5).getCell(7).value = "잔  역";
+  ws.getRow(5).getCell(7).value = "잔  액";
 
   ws.mergeCells("H5:L5"); // 수입을 제공한 자 또는 지출을 받은 자
   ws.getRow(5).getCell(8).value = "수입을 제공한 자 또는 지출을 받은 자";
@@ -738,12 +738,9 @@ export default function ReportsPage() {
   const { getName, getAccounts, getItems, loading: codesLoading } = useCodeValues();
 
   const [covers, setCovers] = useState({
-    incomeCover: true,
-    expenseCover: true,
     accountCover: true,
     subjectCover: true,
   });
-  const [docNumber, setDocNumber] = useState("");
   const [electionName, setElectionName] = useState("");
   const [districtName, setDistrictName] = useState("");
   const [dateFrom, setDateFrom] = useState("");
@@ -759,23 +756,23 @@ export default function ReportsPage() {
   const [selectedAccounts, setSelectedAccounts] = useState<Set<number>>(new Set());
   const [selectedIncomeItems, setSelectedIncomeItems] = useState<Set<number>>(new Set());
   const [selectedExpenseItems, setSelectedExpenseItems] = useState<Set<number>>(new Set());
-  const [initialized, setInitialized] = useState(false);
 
   // 초기화: 모든 항목 선택
-  if (!initialized && allAccountIds.length > 0) {
+  useEffect(() => {
+    if (allAccountIds.length === 0 || !orgSecCd) return;
     setSelectedAccounts(new Set(allAccountIds));
     const incItems = new Set<number>();
     const expItems = new Set<number>();
     for (const acc of incomeAccounts) {
-      for (const item of getItems(orgSecCd!, 1, acc.cv_id)) incItems.add(item.cv_id);
+      for (const item of getItems(orgSecCd, 1, acc.cv_id)) incItems.add(item.cv_id);
     }
     for (const acc of expenseAccounts) {
-      for (const item of getItems(orgSecCd!, 2, acc.cv_id)) expItems.add(item.cv_id);
+      for (const item of getItems(orgSecCd, 2, acc.cv_id)) expItems.add(item.cv_id);
     }
     setSelectedIncomeItems(incItems);
     setSelectedExpenseItems(expItems);
-    setInitialized(true);
-  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- run once when account data loads
+  }, [allAccountIds.length, orgSecCd]);
 
   // 수입/지출 과목 목록 (선택된 계정 기준)
   const incomeItemOptions = orgSecCd
@@ -1001,14 +998,6 @@ export default function ReportsPage() {
         {/* 기본정보 */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <Label>문서번호</Label>
-            <Input
-              value={docNumber}
-              onChange={(e) => setDocNumber(e.target.value)}
-              placeholder="문서번호 입력"
-            />
-          </div>
-          <div>
             <Label>선거명</Label>
             <Input
               value={electionName}
@@ -1119,8 +1108,6 @@ export default function ReportsPage() {
           <Label className="text-sm font-semibold">표지 포함</Label>
           <div className="flex flex-wrap gap-6 mt-1">
             {[
-              { key: "incomeCover" as const, label: "수입부표지" },
-              { key: "expenseCover" as const, label: "지출부표지" },
               { key: "accountCover" as const, label: "계정표지" },
               { key: "subjectCover" as const, label: "과목표지" },
             ].map(({ key, label }) => (

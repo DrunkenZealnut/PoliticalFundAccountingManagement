@@ -23,7 +23,6 @@ export default function IncomeExpenseReportPage() {
 
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [includePrevYear, setIncludePrevYear] = useState(false);
   const [electionName, setElectionName] = useState("");
   const [districtName, setDistrictName] = useState("");
   const [loading, setLoading] = useState(false);
@@ -400,16 +399,7 @@ export default function IncomeExpenseReportPage() {
               />
             </div>
           </div>
-          <div className="flex items-end">
-            <label className="flex items-center gap-2 text-sm pb-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={includePrevYear}
-                onChange={() => setIncludePrevYear(!includePrevYear)}
-              />
-              전년도자료 포함
-            </label>
-          </div>
+          <div />
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -513,17 +503,6 @@ export default function IncomeExpenseReportPage() {
                       </tr>
                     );
                   })}
-
-                  {includePrevYear && (
-                    <tr className="border-b text-gray-400">
-                      <td className="px-3 py-3">전년도 이월</td>
-                      <td className="px-3 py-3 text-right">-</td>
-                      <td className="px-3 py-3 text-right">-</td>
-                      <td className="px-3 py-3 text-right">-</td>
-                      <td className="px-3 py-3 text-right">-</td>
-                      <td className="px-3 py-3 text-right">-</td>
-                    </tr>
-                  )}
 
                   <tr className="bg-gray-100 font-bold">
                     <td className="px-3 py-3">합계</td>

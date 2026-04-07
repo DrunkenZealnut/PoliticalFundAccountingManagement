@@ -270,7 +270,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "No data" }, { status: 404 });
   }
 
-  const itemName = itemSecCd ? codes[Number(itemSecCd)] || "" : "";
+  const itemName = itemSecCd ? codes[Number(itemSecCd)] || "전체" : "전체";
   const isExpense = type === "expense";
 
   const workbook = new ExcelJS.Workbook();
@@ -285,7 +285,7 @@ export async function GET(request: NextRequest) {
   // Generate buffer
   const buffer = await workbook.xlsx.writeBuffer();
   const typeStr = isExpense ? "지출부" : "수입부";
-  const fileName = encodeURIComponent(`${typeStr}_${itemName || "전체"}.xlsx`);
+  const fileName = encodeURIComponent(`${typeStr}_${itemName}.xlsx`);
 
   return new NextResponse(buffer as ArrayBuffer, {
     headers: {
