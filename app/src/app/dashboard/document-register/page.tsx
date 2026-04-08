@@ -72,17 +72,27 @@ export default function DocumentRegisterPage() {
   const [activeEntryId, setActiveEntryId] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const nextId = useRef(1);
-  const rcpNoOffset = useRef(0); // parallel scan용 증빙서번호 오프셋
+  const rcpNoOffset = useRef(0);
+  const entriesRef = useRef<ParsedEntry[]>([]);
 
   const isExpense = tab === "expense";
   const incmSecCd = isExpense ? 2 : 1;
   const typeLabel = isExpense ? "지출" : "수입";
   const accountOptions = orgSecCd ? getAccounts(orgSecCd, incmSecCd) : [];
 
+  // entries ref 동기화 (unmount cleanup용)
+  useEffect(() => { entriesRef.current = entries; }, [entries]);
   useEffect(() => {
-    return () => { entries.forEach((e) => { if (e.preview) URL.revokeObjectURL(e.preview); }); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => { entriesRef.current.forEach((e) => { if (e.preview) URL.revokeObjectURL(e.preview); }); };
   }, []);
+
+  function clearEntries() {
+    setEntries((prev) => {
+      prev.forEach((e) => { if (e.preview) URL.revokeObjectURL(e.preview); });
+      return [];
+    });
+    if (fileRef.current) fileRef.current.value = "";
+  }
 
   function fmt(n: number) { return n.toLocaleString("ko-KR"); }
 
@@ -209,7 +219,13 @@ export default function DocumentRegisterPage() {
   }, [entries.length, orgId, accountOptions.length]);
 
   function updateEntry(id: number, patch: Partial<ParsedEntry>) {
-    setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
+    setEntries((prev) => prev.map((e) => {
+      if (e.id !== id) return e;
+      // 사용자가 필드를 수정하면 error 플래그 해제
+      const clearError = patch.acc_sec_cd !== undefined || patch.item_sec_cd !== undefined
+        || patch.acc_date !== undefined || patch.acc_amt !== undefined || patch.content !== undefined;
+      return { ...e, ...patch, ...(clearError && e.error ? { error: null } : {}) };
+    }));
   }
 
   function removeEntry(id: number) {
@@ -233,28 +249,35 @@ export default function DocumentRegisterPage() {
   async function handleSave() {
     if (!orgId) return;
     const valid = entries.filter(
-      (e) => !e.scanning && !e.error && e.acc_sec_cd && e.item_sec_cd && e.acc_date && e.acc_amt > 0
+      (e) => !e.scanning && e.acc_sec_cd && e.item_sec_cd && e.acc_date && e.acc_amt > 0
     );
     if (valid.length === 0) { alert("저장 가능한 항목이 없습니다.\n계정, 과목, 일자, 금액을 확인하세요."); return; }
     if (!confirm(`${valid.length}건을 ${typeLabel} 내역으로 등록하시겠습니까?`)) return;
 
     setSaving(true);
     let success = 0, failed = 0;
+    const custCache = new Map<string, number>(); // 거래처 중복 생성 방지
+    const succeededIds: number[] = [];
 
     for (const e of valid) {
-      // 1) 거래처 자동 등록
+      // 1) 거래처 자동 등록 (캐시 우선)
       let custId = e.cust_id;
       if (!custId && e.customerName.trim()) {
-        try {
-          const r = await fetch("/api/customers", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "insert", data: {
-              cust_sec_cd: DEFAULT_CUST_SEC_CD, name: e.customerName.trim(),
-              reg_num: e.providerRegNum || DEFAULT_REG_NUM,
-            }}),
-          });
-          if (r.ok) { const d = await r.json(); custId = d.cust_id; }
-        } catch { /* fallback */ }
+        const custKey = `${e.customerName.trim()}_${e.providerRegNum || DEFAULT_REG_NUM}`;
+        if (custCache.has(custKey)) {
+          custId = custCache.get(custKey)!;
+        } else {
+          try {
+            const r = await fetch("/api/customers", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ action: "insert", data: {
+                cust_sec_cd: DEFAULT_CUST_SEC_CD, name: e.customerName.trim(),
+                reg_num: e.providerRegNum || DEFAULT_REG_NUM,
+              }}),
+            });
+            if (r.ok) { const d = await r.json(); custId = d.cust_id; custCache.set(custKey, custId); }
+          } catch { /* fallback */ }
+        }
       }
 
       // 2) acc_book 저장
@@ -283,6 +306,7 @@ export default function DocumentRegisterPage() {
         if (!res.ok) { failed++; continue; }
         const accBook = await res.json();
         success++;
+        succeededIds.push(e.id);
 
         // 3) 증빙파일 저장 (acc_book_id 연결)
         if (e.fileBase64) {
@@ -300,8 +324,8 @@ export default function DocumentRegisterPage() {
 
     setSaving(false);
     alert(`등록 완료: 성공 ${success}건${failed > 0 ? `, 실패 ${failed}건` : ""}`);
-    if (success > 0) {
-      setEntries((prev) => prev.filter((e) => !valid.some((v) => v.id === e.id)));
+    if (succeededIds.length > 0) {
+      setEntries((prev) => prev.filter((e) => !succeededIds.includes(e.id)));
     }
   }
 
@@ -370,7 +394,7 @@ export default function DocumentRegisterPage() {
             <Label>{isExpense ? "지출대상자" : "수입제공자"}</Label>
             <div className="flex gap-1">
               <Input value={entry.customerName}
-                onChange={(e) => updateEntry(entry.id, { customerName: e.target.value })}
+                onChange={(e) => updateEntry(entry.id, { customerName: e.target.value, cust_id: 0 })}
                 placeholder="거래처명" className="flex-1" />
               <Button variant="outline" size="sm" className="shrink-0"
                 onClick={() => { setActiveEntryId(entry.id); setCustomerDialogOpen(true); }}>검색</Button>
@@ -431,13 +455,13 @@ export default function DocumentRegisterPage() {
             {saving ? "저장 중..." : `저장 (${validCount}건)`}
           </Button>
           <Button variant="outline" size="sm"
-            onClick={() => { setEntries([]); if (fileRef.current) fileRef.current.value = ""; }}>
+            onClick={clearEntries}>
             초기화
           </Button>
         </div>
       </div>
 
-      <Tabs value={tab} onValueChange={(v) => { setTab(v); setEntries([]); }}>
+      <Tabs value={tab} onValueChange={(v) => { clearEntries(); setTab(v); }}>
         <TabsList>
           <TabsTrigger value="expense">지 출</TabsTrigger>
           <TabsTrigger value="income">수 입</TabsTrigger>
