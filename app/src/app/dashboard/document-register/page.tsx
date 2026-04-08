@@ -179,34 +179,6 @@ const PAY_METHODS = [
 ];
 
 /* ------------------------------------------------------------------ */
-/*  AI 기반 과목/지출유형 자동 추천                                      */
-/* ------------------------------------------------------------------ */
-
-const EXPENSE_KEYWORD_MAP: { keywords: string[]; group1: string; group2?: string }[] = [
-  { keywords: ["인쇄", "공보", "홍보물", "명함", "피켓", "라벨"], group1: "인쇄물" },
-  { keywords: ["광고", "신문", "TV", "라디오", "인터넷", "배너"], group1: "광고" },
-  { keywords: ["방송", "연설"], group1: "방송연설" },
-  { keywords: ["어깨띠", "윗옷", "모자", "소품", "기호자수"], group1: "소품" },
-  { keywords: ["현수막"], group1: "거리게시용현수막", group2: "거리게시용현수막" },
-  { keywords: ["차량", "유류", "기사"], group1: "공개장소연설대담", group2: "차량" },
-  { keywords: ["무대", "연단", "설치", "철거"], group1: "공개장소연설대담", group2: "무대연단" },
-  { keywords: ["전화", "통화", "문자", "발송", "SMS"], group1: "전화/전자우편/문자메시지" },
-  { keywords: ["수당", "인건비", "사무원"], group1: "선거사무관계자" },
-  { keywords: ["사무소", "임대", "임차", "관리비", "전기", "수도"], group1: "선거사무소" },
-  { keywords: ["봉투", "우편"], group1: "인쇄물", group2: "예비후보자홍보물" },
-];
-
-function suggestExpType(content: string): { group1: string; group2: string } {
-  const lower = content.toLowerCase();
-  for (const rule of EXPENSE_KEYWORD_MAP) {
-    if (rule.keywords.some((k) => lower.includes(k))) {
-      return { group1: rule.group1, group2: rule.group2 || "" };
-    }
-  }
-  return { group1: "", group2: "" };
-}
-
-/* ------------------------------------------------------------------ */
 /*  Page                                                               */
 /* ------------------------------------------------------------------ */
 
@@ -304,17 +276,21 @@ export default function DocumentRegisterPage() {
         ? autoSelectItem(autoAcc, data.expenseCategory || "")
         : autoSelectItem(autoAcc, "");
 
-      // 3) 지출유형: AI 응답 우선, 없으면 content 키워드 fallback
-      let group1 = data.expenseType1 || "";
-      let group2 = data.expenseType2 || "";
-      if (isExpense && !group1) {
-        const fallback = suggestExpType(data.content || "");
-        group1 = fallback.group1;
-        group2 = fallback.group2;
-      }
-
-      // 4) 결제수단
+      // 3) 결제수단
       const payCode = mapPayMethod(data.payMethod || "");
+
+      // 4) 증빙서번호 자동 채번 (기존 max + 1)
+      let autoRcpNo = "";
+      if (orgId) {
+        try {
+          const rcpRes = await fetch(`/api/acc-book?orgId=${orgId}&incmSecCd=${incmSecCd}&maxRcpNo=1`);
+          if (rcpRes.ok) {
+            const rcpData = await rcpRes.json();
+            const maxNo = rcpData.maxRcpNo ?? 0;
+            autoRcpNo = String(maxNo + 1 + entries.filter((e) => e.id < entry.id && e.rcp_yn === "Y").length);
+          }
+        } catch { /* fallback: empty */ }
+      }
 
       updateEntry(entry.id, {
         scanning: false,
@@ -325,9 +301,9 @@ export default function DocumentRegisterPage() {
         content: data.content || "",
         customerName: data.provider || "",
         providerRegNum: data.regNum || "",
-        exp_group1_cd: group1,
-        exp_group2_cd: group2,
         acc_ins_type: payCode,
+        rcp_yn: "Y",
+        rcp_no: autoRcpNo,
       });
     } catch {
       updateEntry(entry.id, { scanning: false, error: "AI 분석 중 오류가 발생했습니다." });
@@ -645,9 +621,9 @@ export default function DocumentRegisterPage() {
                         <div className="flex items-center gap-2">
                           {entry.scanning && <span className="text-sm text-blue-600 animate-pulse">AI 분석 중...</span>}
                           {entry.error && <span className="text-sm text-red-600">{entry.error}</span>}
-                          {!entry.scanning && entry.exp_group1_cd && (
+                          {!entry.scanning && entry.item_sec_cd > 0 && (
                             <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
-                              AI 추천: {entry.exp_group1_cd}
+                              AI 자동채움 완료
                             </span>
                           )}
                           <Button variant="outline" size="sm" onClick={() => removeEntry(entry.id)}>삭제</Button>
