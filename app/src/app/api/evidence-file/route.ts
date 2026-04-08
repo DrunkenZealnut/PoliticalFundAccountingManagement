@@ -8,6 +8,7 @@ const supabase = createClient(
 );
 
 const BUCKET = "evidence";
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
 /**
  * GET /api/evidence-file?accBookId=123
@@ -47,15 +48,18 @@ export async function POST(request: NextRequest) {
 
     // base64 → Buffer
     const buffer = Buffer.from(fileData, "base64");
+
+    if (buffer.length > MAX_FILE_SIZE) {
+      return NextResponse.json(
+        { error: `파일 크기 초과: ${(buffer.length / 1024 / 1024).toFixed(1)}MB (최대 10MB)` },
+        { status: 400 }
+      );
+    }
+
     const storagePath = `${orgId}/${Date.now()}_${fileName}`;
 
-    // Supabase Storage에 업로드
-    const storageClient = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    );
-
-    const { error: uploadError } = await storageClient.storage
+    // Supabase Storage에 업로드 (same client — storage is schema-independent)
+    const { error: uploadError } = await supabase.storage
       .from(BUCKET)
       .upload(storagePath, buffer, { contentType: fileType, upsert: false });
 
