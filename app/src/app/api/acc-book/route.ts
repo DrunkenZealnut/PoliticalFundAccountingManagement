@@ -13,6 +13,21 @@ export async function GET(request: NextRequest) {
 
   if (!orgId) return NextResponse.json({ error: "orgId required" }, { status: 400 });
 
+  // maxRcpNo 조회 (증빙서번호 자동채번용)
+  const maxRcpNoFlag = request.nextUrl.searchParams.get("maxRcpNo");
+  if (maxRcpNoFlag) {
+    const { data: maxRcp } = await supabase
+      .from("acc_book")
+      .select("rcp_no2")
+      .eq("org_id", Number(orgId))
+      .eq("incm_sec_cd", Number(incmSecCd || 2))
+      .not("rcp_no2", "is", null)
+      .order("rcp_no2", { ascending: false })
+      .limit(1);
+    const maxNo = maxRcp?.[0]?.rcp_no2 ?? 0;
+    return NextResponse.json({ maxRcpNo: maxNo });
+  }
+
   // Fetch records with customer join
   let query = supabase
     .from("acc_book")

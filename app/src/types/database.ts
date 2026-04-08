@@ -229,6 +229,23 @@ export type Database = {
         };
         Update: Partial<Database["pfam"]["Tables"]["acc_book_bak"]["Row"]>;
       };
+      evidence_file: {
+        Row: {
+          file_id: number;
+          acc_book_id: number | null;
+          org_id: number;
+          file_name: string;
+          file_type: string;
+          storage_path: string;
+          file_size: number;
+          created_at: string;
+        };
+        Insert: Omit<Database["pfam"]["Tables"]["evidence_file"]["Row"], "file_id" | "created_at"> & {
+          file_id?: number;
+          created_at?: string;
+        };
+        Update: Partial<Database["pfam"]["Tables"]["evidence_file"]["Row"]>;
+      };
       acc_rel: {
         Row: {
           acc_rel_id: number;
