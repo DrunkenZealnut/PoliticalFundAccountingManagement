@@ -20,7 +20,12 @@ interface ScanResult {
   content: string;
   provider: string;
   regNum: string;
+  addr: string;
   items: { name: string; quantity: number; unitPrice: number; amount: number }[];
+  expenseCategory: string;  // "선거비용" | "선거비용외"
+  expenseType1: string;     // 대분류
+  expenseType2: string;     // 중분류
+  payMethod: string;        // 결제수단
 }
 
 interface ParsedEntry {
@@ -241,6 +246,35 @@ export default function DocumentRegisterPage() {
     });
   }
 
+  /** AI 응답의 expenseCategory로 과목(item_sec_cd) 자동 선택 */
+  function autoSelectItem(accSecCd: number, expenseCategory: string): number {
+    if (!orgSecCd || !accSecCd) return 0;
+    const items = getItems(orgSecCd, incmSecCd, accSecCd);
+    if (items.length === 0) return 0;
+    // "선거비용외" 키워드가 있으면 "선거비용외" 과목 선택
+    if (expenseCategory.includes("선거비용외") || expenseCategory.includes("비용외")) {
+      const match = items.find((i) => i.cv_name.includes("선거비용외") || i.cv_name.includes("비용외"));
+      if (match) return match.cv_id;
+    }
+    // "선거비용" 키워드가 있으면 "선거비용" 과목 (선거비용외 제외)
+    if (expenseCategory.includes("선거비용")) {
+      const match = items.find((i) => i.cv_name.includes("선거비용") && !i.cv_name.includes("선거비용외"));
+      if (match) return match.cv_id;
+    }
+    return items[0].cv_id; // fallback: 첫 번째 과목
+  }
+
+  /** AI 응답의 payMethod 문자열 → acc_ins_type 코드 매핑 */
+  function mapPayMethod(pm: string): string {
+    if (!pm) return "118";
+    if (pm.includes("신용카드")) return "584";
+    if (pm.includes("체크카드")) return "585";
+    if (pm.includes("카드")) return "119";
+    if (pm.includes("현금")) return "120";
+    if (pm.includes("수표")) return "583";
+    return "118"; // 계좌입금
+  }
+
   async function scanFile(entry: ParsedEntry, file: File) {
     updateEntry(entry.id, { scanning: true, error: null });
     try {
@@ -262,18 +296,38 @@ export default function DocumentRegisterPage() {
         dateStr = `${dateStr.slice(0, 4)}-${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}`;
       }
 
-      // AI content 기반 지출유형 자동 제안
-      const suggestion = isExpense ? suggestExpType(data.content || "") : { group1: "", group2: "" };
+      // 1) 계정 자동 선택 (첫 번째 계정)
+      const autoAcc = accountOptions.length > 0 ? accountOptions[0].cv_id : 0;
+
+      // 2) 과목 자동 선택 (AI의 expenseCategory 기반)
+      const autoItem = isExpense
+        ? autoSelectItem(autoAcc, data.expenseCategory || "")
+        : autoSelectItem(autoAcc, "");
+
+      // 3) 지출유형: AI 응답 우선, 없으면 content 키워드 fallback
+      let group1 = data.expenseType1 || "";
+      let group2 = data.expenseType2 || "";
+      if (isExpense && !group1) {
+        const fallback = suggestExpType(data.content || "");
+        group1 = fallback.group1;
+        group2 = fallback.group2;
+      }
+
+      // 4) 결제수단
+      const payCode = mapPayMethod(data.payMethod || "");
 
       updateEntry(entry.id, {
         scanning: false,
+        acc_sec_cd: autoAcc,
+        item_sec_cd: autoItem,
         acc_date: dateStr,
         acc_amt: data.amount || 0,
         content: data.content || "",
         customerName: data.provider || "",
         providerRegNum: data.regNum || "",
-        exp_group1_cd: suggestion.group1,
-        exp_group2_cd: suggestion.group2,
+        exp_group1_cd: group1,
+        exp_group2_cd: group2,
+        acc_ins_type: payCode,
       });
     } catch {
       updateEntry(entry.id, { scanning: false, error: "AI 분석 중 오류가 발생했습니다." });
