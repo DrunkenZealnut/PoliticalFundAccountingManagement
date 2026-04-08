@@ -23,6 +23,7 @@ const MENU_ITEMS = {
       { href: "/dashboard/income", label: "수입내역관리" },
       { href: "/dashboard/expense", label: "지출내역관리" },
       { href: "/dashboard/batch-import", label: "수입지출내역 일괄등록" },
+      { href: "/dashboard/document-register", label: "영수증/계약서 자동등록" },
       { href: "/dashboard/receipt", label: "당비영수증 출력" },
       { href: "/dashboard/resolution", label: "지출결의서 출력" },
     ]},
@@ -54,6 +55,7 @@ const MENU_ITEMS = {
       { href: "/dashboard/income", label: "수입내역관리" },
       { href: "/dashboard/expense", label: "지출내역관리" },
       { href: "/dashboard/batch-import", label: "수입지출내역 일괄등록" },
+      { href: "/dashboard/document-register", label: "영수증/계약서 자동등록" },
       { href: "/dashboard/resolution", label: "지출결의서 출력" },
     ]},
     { group: "보고관리", items: [
@@ -83,6 +85,7 @@ const MENU_ITEMS = {
       { href: "/dashboard/income", label: "수입내역관리" },
       { href: "/dashboard/expense", label: "지출내역관리" },
       { href: "/dashboard/batch-import", label: "수입지출내역 일괄등록" },
+      { href: "/dashboard/document-register", label: "영수증/계약서 자동등록" },
       { href: "/dashboard/resolution", label: "지출결의서 출력" },
     ]},
     { group: "보고관리", items: [
@@ -113,6 +116,7 @@ const MENU_ITEMS = {
       { href: "/dashboard/income", label: "수입내역관리" },
       { href: "/dashboard/expense", label: "지출내역관리" },
       { href: "/dashboard/batch-import", label: "수입지출내역 일괄등록" },
+      { href: "/dashboard/document-register", label: "영수증/계약서 자동등록" },
       { href: "/dashboard/resolution", label: "지출결의서 출력" },
     ]},
     { group: "보고관리", items: [
