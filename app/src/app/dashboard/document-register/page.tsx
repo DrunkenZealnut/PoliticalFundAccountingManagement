@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/stores/auth";
 import { useCodeValues } from "@/hooks/use-code-values";
 import { Button } from "@/components/ui/button";
@@ -62,10 +63,11 @@ const NO_CUSTOMER_ID = -999;
 /* ------------------------------------------------------------------ */
 
 export default function DocumentRegisterPage() {
+  const searchParams = useSearchParams();
   const { orgId, orgSecCd, orgType } = useAuth();
   const { loading: codesLoading, getName, getAccounts, getItems } = useCodeValues();
 
-  const [tab, setTab] = useState("expense");
+  const [tab, setTab] = useState(searchParams.get("tab") || "expense");
   const [entries, setEntries] = useState<ParsedEntry[]>([]);
   const [saving, setSaving] = useState(false);
   const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
