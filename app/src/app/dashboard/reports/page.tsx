@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/stores/auth";
 import { useCodeValues } from "@/hooks/use-code-values";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
@@ -470,7 +470,6 @@ function buildMainCoverSheet(
  */
 function buildAccountCover(
   wb: ExcelJS_Workbook,
-  typeLabel: string,
   accName: string,
   orgName: string,
   sheetName: string,
@@ -478,17 +477,17 @@ function buildAccountCover(
   const ws = wb.addWorksheet(sheetName);
   ws.mergeCells("A3:D3");
   const title = ws.getCell("A3");
-  title.value = `정 치 자 금  ${typeLabel} 부`;
-  title.font = { bold: true, size: 16 };
+  title.value = "수 입 · 지 출 부";
+  title.font = { bold: true, size: 18 };
   title.alignment = { horizontal: "center", vertical: "middle" };
 
   ws.mergeCells("A6:D6");
-  ws.getRow(6).getCell(1).value = `[계 정 명 : ${accName}]`;
-  ws.getRow(6).getCell(1).font = { bold: true, size: 14 };
+  ws.getRow(6).getCell(1).value = `계정 -  ${accName}`;
+  ws.getRow(6).getCell(1).font = { size: 14 };
   ws.getRow(6).getCell(1).alignment = { horizontal: "center" };
 
   ws.mergeCells("A9:D9");
-  ws.getRow(9).getCell(1).value = orgName;
+  ws.getRow(9).getCell(1).value = `보고자 : 회계책임자 ${orgName}`;
   ws.getRow(9).getCell(1).font = { size: 12 };
   ws.getRow(9).getCell(1).alignment = { horizontal: "center" };
 
@@ -500,7 +499,6 @@ function buildAccountCover(
 
 function buildItemCover(
   wb: ExcelJS_Workbook,
-  typeLabel: string,
   accName: string,
   itemName: string,
   orgName: string,
@@ -509,17 +507,17 @@ function buildItemCover(
   const ws = wb.addWorksheet(sheetName);
   ws.mergeCells("A3:D3");
   const title = ws.getCell("A3");
-  title.value = `정 치 자 금  ${typeLabel} 부`;
-  title.font = { bold: true, size: 16 };
+  title.value = "수 입 · 지 출 부";
+  title.font = { bold: true, size: 18 };
   title.alignment = { horizontal: "center", vertical: "middle" };
 
   ws.mergeCells("A6:D6");
-  ws.getRow(6).getCell(1).value = `[계 정 명 : ${accName}]  [과 목 명 : ${itemName}]`;
-  ws.getRow(6).getCell(1).font = { bold: true, size: 12 };
+  ws.getRow(6).getCell(1).value = `과목 -  ${itemName}`;
+  ws.getRow(6).getCell(1).font = { size: 14 };
   ws.getRow(6).getCell(1).alignment = { horizontal: "center" };
 
   ws.mergeCells("A9:D9");
-  ws.getRow(9).getCell(1).value = orgName;
+  ws.getRow(9).getCell(1).value = `보고자 : 회계책임자 ${orgName}`;
   ws.getRow(9).getCell(1).font = { size: 12 };
   ws.getRow(9).getCell(1).alignment = { horizontal: "center" };
 
@@ -530,117 +528,117 @@ function buildItemCover(
 }
 
 /**
- * Sheet 7+: 계정과목별 수입-지출 내역
+ * Sheet 7+: 계정과목별 수입·지출 내역 (공식 양식 - 수입+지출 합산)
  */
 function buildLedgerSheet(
   wb: ExcelJS_Workbook,
   sheetRecords: AccRecord[],
   custMap: Map<number, Customer>,
-  typeLabel: string,
   accName: string,
   itemName: string,
   orgName: string,
   acctName: string | null,
-  electionName: string,
-  districtName: string,
   sheetName: string,
 ) {
   const ws = wb.addWorksheet(sheetName);
+  const COLS = 13; // A-M
 
   // Title
-  ws.mergeCells("A1:O1");
+  ws.mergeCells("A1:M1");
   const titleCell = ws.getCell("A1");
-  titleCell.value = `정 치 자 금  ${typeLabel} · 지 출 부`;
+  titleCell.value = "정 치 자 금 수 입 · 지 출 부";
   titleCell.font = { bold: true, size: 16 };
   titleCell.alignment = { horizontal: "center", vertical: "middle" };
 
-  // 금액단위
-  ws.mergeCells("N2:O2");
-  ws.getCell("N2").value = "(금액단위 : 원)";
-  ws.getCell("N2").alignment = { horizontal: "right" };
-  ws.getCell("N2").font = { size: 9 };
+  // 계정/과목 + 금액단위
+  ws.getCell("A3").value = `[계 정 명: ${accName} ]`;
+  ws.getCell("A3").font = { bold: true, size: 10 };
+  ws.mergeCells("L2:M2");
+  ws.getCell("L2").value = "(금액단위 : 원)";
+  ws.getCell("L2").alignment = { horizontal: "right" };
+  ws.getCell("L2").font = { size: 9 };
 
-  // 계정/과목 정보
-  ws.mergeCells("A3:O3");
-  ws.getCell("A3").value = `[계 정 명 : ${accName}]  [과 목 명 : ${itemName}]`;
-  ws.getCell("A3").font = { bold: true, size: 11 };
-
-  if (electionName || districtName) {
-    ws.mergeCells("A4:O4");
-    ws.getCell("A4").value =
-      (electionName ? `선거명: ${electionName}` : "") +
-      (districtName ? `  선거구명: ${districtName}` : "");
-  }
+  ws.getCell("A4").value = `[과 목 명: ${itemName} ]`;
+  ws.getCell("A4").font = { bold: true, size: 10 };
 
   // Column headers (Row 5-6, 2-row merged)
-  const h5 = ws.getRow(5);
-  const h6 = ws.getRow(6);
+  ws.mergeCells("A5:A6"); // 연월일
+  ws.getRow(5).getCell(1).value = "연월일";
 
-  ws.mergeCells("A5:A6");
-  h5.getCell(1).value = "년월일";
+  ws.mergeCells("B5:B6"); // 내역
+  ws.getRow(5).getCell(2).value = "내  역";
 
-  ws.mergeCells("B5:B6");
-  h5.getCell(2).value = "내 역";
+  ws.mergeCells("C5:D5"); // 수입액
+  ws.getRow(5).getCell(3).value = "수 입 액";
+  ws.getRow(6).getCell(3).value = "금 회";
+  ws.getRow(6).getCell(4).value = "누 계";
 
-  ws.mergeCells("C5:D5");
-  h5.getCell(3).value = "수 입 액";
-  h6.getCell(3).value = "금회";
-  h6.getCell(4).value = "누계";
+  ws.mergeCells("E5:F5"); // 지출액
+  ws.getRow(5).getCell(5).value = "지 출 액";
+  ws.getRow(6).getCell(5).value = "금 회";
+  ws.getRow(6).getCell(6).value = "누 계";
 
-  ws.mergeCells("E5:F5");
-  h5.getCell(5).value = "지 출 액";
-  h6.getCell(5).value = "금회";
-  h6.getCell(6).value = "누계";
+  ws.mergeCells("G5:G6"); // 잔액
+  ws.getRow(5).getCell(7).value = "잔  액";
 
-  ws.mergeCells("G5:G6");
-  h5.getCell(7).value = "잔 액";
+  ws.mergeCells("H5:L5"); // 수입을 제공한 자 또는 지출을 받은 자
+  ws.getRow(5).getCell(8).value = "수입을 제공한 자 또는 지출을 받은 자";
+  ws.getRow(6).getCell(8).value = "성 명\n(법인·\n단체명)";
+  ws.getRow(6).getCell(9).value = "생년\n월일\n(사업자\n번 호)";
+  ws.getRow(6).getCell(10).value = "주    소\n(사무소소재지)";
+  ws.getRow(6).getCell(11).value = "직업\n(업종)";
+  ws.getRow(6).getCell(12).value = "전화\n번호";
 
-  ws.mergeCells("H5:M5");
-  h5.getCell(8).value = "수입을 제공한 자 또는 지출을 받은 자";
-  h6.getCell(8).value = "성 명\n(법인·단체명)";
-  h6.getCell(9).value = "생년월일\n(사업자번호)";
-  h6.getCell(10).value = "주소 또는\n사무소소재지";
-  h6.getCell(11).value = "직업\n(업종)";
-  h6.getCell(12).value = "전화번호";
-  h6.getCell(13).value = ""; // M col part of H5:M5 merge
+  ws.mergeCells("M5:M6"); // 영수증일련번호
+  ws.getRow(5).getCell(13).value = "영수증\n일 련\n번 호";
 
-  ws.mergeCells("N5:N6");
-  h5.getCell(14).value = "영수증\n일련번호";
-
-  ws.mergeCells("O5:O6");
-  h5.getCell(15).value = "비 고";
-
-  applyHeaderStyle(ws, 5, 6, 1, 15);
+  applyHeaderStyle(ws, 5, 6, 1, COLS);
 
   // Column widths
-  ws.getColumn(1).width = 10;
-  ws.getColumn(2).width = 18;
-  ws.getColumn(3).width = 12;
-  ws.getColumn(4).width = 12;
-  ws.getColumn(5).width = 12;
-  ws.getColumn(6).width = 12;
-  ws.getColumn(7).width = 12;
-  ws.getColumn(8).width = 12;
-  ws.getColumn(9).width = 12;
-  ws.getColumn(10).width = 20;
-  ws.getColumn(11).width = 8;
-  ws.getColumn(12).width = 14;
-  ws.getColumn(13).width = 2;
-  ws.getColumn(14).width = 10;
-  ws.getColumn(15).width = 8;
+  ws.getColumn(1).width = 10;  // 연월일
+  ws.getColumn(2).width = 18;  // 내역
+  ws.getColumn(3).width = 12;  // 수입금회
+  ws.getColumn(4).width = 12;  // 수입누계
+  ws.getColumn(5).width = 12;  // 지출금회
+  ws.getColumn(6).width = 12;  // 지출누계
+  ws.getColumn(7).width = 12;  // 잔액
+  ws.getColumn(8).width = 10;  // 성명
+  ws.getColumn(9).width = 10;  // 생년월일
+  ws.getColumn(10).width = 20; // 주소
+  ws.getColumn(11).width = 7;  // 직업
+  ws.getColumn(12).width = 12; // 전화번호
+  ws.getColumn(13).width = 8;  // 영수증번호
+
+  // Sort records by date
+  const sorted = [...sheetRecords].sort((a, b) =>
+    a.acc_date.localeCompare(b.acc_date) || (a.incm_sec_cd - b.incm_sec_cd),
+  );
 
   // Data rows
   let incCum = 0;
   let expCum = 0;
+  let incTotal = 0;
+  let expTotal = 0;
+  let rcpYIncAmt = 0, rcpYExpAmt = 0, rcpYCount = 0;
+  let rcpNIncAmt = 0, rcpNExpAmt = 0, rcpNCount = 0;
   let rowIdx = 7;
 
-  for (const r of sheetRecords) {
+  for (const r of sorted) {
     const cust = custMap.get(r.cust_id);
     const amt = r.acc_amt;
     const isIncome = r.incm_sec_cd === 1;
+    const rcpY = r.rcp_yn === "Y";
 
-    if (isIncome) incCum += amt;
-    else expCum += amt;
+    if (isIncome) { incCum += amt; incTotal += amt; }
+    else { expCum += amt; expTotal += amt; }
+
+    if (rcpY) {
+      rcpYCount++;
+      if (isIncome) rcpYIncAmt += amt; else rcpYExpAmt += amt;
+    } else {
+      rcpNCount++;
+      if (isIncome) rcpNIncAmt += amt; else rcpNExpAmt += amt;
+    }
 
     const row = ws.getRow(rowIdx);
     row.getCell(1).value = formatDate(r.acc_date);
@@ -655,21 +653,78 @@ function buildLedgerSheet(
     row.getCell(10).value = cust?.addr || "";
     row.getCell(11).value = cust?.job || "";
     row.getCell(12).value = cust?.tel || "";
-    row.getCell(14).value = r.rcp_no || "";
-    row.getCell(15).value = r.bigo || "";
+    row.getCell(13).value = r.rcp_no || "";
 
-    applyDataCellStyle(ws, rowIdx, 1, 15, [3, 4, 5, 6, 7]);
+    applyDataCellStyle(ws, rowIdx, 1, COLS, [3, 4, 5, 6, 7]);
     rowIdx++;
   }
 
-  // Footer
+  const totalCount = sorted.length;
+
+  /* 합계 row */
+  ws.mergeCells(`A${rowIdx}:B${rowIdx}`);
+  const sumRow = ws.getRow(rowIdx);
+  sumRow.getCell(1).value = "합        계";
+  sumRow.getCell(3).value = incTotal;
+  sumRow.getCell(4).value = incTotal;
+  sumRow.getCell(5).value = expTotal;
+  sumRow.getCell(6).value = expTotal;
+  sumRow.getCell(7).value = incTotal - expTotal;
+  sumRow.getCell(13).value = `${totalCount}건`;
+  for (let c = 1; c <= COLS; c++) {
+    sumRow.getCell(c).border = THIN_BORDER;
+    sumRow.getCell(c).font = { bold: true, size: 9 };
+    if ([3, 4, 5, 6, 7].includes(c)) {
+      sumRow.getCell(c).numFmt = "#,##0";
+      sumRow.getCell(c).alignment = { horizontal: "right" };
+    } else {
+      sumRow.getCell(c).alignment = CENTER_ALIGN;
+    }
+  }
+  rowIdx++;
+
+  /* 영수증 첨부분 / 생략분 */
+  const rcpStart = rowIdx;
+  ws.mergeCells(`A${rcpStart}:A${rcpStart + 1}`);
+
+  // 첨부분
+  const attachRow = ws.getRow(rcpStart);
+  attachRow.getCell(1).value = "영수증";
+  attachRow.getCell(2).value = "첨부분";
+  attachRow.getCell(3).value = rcpYIncAmt || 0;
+  attachRow.getCell(5).value = rcpYExpAmt || 0;
+  attachRow.getCell(13).value = `${rcpYCount}건`;
+
+  // 생략분
+  const skipRow = ws.getRow(rcpStart + 1);
+  skipRow.getCell(2).value = "생략분";
+  skipRow.getCell(3).value = rcpNIncAmt || 0;
+  skipRow.getCell(5).value = rcpNExpAmt || 0;
+  skipRow.getCell(13).value = `${rcpNCount}건`;
+
+  for (let r = rcpStart; r <= rcpStart + 1; r++) {
+    for (let c = 1; c <= COLS; c++) {
+      const cell = ws.getRow(r).getCell(c);
+      cell.border = THIN_BORDER;
+      cell.font = { size: 9 };
+      if ([3, 5].includes(c)) {
+        cell.numFmt = "#,##0";
+        cell.alignment = { horizontal: "right" };
+      } else {
+        cell.alignment = CENTER_ALIGN;
+      }
+    }
+  }
+  rowIdx = rcpStart + 2;
+
+  /* Footer */
   rowIdx += 1;
-  ws.mergeCells(`A${rowIdx}:O${rowIdx}`);
+  ws.mergeCells(`A${rowIdx}:M${rowIdx}`);
   ws.getCell(`A${rowIdx}`).value = `작성연월일 : ${todayStr()}`;
   ws.getCell(`A${rowIdx}`).alignment = { horizontal: "right" };
 
   rowIdx += 1;
-  ws.mergeCells(`A${rowIdx}:O${rowIdx}`);
+  ws.mergeCells(`A${rowIdx}:M${rowIdx}`);
   ws.getCell(`A${rowIdx}`).value = `${orgName}   회계책임자  ${acctName || ""}  (인)`;
   ws.getCell(`A${rowIdx}`).alignment = { horizontal: "center" };
 }
@@ -683,12 +738,9 @@ export default function ReportsPage() {
   const { getName, getAccounts, getItems, loading: codesLoading } = useCodeValues();
 
   const [covers, setCovers] = useState({
-    incomeCover: true,
-    expenseCover: true,
     accountCover: true,
     subjectCover: true,
   });
-  const [docNumber, setDocNumber] = useState("");
   const [electionName, setElectionName] = useState("");
   const [districtName, setDistrictName] = useState("");
   const [dateFrom, setDateFrom] = useState("");
@@ -704,23 +756,23 @@ export default function ReportsPage() {
   const [selectedAccounts, setSelectedAccounts] = useState<Set<number>>(new Set());
   const [selectedIncomeItems, setSelectedIncomeItems] = useState<Set<number>>(new Set());
   const [selectedExpenseItems, setSelectedExpenseItems] = useState<Set<number>>(new Set());
-  const [initialized, setInitialized] = useState(false);
 
   // 초기화: 모든 항목 선택
-  if (!initialized && allAccountIds.length > 0) {
+  useEffect(() => {
+    if (allAccountIds.length === 0 || !orgSecCd) return;
     setSelectedAccounts(new Set(allAccountIds));
     const incItems = new Set<number>();
     const expItems = new Set<number>();
     for (const acc of incomeAccounts) {
-      for (const item of getItems(orgSecCd!, 1, acc.cv_id)) incItems.add(item.cv_id);
+      for (const item of getItems(orgSecCd, 1, acc.cv_id)) incItems.add(item.cv_id);
     }
     for (const acc of expenseAccounts) {
-      for (const item of getItems(orgSecCd!, 2, acc.cv_id)) expItems.add(item.cv_id);
+      for (const item of getItems(orgSecCd, 2, acc.cv_id)) expItems.add(item.cv_id);
     }
     setSelectedIncomeItems(incItems);
     setSelectedExpenseItems(expItems);
-    setInitialized(true);
-  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- run once when account data loads
+  }, [allAccountIds.length, orgSecCd]);
 
   // 수입/지출 과목 목록 (선택된 계정 기준)
   const incomeItemOptions = orgSecCd
@@ -825,17 +877,15 @@ export default function ReportsPage() {
         getName,
       );
 
-      /* ---- Sheets 5~N: Per account/item combination ---- */
-      // Get unique incm/acc/item combos
+      /* ---- Sheets 5~N: Per account/item combination (수입+지출 합산) ---- */
       const comboMap = new Map<
         string,
-        { incmSecCd: number; accSecCd: number; itemSecCd: number }
+        { accSecCd: number; itemSecCd: number }
       >();
       for (const r of records) {
-        const key = `${r.incm_sec_cd}-${r.acc_sec_cd}-${r.item_sec_cd}`;
+        const key = `${r.acc_sec_cd}-${r.item_sec_cd}`;
         if (!comboMap.has(key)) {
           comboMap.set(key, {
-            incmSecCd: r.incm_sec_cd,
             accSecCd: r.acc_sec_cd,
             itemSecCd: r.item_sec_cd,
           });
@@ -845,67 +895,50 @@ export default function ReportsPage() {
       const combos = Array.from(comboMap.values())
         .filter((c) => {
           if (!selectedAccounts.has(c.accSecCd)) return false;
-          if (c.incmSecCd === 1 && !selectedIncomeItems.has(c.itemSecCd)) return false;
-          if (c.incmSecCd === 2 && !selectedExpenseItems.has(c.itemSecCd)) return false;
+          if (!selectedIncomeItems.has(c.itemSecCd) && !selectedExpenseItems.has(c.itemSecCd)) return false;
           return true;
         })
         .sort(
-          (a, b) =>
-            a.incmSecCd - b.incmSecCd ||
-            a.accSecCd - b.accSecCd ||
-            a.itemSecCd - b.itemSecCd,
+          (a, b) => a.accSecCd - b.accSecCd || a.itemSecCd - b.itemSecCd,
         );
 
       // Track which account covers we have already added
-      const addedAccCovers = new Set<string>();
+      const addedAccCovers = new Set<number>();
       let sheetNum = 0;
 
       for (const combo of combos) {
-        const typeLabel = combo.incmSecCd === 1 ? "수입" : "지출";
         const accName = getName(combo.accSecCd);
         const itemName = getName(combo.itemSecCd);
         sheetNum++;
 
-        // Account cover (one per incm+acc combination)
-        const accCoverKey = `${combo.incmSecCd}-${combo.accSecCd}`;
-        if (covers.accountCover && !addedAccCovers.has(accCoverKey)) {
-          addedAccCovers.add(accCoverKey);
-          const accCoverName = `${sheetNum}_계정_${typeLabel}_${accName}`.slice(0, 31);
-          buildAccountCover(wb, typeLabel, accName, orgName || "", accCoverName);
+        // Account cover (one per accSecCd)
+        if (covers.accountCover && !addedAccCovers.has(combo.accSecCd)) {
+          addedAccCovers.add(combo.accSecCd);
+          const accCoverName = `${sheetNum}_계정_${accName}`.slice(0, 31);
+          buildAccountCover(wb, accName, orgName || "", accCoverName);
         }
 
         // Item cover
         if (covers.subjectCover) {
-          const itemCoverName = `${sheetNum}_과목_${typeLabel}_${accName}_${itemName}`.slice(0, 31);
-          buildItemCover(
-            wb,
-            typeLabel,
-            accName,
-            itemName,
-            orgName || "",
-            itemCoverName,
-          );
+          const itemCoverName = `${sheetNum}_과목_${accName}_${itemName}`.slice(0, 31);
+          buildItemCover(wb, accName, itemName, orgName || "", itemCoverName);
         }
 
-        // Ledger detail sheet
+        // Ledger detail sheet (수입+지출 합산)
         const sheetRecords = records.filter(
           (r) =>
-            r.incm_sec_cd === combo.incmSecCd &&
             r.acc_sec_cd === combo.accSecCd &&
             r.item_sec_cd === combo.itemSecCd,
         );
-        const ledgerName = `${sheetNum}_${typeLabel}_${accName}_${itemName}`.slice(0, 31);
+        const ledgerName = `${sheetNum}_${accName}_${itemName}`.slice(0, 31);
         buildLedgerSheet(
           wb,
           sheetRecords,
           custMap,
-          typeLabel,
           accName,
           itemName,
           orgName || "",
           acctName,
-          electionName,
-          districtName,
           ledgerName,
         );
       }
@@ -964,14 +997,6 @@ export default function ReportsPage() {
       <div className="bg-white rounded-lg border p-4 space-y-5">
         {/* 기본정보 */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <Label>문서번호</Label>
-            <Input
-              value={docNumber}
-              onChange={(e) => setDocNumber(e.target.value)}
-              placeholder="문서번호 입력"
-            />
-          </div>
           <div>
             <Label>선거명</Label>
             <Input
@@ -1083,8 +1108,6 @@ export default function ReportsPage() {
           <Label className="text-sm font-semibold">표지 포함</Label>
           <div className="flex flex-wrap gap-6 mt-1">
             {[
-              { key: "incomeCover" as const, label: "수입부표지" },
-              { key: "expenseCover" as const, label: "지출부표지" },
               { key: "accountCover" as const, label: "계정표지" },
               { key: "subjectCover" as const, label: "과목표지" },
             ].map(({ key, label }) => (

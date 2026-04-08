@@ -68,7 +68,30 @@ Server-side API routes use `SUPABASE_SERVICE_ROLE_KEY` to bypass RLS, with fallb
 createClient(url, process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
 ```
 
+POST routes use **action-based dispatch** — a single route handles multiple operations:
+```typescript
+// POST /api/acc-book
+{ action: "insert" | "update" | "delete" | "backup" | "batch_receipt" | "batch_insert", ...payload }
+```
+For batch operations, internal metadata fields are prefixed with `_` (e.g., `_provider`, `_addr`) — the API processes them (customer matching/creation) then strips all `_`-prefixed keys before DB insert.
+
 The chat API (`/api/chat`) streams responses via SSE using Gemini 2.5 Flash with context from the user's org data and keyword-extracted guide sections.
+
+### Code Values System
+
+The `useCodeValues()` hook (via `useSyncExternalStore`) provides code lookups fetched once from `/api/codes`:
+- `getName(cvId)` — resolve code ID to display name
+- `getAccounts(orgSecCd, incmSecCd)` — valid accounts for org type + income/expense
+- `getItems(orgSecCd, incmSecCd, accSecCd)` — valid subjects for a given account
+- Hierarchical validation chain: `orgSecCd → incmSecCd → accSecCd → itemSecCd → expSecCd` (driven by `acc_rel` table)
+
+### Excel Export Patterns
+
+Two distinct export systems:
+1. **Individual exports** (`/api/excel/export`) — generates 수입부/지출부 (11-column official 선관위 format) from DB data
+2. **Batch report output** (`reports/page.tsx` client-side) — generates multi-sheet workbook with covers, 정치자금 수입·지출부 (13-column combined income+expense format), grouped by account+subject combo
+
+Excel generation uses ExcelJS directly (not templates) to match official election commission form layouts. Each account/subject combination produces one sheet with both income and expense records sorted by date.
 
 ### Auth Flow
 

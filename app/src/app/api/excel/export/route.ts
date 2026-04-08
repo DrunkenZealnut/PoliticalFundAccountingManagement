@@ -18,6 +18,221 @@ async function getCodeNames(): Promise<Record<number, string>> {
   return codeCache;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Common styles                                                      */
+/* ------------------------------------------------------------------ */
+const thinBorder: Partial<ExcelJS.Borders> = {
+  top: { style: "thin" }, bottom: { style: "thin" },
+  left: { style: "thin" }, right: { style: "thin" },
+};
+const baseFont: Partial<ExcelJS.Font> = {
+  size: 11, name: "맑은 고딕", family: 2, charset: 129,
+};
+const centerAlign: Partial<ExcelJS.Alignment> = {
+  horizontal: "center", vertical: "middle",
+};
+
+function fmtDate(d: string) {
+  if (d.length === 8) return `${d.slice(0, 4)}/${d.slice(4, 6)}/${d.slice(6, 8)}`;
+  return d;
+}
+
+function todayStr() {
+  const t = new Date();
+  return `${t.getFullYear()}년 ${String(t.getMonth() + 1).padStart(2, "0")}월 ${String(t.getDate()).padStart(2, "0")}일`;
+}
+
+/* ------------------------------------------------------------------ */
+/*  수입부 / 지출부 (공식 양식)                                         */
+/* ------------------------------------------------------------------ */
+function generateLedgerBook(
+  workbook: ExcelJS.Workbook,
+  records: Record<string, unknown>[],
+  organ: { org_name: string; acct_name: string } | null,
+  itemName: string,
+  isExpense: boolean,
+) {
+  const typeLabel = isExpense ? "지  출  부" : "수  입  부";
+  const sheetName = isExpense ? "지출부" : "수입부";
+  const sheet = workbook.addWorksheet(sheetName);
+
+  // Column widths (matching official template; E,H left at default)
+  sheet.getColumn(1).width = 3.5;
+  sheet.getColumn(2).width = 7.125;
+  sheet.getColumn(3).width = 6.5;
+  sheet.getColumn(4).width = 6.5;
+  // col E: default
+  sheet.getColumn(6).width = 6.5;
+  sheet.getColumn(7).width = 6.5;
+  // col H: default
+  sheet.getColumn(9).width = 6.5;
+  sheet.getColumn(10).width = 6.5;
+  sheet.getColumn(11).width = 11;
+
+  /* Row 2: Title */
+  sheet.mergeCells("A2:K2");
+  const titleCell = sheet.getCell("A2");
+  titleCell.value = `${organ?.org_name || ""}의  ${typeLabel} (${itemName})`;
+  titleCell.font = { ...baseFont, bold: true, size: 14 };
+  titleCell.alignment = centerAlign;
+  sheet.getRow(2).height = 39.95;
+
+  /* Row 4: Subject */
+  sheet.mergeCells("A4:K4");
+  const subjectCell = sheet.getCell("A4");
+  subjectCell.value = `[과 목 명: ${itemName}]`;
+  subjectCell.font = { ...baseFont };
+  subjectCell.alignment = centerAlign;
+
+  /* Row 5-6: Headers */
+  sheet.mergeCells("A5:B6"); // 연월일
+  sheet.mergeCells("C5:G5"); // 적 요
+  sheet.mergeCells("H5:H6"); // 전화번호
+  sheet.mergeCells("I5:I6"); // 금 액
+  sheet.mergeCells("J5:J6"); // 누 계
+  sheet.mergeCells("K5:K6"); // 영수증번호
+
+  const h5 = sheet.getRow(5);
+  h5.getCell(1).value = "연월일";
+  h5.getCell(3).value = "적                요";
+  h5.getCell(8).value = "전화번호";
+  h5.getCell(9).value = "금  액";
+  h5.getCell(10).value = "누  계";
+  h5.getCell(11).value = "영수증번호";
+
+  const h6 = sheet.getRow(6);
+  h6.getCell(3).value = "내  역";
+  h6.getCell(4).value = "성  명";
+  h6.getCell(5).value = "생년월일";
+  h6.getCell(6).value = "주  소";
+  h6.getCell(7).value = "직  업";
+
+  sheet.getRow(5).height = 20.1;
+  sheet.getRow(6).height = 20.1;
+
+  // Apply header styles
+  for (let row = 5; row <= 6; row++) {
+    for (let col = 1; col <= 11; col++) {
+      const cell = sheet.getRow(row).getCell(col);
+      cell.font = { ...baseFont };
+      cell.alignment = centerAlign;
+      cell.border = thinBorder;
+    }
+  }
+
+  /* Data rows */
+  let rowIdx = 7;
+  let cumulative = 0;
+  let rcpYCount = 0, rcpNCount = 0;
+  let rcpYAmt = 0, rcpNAmt = 0;
+  const totalCount = records.length;
+
+  for (const r of records) {
+    const customer = r.customer as Record<string, string> | null;
+    const amt = r.acc_amt as number;
+    const date = r.acc_date as string;
+    const rcpYn = (r.rcp_yn as string) || "N";
+    cumulative += amt;
+
+    if (rcpYn === "Y") { rcpYCount++; rcpYAmt += amt; }
+    else { rcpNCount++; rcpNAmt += amt; }
+
+    sheet.mergeCells(`A${rowIdx}:B${rowIdx}`);
+    const row = sheet.getRow(rowIdx);
+    row.height = 20.1;
+    row.getCell(1).value = fmtDate(date);
+    row.getCell(3).value = r.content as string;
+    row.getCell(4).value = customer?.name || "";
+    row.getCell(5).value = customer?.reg_num || "";
+    row.getCell(6).value = customer?.addr || "";
+    row.getCell(7).value = customer?.job || "";
+    row.getCell(8).value = customer?.tel || "";
+    row.getCell(9).value = amt;
+    row.getCell(10).value = cumulative;
+    row.getCell(11).value = rcpYn === "Y" ? (r.rcp_no as string || "") : "생략";
+
+    for (let col = 1; col <= 11; col++) {
+      const cell = row.getCell(col);
+      cell.font = { ...baseFont, size: 10 };
+      cell.border = thinBorder;
+      if (col === 9 || col === 10) {
+        cell.numFmt = "#,##0";
+        cell.alignment = { horizontal: "right", vertical: "middle" };
+      } else {
+        cell.alignment = { vertical: "middle" };
+      }
+    }
+    rowIdx++;
+  }
+
+  /* 합계 row */
+  sheet.mergeCells(`A${rowIdx}:B${rowIdx}`);
+  const sumRow = sheet.getRow(rowIdx);
+  sumRow.getCell(1).value = "합 계";
+  sumRow.getCell(9).value = cumulative;
+  sumRow.getCell(10).value = cumulative;
+  sumRow.getCell(11).value = `${totalCount}건`;
+  for (let col = 1; col <= 11; col++) {
+    const cell = sumRow.getCell(col);
+    cell.font = { ...baseFont, bold: true };
+    cell.border = thinBorder;
+    cell.alignment = col === 1 ? centerAlign : (col === 9 || col === 10)
+      ? { horizontal: "right", vertical: "middle" } : { vertical: "middle" };
+    if (col === 9 || col === 10) cell.numFmt = "#,##0";
+  }
+  rowIdx++;
+
+  /* 영수증 첨부분 / 생략분 */
+  const rcpStartRow = rowIdx;
+  sheet.mergeCells(`A${rcpStartRow}:A${rcpStartRow + 1}`);
+
+  // 영수증 첨부분
+  const attachRow = sheet.getRow(rcpStartRow);
+  attachRow.height = 33;
+  attachRow.getCell(1).value = "영\r\n수\r\n증";
+  attachRow.getCell(2).value = "첨부분";
+  attachRow.getCell(9).value = rcpYAmt;
+  attachRow.getCell(11).value = `${rcpYCount}건`;
+
+  // 영수증 생략분
+  const skipRow = sheet.getRow(rcpStartRow + 1);
+  skipRow.height = 33;
+  skipRow.getCell(2).value = "생략분";
+  skipRow.getCell(9).value = rcpNAmt;
+  skipRow.getCell(11).value = `${rcpNCount}건`;
+
+  for (let r = rcpStartRow; r <= rcpStartRow + 1; r++) {
+    for (let col = 1; col <= 11; col++) {
+      const cell = sheet.getRow(r).getCell(col);
+      cell.font = { ...baseFont };
+      cell.border = thinBorder;
+      cell.alignment = (col === 9 || col === 10)
+        ? { horizontal: "right", vertical: "middle", wrapText: true }
+        : { ...centerAlign, wrapText: true };
+      if (col === 9) cell.numFmt = "#,##0";
+    }
+  }
+  rowIdx = rcpStartRow + 2;
+
+  /* Footer */
+  rowIdx += 1; // empty row
+  sheet.mergeCells(`F${rowIdx}:K${rowIdx}`);
+  const dateCell = sheet.getCell(`F${rowIdx}`);
+  dateCell.value = `작성연월일  :  ${todayStr()}`;
+  dateCell.alignment = { horizontal: "right", vertical: "middle" };
+  dateCell.font = { ...baseFont };
+
+  rowIdx += 1;
+  sheet.mergeCells(`F${rowIdx}:K${rowIdx}`);
+  const orgCell = sheet.getCell(`F${rowIdx}`);
+  orgCell.value = `${organ?.org_name || ""}  회계책임자  ${organ?.acct_name || ""}  (인)`;
+  orgCell.alignment = centerAlign;
+  orgCell.font = { ...baseFont };
+}
+
+/* ------------------------------------------------------------------ */
+/*  GET handler                                                        */
+/* ------------------------------------------------------------------ */
 export async function GET(request: NextRequest) {
   const orgId = request.nextUrl.searchParams.get("orgId");
   const type = request.nextUrl.searchParams.get("type"); // income or expense
@@ -31,7 +246,11 @@ export async function GET(request: NextRequest) {
   const codes = await getCodeNames();
 
   // Get organ info
-  const { data: organ } = await supabase.from("organ").select("org_name, org_sec_cd, acct_name").eq("org_id", Number(orgId)).single();
+  const { data: organ } = await supabase
+    .from("organ")
+    .select("org_name, org_sec_cd, acct_name")
+    .eq("org_id", Number(orgId))
+    .single();
 
   const incmSecCd = type === "expense" ? 2 : 1;
 
@@ -51,181 +270,22 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "No data" }, { status: 404 });
   }
 
+  const itemName = itemSecCd ? codes[Number(itemSecCd)] || "전체" : "전체";
+  const isExpense = type === "expense";
+
   const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet("수입지출부");
-
-  // --- Title ---
-  sheet.mergeCells("A1:O1");
-  const titleCell = sheet.getCell("A1");
-  titleCell.value = "정 치 자 금  수 입 · 지 출 부";
-  titleCell.font = { bold: true, size: 16 };
-  titleCell.alignment = { horizontal: "center", vertical: "middle" };
-
-  // --- 금액단위 ---
-  sheet.mergeCells("N2:O2");
-  sheet.getCell("N2").value = "(금액단위 : 원)";
-  sheet.getCell("N2").alignment = { horizontal: "right" };
-  sheet.getCell("N2").font = { size: 9 };
-
-  // --- 계정/과목 정보 ---
-  const accName = accSecCd ? codes[Number(accSecCd)] || "" : "";
-  const itemName = itemSecCd ? codes[Number(itemSecCd)] || "" : "";
-
-  sheet.mergeCells("A3:O3");
-  const infoCell = sheet.getCell("A3");
-  if (accName && itemName) {
-    infoCell.value = `[계 정 명 : ${accName}]  [과 목 명 : ${itemName}]`;
-  } else if (accName) {
-    infoCell.value = `[계 정 명 : ${accName}]`;
-  } else {
-    infoCell.value = `[전체 ${type === "expense" ? "지출" : "수입"} 내역]`;
-  }
-  infoCell.font = { bold: true, size: 11 };
-
-  // --- Column headers (Row 5-6, 2-row merged structure) ---
-  const thinBorder: Partial<ExcelJS.Borders> = {
-    top: { style: "thin" }, bottom: { style: "thin" },
-    left: { style: "thin" }, right: { style: "thin" },
-  };
-  const headerFont: Partial<ExcelJS.Font> = { bold: true, size: 9 };
-  const centerAlign: Partial<ExcelJS.Alignment> = { horizontal: "center", vertical: "middle", wrapText: true };
-
-  // Row 5 headers (merged with Row 6)
-  const h5 = sheet.getRow(5);
-  const h6 = sheet.getRow(6);
-
-  // A: 년월일
-  sheet.mergeCells("A5:A6");
-  h5.getCell(1).value = "년월일";
-
-  // B: 내역
-  sheet.mergeCells("B5:B6");
-  h5.getCell(2).value = "내 역";
-
-  // C-D: 수입액
-  sheet.mergeCells("C5:D5");
-  h5.getCell(3).value = "수 입 액";
-  h6.getCell(3).value = "금회";
-  h6.getCell(4).value = "누계";
-
-  // E-F: 지출액
-  sheet.mergeCells("E5:F5");
-  h5.getCell(5).value = "지 출 액";
-  h6.getCell(5).value = "금회";
-  h6.getCell(6).value = "누계";
-
-  // G: 잔액
-  sheet.mergeCells("G5:G6");
-  h5.getCell(7).value = "잔 액";
-
-  // H-M: 수입을 제공한 자 또는 지출을 받은 자
-  sheet.mergeCells("H5:M5");
-  h5.getCell(8).value = "수입을 제공한 자 또는 지출을 받은 자";
-  h6.getCell(8).value = "성 명\n(법인·단체명)";
-  h6.getCell(9).value = "생년월일\n(사업자번호)";
-  h6.getCell(10).value = "주소 또는 사무소소재지";
-  h6.getCell(11).value = "직업\n(업종)";
-  h6.getCell(12).value = "전화번호";
-
-  // N: 영수증일련번호
-  sheet.mergeCells("N5:N6");
-  h5.getCell(14).value = "영수증\n일련번호";
-
-  // O: 비고
-  sheet.mergeCells("O5:O6");
-  h5.getCell(15).value = "비 고";
-
-  // Apply header styles
-  for (let row = 5; row <= 6; row++) {
-    for (let col = 1; col <= 15; col++) {
-      const cell = sheet.getRow(row).getCell(col);
-      cell.font = headerFont;
-      cell.alignment = centerAlign;
-      cell.border = thinBorder;
-    }
-  }
-
-  // Column widths
-  sheet.getColumn(1).width = 10;  // 년월일
-  sheet.getColumn(2).width = 18;  // 내역
-  sheet.getColumn(3).width = 12;  // 수입금회
-  sheet.getColumn(4).width = 12;  // 수입누계
-  sheet.getColumn(5).width = 12;  // 지출금회
-  sheet.getColumn(6).width = 12;  // 지출누계
-  sheet.getColumn(7).width = 12;  // 잔액
-  sheet.getColumn(8).width = 12;  // 성명
-  sheet.getColumn(9).width = 12;  // 생년월일
-  sheet.getColumn(10).width = 20; // 주소
-  sheet.getColumn(11).width = 8;  // 직업
-  sheet.getColumn(12).width = 14; // 전화번호
-  sheet.getColumn(14).width = 10; // 영수증번호
-  sheet.getColumn(15).width = 8;  // 비고
-
-  // --- Data rows ---
-  let incCum = 0;
-  let expCum = 0;
-  let rowIdx = 7;
-
-  for (const r of records as Record<string, unknown>[]) {
-    const customer = r.customer as Record<string, string> | null;
-    const amt = r.acc_amt as number;
-    const isIncome = (r.incm_sec_cd as number) === 1;
-    const date = r.acc_date as string;
-
-    if (isIncome) incCum += amt;
-    else expCum += amt;
-
-    const row = sheet.getRow(rowIdx);
-    // 년월일: YYYY/MM/DD format
-    row.getCell(1).value = date.length === 8
-      ? `${date.slice(0, 4)}/${date.slice(4, 6)}/${date.slice(6, 8)}`
-      : date;
-    row.getCell(2).value = r.content as string;
-    row.getCell(3).value = isIncome ? amt : null;
-    row.getCell(4).value = isIncome ? incCum : null;
-    row.getCell(5).value = !isIncome ? amt : null;
-    row.getCell(6).value = !isIncome ? expCum : null;
-    row.getCell(7).value = incCum - expCum;
-    row.getCell(8).value = customer?.name || "";
-    row.getCell(9).value = customer?.reg_num || "";
-    row.getCell(10).value = customer?.addr || "";
-    row.getCell(11).value = customer?.job || "";
-    row.getCell(12).value = customer?.tel || "";
-    row.getCell(14).value = r.rcp_no as string || "";
-    row.getCell(15).value = r.bigo as string || "";
-
-    // Apply styles
-    for (let col = 1; col <= 15; col++) {
-      const cell = row.getCell(col);
-      cell.border = thinBorder;
-      cell.font = { size: 9 };
-      if ([3, 4, 5, 6, 7].includes(col)) {
-        cell.numFmt = "#,##0";
-        cell.alignment = { horizontal: "right" };
-      }
-    }
-    rowIdx++;
-  }
-
-  // --- Footer: 작성연월일 + 기관명 + 회계책임자 ---
-  rowIdx += 1;
-  const today = new Date();
-  const dateStr = `${today.getFullYear()}년 ${String(today.getMonth() + 1).padStart(2, "0")}월 ${String(today.getDate()).padStart(2, "0")}일`;
-
-  sheet.mergeCells(`A${rowIdx}:O${rowIdx}`);
-  const footerCell = sheet.getCell(`A${rowIdx}`);
-  footerCell.value = `작성연월일 : ${dateStr}`;
-  footerCell.alignment = { horizontal: "right" };
-
-  rowIdx += 1;
-  sheet.mergeCells(`A${rowIdx}:O${rowIdx}`);
-  const orgCell = sheet.getCell(`A${rowIdx}`);
-  orgCell.value = `${organ?.org_name || ""}   회계책임자  ${organ?.acct_name || ""}  (인)`;
-  orgCell.alignment = { horizontal: "center" };
+  generateLedgerBook(
+    workbook,
+    records as Record<string, unknown>[],
+    organ as { org_name: string; acct_name: string } | null,
+    itemName,
+    isExpense,
+  );
 
   // Generate buffer
   const buffer = await workbook.xlsx.writeBuffer();
-  const fileName = encodeURIComponent(`정치자금수입지출부_${accName || "전체"}_${itemName || ""}.xlsx`);
+  const typeStr = isExpense ? "지출부" : "수입부";
+  const fileName = encodeURIComponent(`${typeStr}_${itemName}.xlsx`);
 
   return new NextResponse(buffer as ArrayBuffer, {
     headers: {

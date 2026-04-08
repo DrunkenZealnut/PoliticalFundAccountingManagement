@@ -60,13 +60,12 @@ export default function ReimbursementPage() {
   function getCust(r: ReimbRow) {
     const c = r.customer;
     if (!c) return { name: "-", regNum: "", addr: "", job: "", tel: "" };
-    const obj = Array.isArray(c) ? c[0] : c;
     return {
-      name: (obj as Record<string, string>)?.name || "-",
-      regNum: (obj as Record<string, string>)?.reg_num || "",
-      addr: (obj as Record<string, string>)?.addr || "",
-      job: (obj as Record<string, string>)?.job || "",
-      tel: (obj as Record<string, string>)?.tel || "",
+      name: c.name || "-",
+      regNum: c.reg_num || "",
+      addr: c.addr || "",
+      job: c.job || "",
+      tel: c.tel || "",
     };
   }
 

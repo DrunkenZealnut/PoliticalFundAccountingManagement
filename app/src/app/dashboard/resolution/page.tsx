@@ -116,7 +116,7 @@ export default function ResolutionPage() {
     let query = supabase
       .from("acc_book")
       .select(
-        "acc_book_id, acc_sec_cd, item_sec_cd, exp_sec_cd, acc_date, content, acc_amt, rcp_yn, rcp_no, acc_ins_type, bigo, customer:cust_id(name)"
+        "acc_book_id, acc_sec_cd, item_sec_cd, exp_sec_cd, acc_date, content, acc_amt, rcp_yn, rcp_no, acc_ins_type, bigo, customer:cust_id(name, reg_num, addr, job, tel)"
       )
       .eq("org_id", orgId)
       .eq("incm_sec_cd", 2)
@@ -162,75 +162,214 @@ export default function ResolutionPage() {
 
     const ExcelJS = (await import("exceljs")).default;
     const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet("지출결의서");
 
-    // Title
-    sheet.mergeCells("A1:H1");
-    const titleCell = sheet.getCell("A1");
-    titleCell.value = "지 출 결 의 서";
-    titleCell.font = { bold: true, size: 14 };
-    titleCell.alignment = { horizontal: "center" };
+    const thin: Partial<import("exceljs").Borders> = {
+      top: { style: "thin" }, bottom: { style: "thin" },
+      left: { style: "thin" }, right: { style: "thin" },
+    };
+    const ctr: Partial<import("exceljs").Alignment> = { horizontal: "center", vertical: "middle", wrapText: true };
+    const bFont: Partial<import("exceljs").Font> = { name: "맑은 고딕", size: 10 };
 
-    // Meta info
-    sheet.getCell("A3").value = "소관부서:";
-    sheet.getCell("B3").value = department || "-";
-    sheet.getCell("D3").value = "정치자금종류:";
-    sheet.getCell("E3").value = fundType || "-";
-    sheet.getCell("A4").value = "지출기간:";
-    sheet.getCell("B4").value = `${dateFrom} ~ ${dateTo}`;
+    const today = new Date();
+    const todayFmt = `${today.getFullYear()}년${String(today.getMonth() + 1).padStart(2, "0")}월${String(today.getDate()).padStart(2, "0")}일`;
 
-    // Headers
-    const headerRow = sheet.getRow(6);
-    const headers = [
-      "번호", "지출일자", "계정", "과목", "지출대상자",
-      "지출내역", "금액", "지출방법", "증빙", "증빙서이름",
-    ];
-    headers.forEach((h, i) => {
-      headerRow.getCell(i + 1).value = h;
-      headerRow.getCell(i + 1).font = { bold: true };
+    function fmtDateKo(d: string) {
+      if (d.length === 8) return `${d.slice(0, 4)}년 ${d.slice(4, 6)}월 ${d.slice(6, 8)}일`;
+      return d;
+    }
+
+    function getCust(c: ResolutionRow["customer"]): Record<string, string> {
+      if (!c) return {};
+      const obj = Array.isArray(c) ? c[0] : c;
+      return (obj || {}) as Record<string, string>;
+    }
+
+    /** Apply thin border to a rectangular range */
+    function applyBorders(sheet: import("exceljs").Worksheet, r1: number, c1: number, r2: number, c2: number) {
+      for (let r = r1; r <= r2; r++) {
+        for (let c = c1; c <= c2; c++) {
+          sheet.getRow(r).getCell(c).border = thin;
+        }
+      }
+    }
+
+    selected.forEach((r, idx) => {
+      const cust = getCust(r.customer);
+      const accName = getName(r.acc_sec_cd);
+      const itemName = getName(r.item_sec_cd);
+      const sheetName = `결의서${idx + 1}`;
+      const ws = workbook.addWorksheet(sheetName);
+
+      /* Row heights */
+      ws.getRow(2).height = 54;
+      ws.getRow(3).height = 26.25;
+      ws.getRow(4).height = 46.5;
+      ws.getRow(5).height = 18.75;
+      for (let i = 6; i <= 18; i++) ws.getRow(i).height = 34.5;
+      for (let i = 19; i <= 21; i++) ws.getRow(i).height = 25.5;
+
+      /* Row 2: Title */
+      ws.mergeCells("A2:G2");
+      const title = ws.getCell("A2");
+      title.value = "지 출 결 의 서";
+      title.font = { ...bFont, bold: true, size: 16 };
+      title.alignment = ctr;
+
+      /* Row 3-4: 결의문 + 결재 */
+      ws.mergeCells("A3:B4");
+      ws.getCell("A3").value = "아래와 같이 지출할 것을 결의함.";
+      ws.getCell("A3").font = bFont;
+      ws.getCell("A3").alignment = { ...ctr, wrapText: true };
+
+      ws.mergeCells("C3:C4");
+      ws.getCell("C3").value = "결\n\n재";
+      ws.getCell("C3").font = { ...bFont, bold: true };
+      ws.getCell("C3").alignment = ctr;
+      // 결재란 D-G columns row 3-4 (stamp boxes)
+      for (let c = 3; c <= 7; c++) {
+        ws.getRow(3).getCell(c).border = thin;
+        ws.getRow(4).getCell(c).border = thin;
+      }
+
+      /* Row 5: Date */
+      ws.mergeCells("A5:B5");
+      ws.getCell("A5").value = fmtDateKo(r.acc_date);
+      ws.getCell("A5").font = bFont;
+      ws.getCell("A5").alignment = ctr;
+      ws.mergeCells("C5:G5");
+
+      /* Row 6: 소관부서 + 청구일자 */
+      ws.getCell("A6").value = "소 관 (발 의)\n부         서";
+      ws.getCell("A6").font = bFont;
+      ws.getCell("A6").alignment = ctr;
+      ws.getCell("B6").value = department || "";
+      ws.getCell("B6").font = bFont;
+      ws.getCell("B6").alignment = ctr;
+      ws.mergeCells("C6:D6");
+      ws.getCell("C6").value = "청 구 일 자";
+      ws.getCell("C6").font = bFont;
+      ws.getCell("C6").alignment = ctr;
+      ws.mergeCells("E6:G6");
+      ws.getCell("E6").value = todayFmt;
+      ws.getCell("E6").font = bFont;
+      ws.getCell("E6").alignment = ctr;
+
+      /* Row 7-8: 정치자금종류 + 지출금액 + 지출과목 */
+      ws.getCell("A7").value = "정치자금 종류";
+      ws.getCell("A7").font = bFont;
+      ws.getCell("A7").alignment = ctr;
+      ws.getCell("B7").value = fundType || accName;
+      ws.getCell("B7").font = bFont;
+      ws.getCell("B7").alignment = ctr;
+      ws.mergeCells("C7:D8");
+      ws.getCell("C7").value = "지 출 금 액";
+      ws.getCell("C7").font = bFont;
+      ws.getCell("C7").alignment = ctr;
+      ws.mergeCells("E7:G8");
+      ws.getCell("E7").value = r.acc_amt;
+      ws.getCell("E7").numFmt = "#,##0";
+      ws.getCell("E7").font = { ...bFont, bold: true, size: 12 };
+      ws.getCell("E7").alignment = ctr;
+
+      ws.getCell("A8").value = "지 출 과 목";
+      ws.getCell("A8").font = bFont;
+      ws.getCell("A8").alignment = ctr;
+      ws.getCell("B8").value = itemName;
+      ws.getCell("B8").font = bFont;
+      ws.getCell("B8").alignment = ctr;
+
+      /* Row 9: 적요 header */
+      ws.mergeCells("A9:B9");
+      ws.getCell("A9").value = "적        요";
+      ws.getCell("A9").font = bFont;
+      ws.getCell("A9").alignment = ctr;
+      ws.mergeCells("C9:D9");
+      ws.getCell("C9").value = "구   분";
+      ws.getCell("C9").font = bFont;
+      ws.getCell("C9").alignment = ctr;
+      ws.getCell("E9").value = "일 자";
+      ws.getCell("E9").font = bFont;
+      ws.getCell("E9").alignment = ctr;
+      ws.mergeCells("F9:G9");
+      ws.getCell("F9").value = "담당자";
+      ws.getCell("F9").font = bFont;
+      ws.getCell("F9").alignment = ctr;
+
+      /* Row 10-12: 적요 body */
+      ws.mergeCells("A10:B12");
+      ws.getCell("A10").value = r.content;
+      ws.getCell("A10").font = bFont;
+      ws.getCell("A10").alignment = { ...ctr, wrapText: true };
+
+      ws.mergeCells("C10:D10");
+      ws.getCell("C10").value = "계   약";
+      ws.getCell("C10").font = bFont;
+      ws.getCell("C10").alignment = ctr;
+      ws.mergeCells("C11:D11");
+      ws.getCell("C11").value = "검   수";
+      ws.getCell("C11").font = bFont;
+      ws.getCell("C11").alignment = ctr;
+      ws.mergeCells("C12:D12");
+      ws.getCell("C12").value = "회계장부기록";
+      ws.getCell("C12").font = bFont;
+      ws.getCell("C12").alignment = ctr;
+
+      ws.mergeCells("F10:G10");
+      ws.mergeCells("F11:G11");
+      ws.mergeCells("F12:G12");
+
+      /* Row 13-18: 수령인 */
+      ws.mergeCells("A13:B13");
+      ws.getCell("A13").value = "수    령    인";
+      ws.getCell("A13").font = { ...bFont, bold: true };
+      ws.getCell("A13").alignment = ctr;
+      ws.mergeCells("C13:G18");
+
+      const custLabels: [string, string][] = [
+        ["성        명\n(법인·단체명)", cust.name || ""],
+        ["생 년 월 일\n(사업자번호)", cust.reg_num || ""],
+        ["주        소\n(사무소소재지)", cust.addr || ""],
+        ["직        업\n(업      종)", cust.job || ""],
+        ["전 화 번 호", cust.tel || ""],
+      ];
+      custLabels.forEach(([label, val], i) => {
+        const row = 14 + i;
+        ws.getCell(`A${row}`).value = label;
+        ws.getCell(`A${row}`).font = bFont;
+        ws.getCell(`A${row}`).alignment = ctr;
+        ws.getCell(`B${row}`).value = val;
+        ws.getCell(`B${row}`).font = bFont;
+        ws.getCell(`B${row}`).alignment = { vertical: "middle", wrapText: true };
+      });
+
+      /* Row 19-21: Footnotes */
+      ws.mergeCells("A19:G19");
+      ws.getCell("A19").value = "주 1. 적요란은 지출내역( 지출의 목적, 지출일자 등 )을 구체적으로기재하되, 별지 제36호 서식 구입·지급\n      품의서의 적요란 또는 내부결재의 기재내용과 같아야 합니다";
+      ws.getCell("A19").font = { ...bFont, size: 8 };
+      ws.getCell("A19").alignment = { vertical: "top", wrapText: true };
+
+      ws.mergeCells("A20:G20");
+      ws.getCell("A20").value = '   2. "정치자금 종류" 란에는 별표 1  "수입·지출과목 해소표"의 수입과목을,    지출과목은 그  별표 1의  \n      지출과목을 기재합니다.';
+      ws.getCell("A20").font = { ...bFont, size: 8 };
+      ws.getCell("A20").alignment = { vertical: "top", wrapText: true };
+
+      ws.mergeCells("A21:G21");
+      ws.getCell("A21").value = "   3. 지출결의서에는 구입·지급품의서 또는 내부결재문서 및 지출관련 증빙자료(계약서 등)를  첨부하여야\n      합니다.";
+      ws.getCell("A21").font = { ...bFont, size: 8 };
+      ws.getCell("A21").alignment = { vertical: "top", wrapText: true };
+
+      /* Apply borders to form area (rows 5-18) */
+      applyBorders(ws, 5, 1, 18, 7);
+
+      /* Column widths (approximate to template) */
+      ws.getColumn(1).width = 11;
+      ws.getColumn(2).width = 14;
+      ws.getColumn(3).width = 7;
+      ws.getColumn(4).width = 7;
+      ws.getColumn(5).width = 7;
+      ws.getColumn(6).width = 5;
+      ws.getColumn(7).width = 10;
     });
-
-    // Data
-    let totalAmt = 0;
-    selected.forEach((r, i) => {
-      const row = sheet.getRow(7 + i);
-      row.getCell(1).value = i + 1;
-      row.getCell(2).value = fmtDate(r.acc_date);
-      row.getCell(3).value = getName(r.acc_sec_cd);
-      row.getCell(4).value = getName(r.item_sec_cd);
-      row.getCell(5).value = getCustName(r.customer);
-      row.getCell(6).value = r.content;
-      row.getCell(7).value = r.acc_amt;
-      row.getCell(7).numFmt = "#,##0";
-      row.getCell(8).value = r.acc_ins_type
-        ? PAY_METHODS[r.acc_ins_type] || r.acc_ins_type
-        : "-";
-      row.getCell(9).value = r.rcp_yn === "Y" ? "O" : "X";
-      row.getCell(10).value = r.rcp_yn === "Y" && r.rcp_no
-        ? buildReceiptLabel(getName(r.acc_sec_cd), getName(r.item_sec_cd), r.rcp_no)
-        : "";
-      totalAmt += r.acc_amt;
-    });
-
-    // Total row
-    const totalRow = sheet.getRow(7 + selected.length);
-    totalRow.getCell(1).value = "합계";
-    totalRow.getCell(1).font = { bold: true };
-    totalRow.getCell(7).value = totalAmt;
-    totalRow.getCell(7).numFmt = "#,##0";
-    totalRow.getCell(7).font = { bold: true };
-
-    // Column widths
-    sheet.getColumn(1).width = 6;
-    sheet.getColumn(2).width = 12;
-    sheet.getColumn(3).width = 14;
-    sheet.getColumn(4).width = 14;
-    sheet.getColumn(5).width = 14;
-    sheet.getColumn(6).width = 30;
-    sheet.getColumn(7).width = 15;
-    sheet.getColumn(8).width = 12;
-    sheet.getColumn(9).width = 6;
-    sheet.getColumn(10).width = 14;
 
     const buffer = await workbook.xlsx.writeBuffer();
     const blob = new Blob([buffer], {
