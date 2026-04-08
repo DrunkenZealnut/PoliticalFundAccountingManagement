@@ -25,6 +25,7 @@ interface ScanResult {
   expenseCategory: string;  // "선거비용" | "선거비용외"
   expenseType1: string;     // 대분류
   expenseType2: string;     // 중분류
+  expenseType3: string;     // 소분류
   payMethod: string;        // 결제수단
 }
 
@@ -302,6 +303,9 @@ export default function DocumentRegisterPage() {
         customerName: data.provider || "",
         providerRegNum: data.regNum || "",
         acc_ins_type: payCode,
+        exp_group1_cd: data.expenseType1 || "",
+        exp_group2_cd: data.expenseType2 || "",
+        exp_group3_cd: data.expenseType3 || "",
         rcp_yn: "Y",
         rcp_no: autoRcpNo,
       });
@@ -623,7 +627,7 @@ export default function DocumentRegisterPage() {
                           {entry.error && <span className="text-sm text-red-600">{entry.error}</span>}
                           {!entry.scanning && entry.item_sec_cd > 0 && (
                             <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
-                              AI 자동채움 완료
+                              AI 추천{entry.exp_group1_cd ? `: ${entry.exp_group1_cd}` : ""}
                             </span>
                           )}
                           <Button variant="outline" size="sm" onClick={() => removeEntry(entry.id)}>삭제</Button>
