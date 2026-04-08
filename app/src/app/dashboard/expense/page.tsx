@@ -246,6 +246,7 @@ export default function ExpensePage() {
   const [activeFilters, setActiveFilters] = useState<SearchFilters | null>(null);
   const [searchAccSecCd, setSearchAccSecCd] = useState(0);
   const [checkedIds, setCheckedIds] = useState<Set<number>>(new Set());
+  const [evidenceFile, setEvidenceFile] = useState<{ name: string; type: string; base64: string } | null>(null);
 
   // Search dropdown options
   const searchAccountOptions = orgSecCd ? getAccounts(orgSecCd, 2) : [];
@@ -409,6 +410,7 @@ export default function ExpensePage() {
   function resetForm() {
     setSelected(null);
     setSelectedCustomerName("");
+    setEvidenceFile(null);
     setForm({
       acc_sec_cd: 0,
       item_sec_cd: 0,
@@ -533,10 +535,24 @@ export default function ExpensePage() {
         return;
       }
     } else {
-      const { error } = await supabase.from("acc_book").insert(payload);
+      const { data: inserted, error } = await supabase.from("acc_book").insert(payload).select("acc_book_id").single();
       if (error) {
         alert(`등록 실패: ${error.message}`);
         return;
+      }
+      // 증빙파일 업로드
+      if (evidenceFile && inserted?.acc_book_id) {
+        await fetch("/api/evidence-file", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            accBookId: inserted.acc_book_id,
+            orgId,
+            fileName: evidenceFile.name,
+            fileType: evidenceFile.type,
+            fileData: evidenceFile.base64,
+          }),
+        });
       }
     }
     resetForm();
@@ -929,6 +945,34 @@ export default function ExpensePage() {
                 />
               </div>
             )}
+          </div>
+
+          {/* 증빙파일 첨부 */}
+          <div>
+            <Label>증빙파일</Label>
+            <div className="flex items-center gap-2 mt-1">
+              <Input
+                type="file"
+                accept="image/*,application/pdf"
+                className="flex-1"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) { setEvidenceFile(null); return; }
+                  const reader = new FileReader();
+                  reader.onload = () => {
+                    const base64 = (reader.result as string).split(",")[1];
+                    setEvidenceFile({ name: file.name, type: file.type, base64 });
+                  };
+                  reader.readAsDataURL(file);
+                }}
+              />
+              {evidenceFile && (
+                <span className="text-xs text-green-600 whitespace-nowrap">
+                  {evidenceFile.name}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-gray-400 mt-1">영수증/계약서 이미지 (JPG, PNG, PDF)</p>
           </div>
         </div>
       </div>
