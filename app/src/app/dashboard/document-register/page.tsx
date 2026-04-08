@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useAuth } from "@/stores/auth";
 import { useCodeValues } from "@/hooks/use-code-values";
 import { Button } from "@/components/ui/button";
@@ -43,6 +43,10 @@ interface ParsedEntry {
   providerRegNum: string;
 }
 
+const DEFAULT_CUST_SEC_CD = 63;   // 개인 거래처 유형
+const DEFAULT_REG_NUM = "9999";   // 사업자번호 미확인 시 기본값
+const NO_CUSTOMER_ID = -999;      // 거래처 미지정 sentinel
+
 /* ------------------------------------------------------------------ */
 /*  Page                                                               */
 /* ------------------------------------------------------------------ */
@@ -64,6 +68,14 @@ export default function DocumentRegisterPage() {
   const typeLabel = isExpense ? "지출" : "수입";
 
   const accountOptions = orgSecCd ? getAccounts(orgSecCd, incmSecCd) : [];
+
+  // Cleanup object URLs on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      entries.forEach((e) => { if (e.preview) URL.revokeObjectURL(e.preview); });
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- cleanup on unmount only
+  }, []);
 
   function fmt(n: number) { return n.toLocaleString("ko-KR"); }
 
@@ -122,7 +134,7 @@ export default function DocumentRegisterPage() {
   }
 
   /* ---- Handle file selection ---- */
-  async function handleFiles(files: FileList | File[]) {
+  const handleFiles = useCallback(async (files: FileList | File[]) => {
     const fileArr = Array.from(files).filter((f) =>
       f.type.startsWith("image/") || f.type === "application/pdf"
     );
@@ -171,7 +183,8 @@ export default function DocumentRegisterPage() {
     for (let i = 0; i < fileArr.length; i++) {
       scanFile(newEntries[i], fileArr[i]);
     }
-  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entries.length]);
 
   /* ---- Update entry helper ---- */
   function updateEntry(id: number, patch: Partial<ParsedEntry>) {
@@ -182,7 +195,11 @@ export default function DocumentRegisterPage() {
 
   /* ---- Remove entry ---- */
   function removeEntry(id: number) {
-    setEntries((prev) => prev.filter((e) => e.id !== id));
+    setEntries((prev) => {
+      const target = prev.find((e) => e.id === id);
+      if (target?.preview) URL.revokeObjectURL(target.preview);
+      return prev.filter((e) => e.id !== id);
+    });
   }
 
   /* ---- Drag & Drop ---- */
@@ -192,8 +209,7 @@ export default function DocumentRegisterPage() {
     if (e.dataTransfer.files.length > 0) {
       handleFiles(e.dataTransfer.files);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entries.length]);
+  }, [handleFiles]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -230,9 +246,9 @@ export default function DocumentRegisterPage() {
             body: JSON.stringify({
               action: "insert",
               data: {
-                cust_sec_cd: 63,
+                cust_sec_cd: DEFAULT_CUST_SEC_CD,
                 name: e.customerName.trim(),
-                reg_num: e.providerRegNum || "9999",
+                reg_num: e.providerRegNum || DEFAULT_REG_NUM,
               },
             }),
           });
@@ -249,7 +265,7 @@ export default function DocumentRegisterPage() {
         acc_sec_cd: e.acc_sec_cd,
         item_sec_cd: e.item_sec_cd,
         exp_sec_cd: 0,
-        cust_id: custId || -999,
+        cust_id: custId || NO_CUSTOMER_ID,
         acc_date: e.acc_date.replace(/-/g, ""),
         content: e.content,
         acc_amt: e.acc_amt,
@@ -558,6 +574,7 @@ export default function DocumentRegisterPage() {
               customerName: c.name || "",
             });
           }
+          setCustomerDialogOpen(false);
         }}
       />
     </div>

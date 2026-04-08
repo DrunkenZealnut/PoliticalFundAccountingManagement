@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+function getGenAI() {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) throw new Error("GEMINI_API_KEY 환경변수가 설정되지 않았습니다.");
+  return new GoogleGenerativeAI(key);
+}
 
 export const maxDuration = 60;
 
@@ -41,6 +45,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const genAI = getGenAI();
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     const result = await model.generateContent([
