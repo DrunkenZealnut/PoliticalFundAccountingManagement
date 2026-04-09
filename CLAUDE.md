@@ -38,11 +38,15 @@ cd app && npx vitest run src/components/chat/ChatBubble.test.tsx
 ### Next.js 16 Warning
 This uses Next.js 16 which has breaking changes from training data. Always read `node_modules/next/dist/docs/` before writing Next.js-specific code. See `app/AGENTS.md`.
 
+### DB Schema Gotcha
+- `acc_ins_type` column is `VARCHAR(5)` (was CHAR(2), widened via `scripts/008`). PAY_METHODS codes are 3 chars ("118", "583").
+- All dates stored as `YYYYMMDD` strings (not DATE type). UI uses `YYYY-MM-DD`, convert on save/display.
+
 ### Source Layout (`app/src/`)
 
 ```
-app/api/          → 8 API route groups (chat, codes, customers, acc-book, excel/*, system/*, address/search)
-app/dashboard/    → 27 pages: income, expense, receipt, customer, reports, backup, settlement, etc.
+app/api/          → 10 API route groups (chat, codes, customers, acc-book, excel/*, system/*, address/search, receipt-scan, evidence-file)
+app/dashboard/    → 28 pages including wizard (beginner), document-register (OCR), income, expense, reports, etc.
 app/login/        → Supabase email/password auth
 components/chat/  → ChatBubble (FAQ browser + AI chat, well-tested)
 components/ui/    → shadcn/ui primitives (Button, Card, Dialog, Table, etc.)
@@ -50,6 +54,8 @@ hooks/            → use-chat, use-code-values, use-donation-limit, use-sort, u
 lib/supabase/     → client.ts (browser), server.ts (SSR), middleware.ts (session)
 lib/chat/         → FAQ data, election cost guide, sample accounting data
 lib/accounting/   → Business logic (balance calculation, validation)
+lib/expense-types.ts → Shared 3-level expense type data (선거비용/선거비용외) + PAY_METHODS
+lib/wizard-mappings.ts → Wizard card definitions + code auto-mapping
 lib/excel-template/ → Excel report generation with data-query
 stores/           → auth.ts (user + org state), help-mode.ts
 types/database.ts → Supabase-generated types for pfam schema
@@ -92,6 +98,20 @@ Two distinct export systems:
 2. **Batch report output** (`reports/page.tsx` client-side) — generates multi-sheet workbook with covers, 정치자금 수입·지출부 (13-column combined income+expense format), grouped by account+subject combo
 
 Excel generation uses ExcelJS directly (not templates) to match official election commission form layouts. Each account/subject combination produces one sheet with both income and expense records sorted by date.
+
+### Evidence File Storage
+
+Uploaded receipt/contract images are stored in Supabase Storage (`evidence` bucket) and linked to `acc_book` entries via the `evidence_file` table:
+- `/api/receipt-scan` — Gemini 2.5 Flash Vision OCR (extracts date, amount, provider, content)
+- `/api/evidence-file` — upload to Supabase Storage + metadata to `pfam.evidence_file`
+- Max file size: 10MB. Schema: `scripts/007_evidence_file_table.sql`
+
+### Expense Type Architecture
+
+3-level expense type hierarchy shared across expense page, document-register, and wizard:
+- `lib/expense-types.ts` — single source of truth (ELECTION_EXP_TYPES, NON_ELECTION_EXP_TYPES)
+- `detectItemCategory(expGroup1)` — determines 선거비용 vs 선거비용외 from expense type name
+- Never duplicate this data in page files — always import from the shared module
 
 ### Auth Flow
 
