@@ -174,6 +174,21 @@ export function getExpTypeData(itemName: string): ExpType1[] {
   return [];
 }
 
+/**
+ * 지출유형 대분류(expGroup1)로 과목 카테고리 판별
+ * "선거비용" | "선거비용외" | null (양쪽 모두 존재하거나 없는 경우)
+ */
+export function detectItemCategory(expGroup1: string): "선거비용" | "선거비용외" | null {
+  if (!expGroup1) return null;
+  const inElection = ELECTION_EXP_TYPES.some((t) => t.label === expGroup1);
+  const inNonElection = NON_ELECTION_EXP_TYPES.some((t) => t.label === expGroup1);
+  // 양쪽 모두에 있으면 판별 불가 (선거사무소, 기타)
+  if (inElection && inNonElection) return null;
+  if (inElection) return "선거비용";
+  if (inNonElection) return "선거비용외";
+  return null;
+}
+
 export const PAY_METHODS = [
   { value: "118", label: "계좌입금" },
   { value: "119", label: "카드" },

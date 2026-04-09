@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CodeSelect } from "@/components/code-select";
 import { CustomerSearchDialog } from "@/components/customer-search-dialog";
-import { getExpTypeData, PAY_METHODS } from "@/lib/expense-types";
+import { getExpTypeData, detectItemCategory, PAY_METHODS } from "@/lib/expense-types";
 import {
   EXPENSE_WIZARD_TYPES,
   INCOME_WIZARD_TYPES,
@@ -204,8 +204,22 @@ export default function WizardPage() {
   const accountOptions = orgSecCd ? getAccounts(orgSecCd, incmSecCd) : [];
   const itemOptions = orgSecCd && autoSet.acc_sec_cd ? getItems(orgSecCd, incmSecCd, autoSet.acc_sec_cd) : [];
   const itemName = autoSet.item_sec_cd ? getName(autoSet.item_sec_cd) : "";
-  const expTypes = isExpense && orgType !== "supporter" ? getExpTypeData(itemName) : [];
-  const level2Items = expTypes.find((t) => t.label === autoSet.exp_group1_cd)?.level2 || [];
+  // 마법사에서는 선거비용 + 선거비용외 지출유형을 모두 표시 (중복 제거)
+  const allExpTypes = isExpense && orgType !== "supporter"
+    ? (() => {
+        const elec = getExpTypeData("선거비용");
+        const nonElec = getExpTypeData("선거비용외");
+        const merged = [...elec];
+        for (const t of nonElec) {
+          if (!merged.some((m) => m.label === t.label)) merged.push(t);
+        }
+        return merged;
+      })()
+    : [];
+  // 현재 선택된 지출유형1의 하위 데이터는 해당 카테고리에서 조회
+  const currentCategoryTypes = getExpTypeData(itemName);
+  const level2Items = (currentCategoryTypes.length > 0 ? currentCategoryTypes : allExpTypes)
+    .find((t) => t.label === autoSet.exp_group1_cd)?.level2 || [];
   const level3Items = level2Items.find((t) => t.label === form.exp_group2_cd)?.level3 || [];
 
   if (codesLoading) {
@@ -391,14 +405,34 @@ export default function WizardPage() {
             </div>
 
             {/* 지출유형 */}
-            {isExpense && expTypes.length > 0 && (
+            {isExpense && allExpTypes.length > 0 && (
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <Label className="text-xs">지출유형1</Label>
                   <select className="w-full border rounded px-2 py-1.5 text-sm" value={autoSet.exp_group1_cd}
-                    onChange={(e) => setAutoSet({ ...autoSet, exp_group1_cd: e.target.value })}>
+                    onChange={(e) => {
+                      const newGroup1 = e.target.value;
+                      const newAutoSet = { ...autoSet, exp_group1_cd: newGroup1 };
+                      // 지출유형1으로 과목(선거비용/선거비용외) 자동 판별
+                      if (orgSecCd && newGroup1) {
+                        const category = detectItemCategory(newGroup1);
+                        if (category) {
+                          const items = getItems(orgSecCd, 2, autoSet.acc_sec_cd);
+                          const match = category === "선거비용외"
+                            ? items.find((i) => i.cv_name.includes("선거비용외"))
+                            : items.find((i) => i.cv_name.includes("선거비용") && !i.cv_name.includes("선거비용외"));
+                          if (match) newAutoSet.item_sec_cd = match.cv_id;
+                        }
+                      }
+                      setAutoSet(newAutoSet);
+                      setForm({ ...form, exp_group2_cd: "", exp_group3_cd: "" });
+                    }}>
                     <option value="">선택</option>
-                    {expTypes.map((t) => <option key={t.label} value={t.label}>{t.label}</option>)}
+                    {allExpTypes.map((t) => {
+                      const cat = detectItemCategory(t.label);
+                      const suffix = cat ? ` (${cat})` : "";
+                      return <option key={t.label} value={t.label}>{t.label}{suffix}</option>;
+                    })}
                   </select>
                 </div>
                 <div>
