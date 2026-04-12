@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/stores/auth";
 import { useCodeValues } from "@/hooks/use-code-values";
@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CodeSelect } from "@/components/code-select";
 import { CustomerSearchDialog } from "@/components/customer-search-dialog";
-import { getExpTypeData, detectItemCategory, PAY_METHODS } from "@/lib/expense-types";
+import { getExpTypeData, detectItemCategory, getReimbursementStatus, PAY_METHODS } from "@/lib/expense-types";
 import {
   EXPENSE_WIZARD_TYPES,
   INCOME_WIZARD_TYPES,
@@ -21,11 +21,25 @@ import {
 const DEFAULT_CUST_SEC_CD = 63;
 const DEFAULT_REG_NUM = "9999";
 const NO_CUSTOMER_ID = -999;
+const GUIDE_DISMISSED_KEY = "wizard-guide-dismissed";
 
 function todayStr() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
+
+type SaveResult =
+  | { status: "success"; summary: string }
+  | { status: "partial"; summary: string; warning: string; accBookId: number }
+  | { status: "error"; message: string };
+
+type ValidationErrors = {
+  acc_sec_cd?: string;
+  item_sec_cd?: string;
+  acc_date?: string;
+  acc_amt?: string;
+  content?: string;
+};
 
 export default function WizardPage() {
   const router = useRouter();
@@ -34,10 +48,18 @@ export default function WizardPage() {
 
   const [mode, setMode] = useState<"expense" | "income">("expense");
   const [step, setStep] = useState(1);
+  const [showStep1_5, setShowStep1_5] = useState(false);
   const [selectedType, setSelectedType] = useState<WizardType | null>(null);
   const [searchKeyword, setSearchKeyword] = useState("");
   const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saveResult, setSaveResult] = useState<SaveResult | null>(null);
+  const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
+  const [guideDismissed, setGuideDismissed] = useState(true);
+
+  useEffect(() => {
+    setGuideDismissed(localStorage.getItem(GUIDE_DISMISSED_KEY) === "true");
+  }, []);
 
   // Step 2 form
   const [form, setForm] = useState({
@@ -71,9 +93,28 @@ export default function WizardPage() {
 
   function fmt(n: number) { return n.toLocaleString("ko-KR"); }
 
+  function dismissGuide() {
+    setGuideDismissed(true);
+    localStorage.setItem(GUIDE_DISMISSED_KEY, "true");
+  }
+
+  function resetWizard() {
+    setStep(1);
+    setShowStep1_5(false);
+    setSelectedType(null);
+    setSearchKeyword("");
+    setEvidenceFile(null);
+    setSaveResult(null);
+    setValidationErrors({});
+    setForm({
+      acc_date: todayStr(), acc_amt: 0, content: "", cust_id: 0, customerName: "",
+      rcp_yn: "Y", rcp_no: "", bigo: "", acc_ins_type: "118", exp_group2_cd: "", exp_group3_cd: "",
+    });
+    setAutoSet({ acc_sec_cd: 0, item_sec_cd: 0, exp_group1_cd: "" });
+  }
+
   /* ---- Step 1: 카드 선택 ---- */
   function handleCardSelect(type: WizardType) {
-    // 영수증첨부 카드 → document-register로 이동
     if (type.route) {
       router.push(type.route);
       return;
@@ -96,22 +137,44 @@ export default function WizardPage() {
       }));
     }
 
+    // "기타" 카드 → Step 1.5 (지출유형 직접 선택)
+    if ((type.id === "other-expense" || type.id === "other-income") && !type.expGroup1) {
+      setShowStep1_5(true);
+    } else {
+      setShowStep1_5(false);
+      setStep(2);
+    }
+  }
+
+  /* ---- Step 1.5 → Step 2 전환 ---- */
+  function handleStep1_5Next() {
+    setShowStep1_5(false);
     setStep(2);
+  }
+
+  /* ---- Validation ---- */
+  function validate(): boolean {
+    const errors: ValidationErrors = {};
+    if (!autoSet.acc_sec_cd) errors.acc_sec_cd = "계정을 선택하세요";
+    if (!autoSet.item_sec_cd) errors.item_sec_cd = "과목을 선택하세요";
+    if (!form.acc_date) errors.acc_date = "날짜를 입력하세요";
+    if (form.acc_amt <= 0) errors.acc_amt = "금액을 입력하세요";
+    if (!form.content.trim()) errors.content = "내역을 입력하세요";
+    setValidationErrors(errors);
+    return Object.keys(errors).length === 0;
   }
 
   /* ---- Step 3: 저장 ---- */
   async function handleSave() {
     if (!orgId) return;
-    if (!autoSet.acc_sec_cd) { alert("계정을 선택하세요."); return; }
-    if (!autoSet.item_sec_cd) { alert("과목을 선택하세요."); return; }
-    if (!form.acc_date) { alert("날짜를 입력하세요."); return; }
-    if (form.acc_amt <= 0) { alert("금액을 입력하세요."); return; }
-    if (!form.content.trim()) { alert("내역을 입력하세요."); return; }
+    if (!validate()) return;
 
     setSaving(true);
+    setSaveResult(null);
 
     // 거래처 자동 등록
     let custId = form.cust_id;
+    let custWarning = "";
     if (!custId && form.customerName.trim()) {
       try {
         const r = await fetch("/api/customers", {
@@ -122,8 +185,15 @@ export default function WizardPage() {
             reg_num: DEFAULT_REG_NUM,
           }}),
         });
-        if (r.ok) { const d = await r.json(); custId = d.cust_id; }
-      } catch { /* fallback */ }
+        if (r.ok) {
+          const d = await r.json();
+          custId = d.cust_id;
+        } else {
+          custWarning = "거래처 자동등록에 실패했습니다. 거래처 없이 저장됩니다.";
+        }
+      } catch {
+        custWarning = "거래처 자동등록에 실패했습니다. 거래처 없이 저장됩니다.";
+      }
     }
 
     // 증빙서번호 자동 채번
@@ -131,8 +201,13 @@ export default function WizardPage() {
     if (form.rcp_yn === "Y" && !rcpNo) {
       try {
         const r = await fetch(`/api/acc-book?orgId=${orgId}&incmSecCd=${incmSecCd}&maxRcpNo=1`);
-        if (r.ok) { const d = await r.json(); rcpNo = String((d.maxRcpNo ?? 0) + 1); }
-      } catch { /* empty */ }
+        if (r.ok) {
+          const d = await r.json();
+          rcpNo = String((d.maxRcpNo ?? 0) + 1);
+        }
+      } catch {
+        // 채번 실패 시 빈값으로 진행 (critical하지 않음)
+      }
     }
 
     const payload: Record<string, unknown> = {
@@ -160,43 +235,45 @@ export default function WizardPage() {
       });
 
       if (!res.ok) {
-        const err = await res.json();
-        alert(`등록 실패: ${err.error}`);
+        const err = await res.json().catch(() => ({ error: "서버 오류" }));
         setSaving(false);
+        setSaveResult({ status: "error", message: err.error || "등록에 실패했습니다" });
         return;
       }
 
       const accBook = await res.json();
+      const summary = `${selectedType?.icon} ${selectedType?.label} · ${form.customerName || "-"} · ${fmt(form.acc_amt)}원 · ${form.acc_date} · ${form.content}`;
 
       // 증빙파일 업로드
+      let evidenceWarning = "";
       if (evidenceFile && accBook.acc_book_id) {
-        await fetch("/api/evidence-file", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            accBookId: accBook.acc_book_id, orgId,
-            fileName: evidenceFile.name, fileType: evidenceFile.type, fileData: evidenceFile.base64,
-          }),
-        });
+        try {
+          const evRes = await fetch("/api/evidence-file", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              accBookId: accBook.acc_book_id, orgId,
+              fileName: evidenceFile.name, fileType: evidenceFile.type, fileData: evidenceFile.base64,
+            }),
+          });
+          if (!evRes.ok) {
+            evidenceWarning = "증빙파일 저장에 실패했습니다. 내역관리에서 다시 첨부해주세요.";
+          }
+        } catch {
+          evidenceWarning = "증빙파일 저장에 실패했습니다. 내역관리에서 다시 첨부해주세요.";
+        }
       }
 
       setSaving(false);
 
-      if (confirm("등록 완료! 추가 등록하시겠습니까?")) {
-        // 리셋
-        setStep(1);
-        setSelectedType(null);
-        setSearchKeyword("");
-        setEvidenceFile(null);
-        setForm({
-          acc_date: todayStr(), acc_amt: 0, content: "", cust_id: 0, customerName: "",
-          rcp_yn: "Y", rcp_no: "", bigo: "", acc_ins_type: "118", exp_group2_cd: "", exp_group3_cd: "",
-        });
+      const warning = [custWarning, evidenceWarning].filter(Boolean).join(" ");
+      if (warning) {
+        setSaveResult({ status: "partial", summary, warning, accBookId: accBook.acc_book_id });
       } else {
-        router.push(isExpense ? "/dashboard/expense" : "/dashboard/income");
+        setSaveResult({ status: "success", summary });
       }
     } catch {
-      alert("등록 중 오류가 발생했습니다.");
       setSaving(false);
+      setSaveResult({ status: "error", message: "네트워크 오류가 발생했습니다. 인터넷 연결을 확인하세요." });
     }
   }
 
@@ -204,7 +281,6 @@ export default function WizardPage() {
   const accountOptions = orgSecCd ? getAccounts(orgSecCd, incmSecCd) : [];
   const itemOptions = orgSecCd && autoSet.acc_sec_cd ? getItems(orgSecCd, incmSecCd, autoSet.acc_sec_cd) : [];
   const itemName = autoSet.item_sec_cd ? getName(autoSet.item_sec_cd) : "";
-  // 마법사에서는 선거비용 + 선거비용외 지출유형을 모두 표시 (중복 제거)
   const allExpTypes = isExpense && orgType !== "supporter"
     ? (() => {
         const elec = getExpTypeData("선거비용");
@@ -216,7 +292,6 @@ export default function WizardPage() {
         return merged;
       })()
     : [];
-  // 현재 선택된 지출유형1의 하위 데이터는 해당 카테고리에서 조회
   const currentCategoryTypes = getExpTypeData(itemName);
   const level2Items = (currentCategoryTypes.length > 0 ? currentCategoryTypes : allExpTypes)
     .find((t) => t.label === autoSet.exp_group1_cd)?.level2 || [];
@@ -239,10 +314,10 @@ export default function WizardPage() {
         {[1, 2, 3].map((s) => (
           <div key={s} className="flex items-center gap-2">
             <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold
-              ${step >= s ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-500"}`}>
-              {s}
+              ${saveResult ? "bg-green-600 text-white" : step >= s ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-500"}`}>
+              {saveResult ? "✓" : s}
             </div>
-            <span className={`text-xs ${step >= s ? "text-blue-600" : "text-gray-400"}`}>
+            <span className={`text-xs hidden sm:inline ${step >= s ? "text-blue-600" : "text-gray-400"}`}>
               {s === 1 ? "유형선택" : s === 2 ? "정보입력" : "확인/저장"}
             </span>
             {s < 3 && <div className={`w-12 h-0.5 ${step > s ? "bg-blue-600" : "bg-gray-200"}`} />}
@@ -251,7 +326,7 @@ export default function WizardPage() {
       </div>
 
       {/* Mode toggle */}
-      {step === 1 && (
+      {step === 1 && !showStep1_5 && (
         <div className="flex justify-center gap-2">
           <Button variant={mode === "expense" ? "default" : "outline"} size="sm"
             onClick={() => { setMode("expense"); setSearchKeyword(""); }}>
@@ -265,11 +340,20 @@ export default function WizardPage() {
       )}
 
       {/* ============ Step 1: 카드 선택 ============ */}
-      {step === 1 && (
+      {step === 1 && !showStep1_5 && (
         <div className="space-y-4">
           <div className="text-center">
             <p className="text-lg font-semibold">어떤 종류의 {isExpense ? "지출" : "수입"}인가요?</p>
           </div>
+
+          {/* 첫 방문 안내 */}
+          {!guideDismissed && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-gray-600 flex items-start gap-2">
+              <span className="shrink-0">💡</span>
+              <span>거래 종류를 선택하면 복잡한 계정·과목을 시스템이 자동으로 설정합니다. 카드를 골라보세요!</span>
+              <button onClick={dismissGuide} className="shrink-0 text-gray-400 hover:text-gray-600 text-xs ml-auto">✕</button>
+            </div>
+          )}
 
           {/* 검색 */}
           <div className="max-w-sm mx-auto">
@@ -280,13 +364,22 @@ export default function WizardPage() {
             />
           </div>
 
+          {/* 빈 검색 결과 메시지 */}
+          {searchKeyword && matchedIds.size === 0 && (
+            <p className="text-center text-sm text-gray-500">
+              &apos;{searchKeyword}&apos;에 맞는 항목이 없습니다. &apos;기타&apos;를 선택하거나 다른 키워드를 시도하세요.
+            </p>
+          )}
+
           {/* 카드 그리드 */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3" role="radiogroup" aria-label="거래 유형 선택">
             {types.map((type) => {
               const isMatch = matchedIds.has(type.id);
               return (
                 <button
                   key={type.id}
+                  role="radio"
+                  aria-checked={selectedType?.id === type.id}
                   onClick={() => handleCardSelect(type)}
                   className={`p-4 rounded-lg border-2 text-center transition-all hover:shadow-md
                     ${isMatch ? "border-gray-200 hover:border-blue-400 bg-white" : "border-gray-100 bg-gray-50 opacity-40"}
@@ -298,6 +391,78 @@ export default function WizardPage() {
                 </button>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* ============ Step 1.5: 기타 → 지출유형 직접 선택 ============ */}
+      {step === 1 && showStep1_5 && selectedType && (
+        <div className="bg-white rounded-lg border p-6 space-y-4">
+          <div className="flex items-center gap-3 mb-2">
+            <span className="text-3xl">{selectedType.icon}</span>
+            <div>
+              <h3 className="font-bold text-lg">어떤 종류의 지출인지 선택해주세요</h3>
+              <p className="text-sm text-gray-500">지출유형을 선택하면 과목이 자동으로 설정됩니다</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <Label className="text-sm">지출유형1</Label>
+              <select className="w-full mt-1 border rounded px-3 py-2 text-sm" value={autoSet.exp_group1_cd}
+                onChange={(e) => {
+                  const newGroup1 = e.target.value;
+                  const newAutoSet = { ...autoSet, exp_group1_cd: newGroup1 };
+                  if (orgSecCd && newGroup1) {
+                    const category = detectItemCategory(newGroup1);
+                    if (category) {
+                      const items = getItems(orgSecCd, 2, autoSet.acc_sec_cd);
+                      const match = category === "선거비용외"
+                        ? items.find((i) => i.cv_name.includes("선거비용외"))
+                        : items.find((i) => i.cv_name.includes("선거비용") && !i.cv_name.includes("선거비용외"));
+                      if (match) newAutoSet.item_sec_cd = match.cv_id;
+                    }
+                  }
+                  setAutoSet(newAutoSet);
+                  setForm({ ...form, exp_group2_cd: "", exp_group3_cd: "" });
+                }}>
+                <option value="">선택</option>
+                {allExpTypes.map((t) => {
+                  const cat = detectItemCategory(t.label);
+                  const suffix = cat ? ` (${cat})` : "";
+                  return <option key={t.label} value={t.label}>{t.label}{suffix}</option>;
+                })}
+              </select>
+            </div>
+            <div>
+              <Label className="text-sm">지출유형2</Label>
+              <select className="w-full mt-1 border rounded px-3 py-2 text-sm" value={form.exp_group2_cd}
+                onChange={(e) => setForm({ ...form, exp_group2_cd: e.target.value, exp_group3_cd: "" })}
+                disabled={!autoSet.exp_group1_cd}>
+                <option value="">선택</option>
+                {level2Items.map((t) => <option key={t.label} value={t.label}>{t.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <Label className="text-sm">지출유형3</Label>
+              <select className="w-full mt-1 border rounded px-3 py-2 text-sm" value={form.exp_group3_cd}
+                onChange={(e) => setForm({ ...form, exp_group3_cd: e.target.value })}
+                disabled={!form.exp_group2_cd || level3Items.length === 0}>
+                <option value="">{level3Items.length === 0 ? "-" : "선택"}</option>
+                {level3Items.map((v) => <option key={v} value={v}>{v}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <p className="text-xs text-gray-500">💡 잘 모르겠다면 &quot;선거사무소 &gt; 기타&quot;를 선택하세요</p>
+
+          <div className="flex justify-between pt-4 border-t">
+            <Button variant="outline" onClick={() => { setShowStep1_5(false); setSelectedType(null); }}>
+              ← 이전
+            </Button>
+            <Button onClick={handleStep1_5Next} disabled={!autoSet.exp_group1_cd}>
+              다음 →
+            </Button>
           </div>
         </div>
       )}
@@ -328,9 +493,15 @@ export default function WizardPage() {
             <div>
               <Label>금액</Label>
               <Input type="number" value={form.acc_amt || ""}
-                onChange={(e) => setForm({ ...form, acc_amt: Number(e.target.value) })}
-                placeholder="금액 입력" />
-              {form.acc_amt > 0 && (
+                onChange={(e) => {
+                  setForm({ ...form, acc_amt: Number(e.target.value) });
+                  if (validationErrors.acc_amt) setValidationErrors({ ...validationErrors, acc_amt: undefined });
+                }}
+                placeholder="금액 입력"
+                inputMode="numeric"
+                className={validationErrors.acc_amt ? "border-red-500" : ""} />
+              {validationErrors.acc_amt && <p className="text-xs text-red-600 mt-1">{validationErrors.acc_amt}</p>}
+              {!validationErrors.acc_amt && form.acc_amt > 0 && (
                 <p className="text-xs text-blue-600 mt-1">{fmt(form.acc_amt)}원</p>
               )}
             </div>
@@ -354,8 +525,13 @@ export default function WizardPage() {
             <div className="md:col-span-2">
               <Label>내역</Label>
               <Input value={form.content}
-                onChange={(e) => setForm({ ...form, content: e.target.value })}
-                placeholder={`${isExpense ? "지출" : "수입"} 내역을 입력하세요`} />
+                onChange={(e) => {
+                  setForm({ ...form, content: e.target.value });
+                  if (validationErrors.content) setValidationErrors({ ...validationErrors, content: undefined });
+                }}
+                placeholder={`${isExpense ? "지출" : "수입"} 내역을 입력하세요`}
+                className={validationErrors.content ? "border-red-500" : ""} />
+              {validationErrors.content && <p className="text-xs text-red-600 mt-1">{validationErrors.content}</p>}
             </div>
 
             {/* 증빙파일 */}
@@ -376,7 +552,15 @@ export default function WizardPage() {
           </div>
 
           <div className="flex justify-between pt-4 border-t">
-            <Button variant="outline" onClick={() => { setStep(1); setSelectedType(null); }}>
+            <Button variant="outline" onClick={() => {
+              if (selectedType?.id === "other-expense" || selectedType?.id === "other-income") {
+                setStep(1);
+                setShowStep1_5(true);
+              } else {
+                setStep(1);
+                setSelectedType(null);
+              }
+            }}>
               ← 이전
             </Button>
             <Button onClick={() => setStep(3)}
@@ -388,7 +572,7 @@ export default function WizardPage() {
       )}
 
       {/* ============ Step 3: 확인/저장 ============ */}
-      {step === 3 && selectedType && (
+      {step === 3 && selectedType && !saveResult && (
         <div className="bg-white rounded-lg border p-6 space-y-4">
           <h3 className="font-bold text-lg">등록 내용을 확인하세요</h3>
 
@@ -396,15 +580,21 @@ export default function WizardPage() {
           <div className="bg-blue-50 rounded-lg p-4 space-y-3">
             <p className="text-sm font-semibold text-blue-700">자동 설정 (수정 가능)</p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <CodeSelect label="계정" value={autoSet.acc_sec_cd}
-                onChange={(v) => setAutoSet({ ...autoSet, acc_sec_cd: v, item_sec_cd: 0 })}
-                options={accountOptions} placeholder="계정" />
-              <CodeSelect label="과목" value={autoSet.item_sec_cd}
-                onChange={(v) => setAutoSet({ ...autoSet, item_sec_cd: v })}
-                options={itemOptions} placeholder="과목" disabled={!autoSet.acc_sec_cd} />
+              <div>
+                <CodeSelect label="계정" value={autoSet.acc_sec_cd}
+                  onChange={(v) => setAutoSet({ ...autoSet, acc_sec_cd: v, item_sec_cd: 0 })}
+                  options={accountOptions} placeholder="계정" />
+                {validationErrors.acc_sec_cd && <p className="text-xs text-red-600 mt-1">{validationErrors.acc_sec_cd}</p>}
+              </div>
+              <div>
+                <CodeSelect label="과목" value={autoSet.item_sec_cd}
+                  onChange={(v) => setAutoSet({ ...autoSet, item_sec_cd: v })}
+                  options={itemOptions} placeholder="과목" disabled={!autoSet.acc_sec_cd} />
+                {validationErrors.item_sec_cd && <p className="text-xs text-red-600 mt-1">{validationErrors.item_sec_cd}</p>}
+              </div>
             </div>
 
-            {/* 지출유형 */}
+            {/* 지출유형 (기타가 아닌 경우 Step 3에서 수정 가능) */}
             {isExpense && allExpTypes.length > 0 && (
               <div className="grid grid-cols-3 gap-3">
                 <div>
@@ -413,7 +603,6 @@ export default function WizardPage() {
                     onChange={(e) => {
                       const newGroup1 = e.target.value;
                       const newAutoSet = { ...autoSet, exp_group1_cd: newGroup1 };
-                      // 지출유형1으로 과목(선거비용/선거비용외) 자동 판별
                       if (orgSecCd && newGroup1) {
                         const category = detectItemCategory(newGroup1);
                         if (category) {
@@ -455,6 +644,27 @@ export default function WizardPage() {
                 </div>
               </div>
             )}
+
+            {/* 보전 여부 자동 판별 */}
+            {isExpense && (() => {
+              const reimbursement = getReimbursementStatus(itemName, autoSet.exp_group1_cd, form.exp_group2_cd);
+              const colors = {
+                "보전": "bg-green-50 border-green-200 text-green-700",
+                "미보전": "bg-red-50 border-red-200 text-red-700",
+                "선거비용외": "bg-gray-50 border-gray-200 text-gray-600",
+                "판별불가": "bg-yellow-50 border-yellow-200 text-yellow-700",
+              };
+              const icons = { "보전": "✓", "미보전": "✕", "선거비용외": "—", "판별불가": "?" };
+              return (
+                <div className={`flex items-start gap-2 p-3 rounded-md border text-sm ${colors[reimbursement.status]}`}>
+                  <span className="font-bold shrink-0">{icons[reimbursement.status]}</span>
+                  <div>
+                    <span className="font-semibold">보전 여부: {reimbursement.status}</span>
+                    <p className="text-xs mt-0.5 opacity-80">{reimbursement.reason}</p>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
 
           {/* 입력 내용 확인 */}
@@ -500,6 +710,58 @@ export default function WizardPage() {
             <Button onClick={handleSave} disabled={saving}>
               {saving ? "저장 중..." : "등록하기"}
             </Button>
+          </div>
+        </div>
+      )}
+
+      {/* ============ Save Result Banners ============ */}
+      {saveResult?.status === "success" && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-6 space-y-4" role="alert">
+          <div className="flex items-center gap-2 text-green-700 font-semibold">
+            <span className="text-xl">✓</span>
+            <span>등록이 완료되었습니다!</span>
+          </div>
+          <div className="bg-white rounded border border-green-100 p-3 text-sm text-gray-700">
+            {saveResult.summary}
+          </div>
+          <div className="flex gap-3">
+            <Button onClick={resetWizard}>추가 등록하기</Button>
+            <Button variant="outline" onClick={() => router.push(isExpense ? "/dashboard/expense" : "/dashboard/income")}>
+              {isExpense ? "지출" : "수입"}내역 보기
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {saveResult?.status === "partial" && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-6 space-y-4" role="alert">
+          <div className="flex items-center gap-2 text-amber-700 font-semibold">
+            <span className="text-xl">⚠</span>
+            <span>등록은 완료되었으나 일부 문제가 있습니다</span>
+          </div>
+          <div className="bg-white rounded border border-amber-100 p-3 text-sm text-gray-700">
+            {saveResult.summary}
+          </div>
+          <p className="text-sm text-amber-700">{saveResult.warning}</p>
+          <div className="flex gap-3">
+            <Button onClick={resetWizard}>추가 등록하기</Button>
+            <Button variant="outline" onClick={() => router.push(isExpense ? "/dashboard/expense" : "/dashboard/income")}>
+              {isExpense ? "지출" : "수입"}내역 보기
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {saveResult?.status === "error" && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-6 space-y-4" role="alert">
+          <div className="flex items-center gap-2 text-red-700 font-semibold">
+            <span className="text-xl">✕</span>
+            <span>저장에 실패했습니다</span>
+          </div>
+          <p className="text-sm text-red-600">{saveResult.message}</p>
+          <div className="flex gap-3">
+            <Button onClick={() => { setSaveResult(null); handleSave(); }}>다시 시도</Button>
+            <Button variant="outline" onClick={() => setSaveResult(null)}>돌아가기</Button>
           </div>
         </div>
       )}
