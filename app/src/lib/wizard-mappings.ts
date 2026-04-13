@@ -220,3 +220,106 @@ export function searchWizardTypes(types: WizardType[], keyword: string): Set<str
   }
   return matched;
 }
+
+/* ---- 지출유형 추론 (텍스트 키워드 → 지출유형 3단계 매핑) ---- */
+
+import { ELECTION_EXP_TYPES } from "./expense-types";
+
+export interface InferredExpenseType {
+  wizardType: WizardType | null;
+  expGroup1: string;
+  expGroup2: string;
+  expGroup3: string;
+  confidence: number;           // 0.0 ~ 1.0
+}
+
+/** level2 라벨 → { group1, group2 } 인덱스 (한 번만 빌드) */
+const LEVEL2_INDEX = new Map<string, { group1: string; group2: string }>();
+for (const t1 of ELECTION_EXP_TYPES) {
+  for (const t2 of t1.level2) {
+    LEVEL2_INDEX.set(t2.label.toLowerCase(), { group1: t1.label, group2: t2.label });
+  }
+}
+
+/** 텍스트 키워드에서 가장 적합한 WizardType + 지출유형 3단계를 추론 */
+export function inferExpenseType(
+  keywords: string[],
+  types: WizardType[] = EXPENSE_WIZARD_TYPES,
+): InferredExpenseType {
+  const empty: InferredExpenseType = {
+    wizardType: null, expGroup1: "", expGroup2: "", expGroup3: "", confidence: 0,
+  };
+  if (keywords.length === 0) return empty;
+
+  // Step 1: level2 정확 매칭 (confidence 0.9)
+  for (const kw of keywords) {
+    const match = LEVEL2_INDEX.get(kw.toLowerCase());
+    if (match) {
+      const wt = types.find(
+        (t) => t.expGroup1 === match.group1 || t.keywords.some((k) => k.includes(kw.toLowerCase()))
+      ) || null;
+      const level2Data = ELECTION_EXP_TYPES
+        .find((t) => t.label === match.group1)
+        ?.level2.find((t) => t.label === match.group2);
+      return {
+        wizardType: wt,
+        expGroup1: match.group1,
+        expGroup2: match.group2,
+        expGroup3: level2Data?.level3[0] || "",
+        confidence: 0.9,
+      };
+    }
+  }
+
+  // Step 2: WizardType keywords 매칭 (confidence 0.7)
+  let bestType: WizardType | null = null;
+  let bestScore = 0;
+  for (const t of types) {
+    if (t.route) continue; // 영수증첨부 카드 제외
+    let score = 0;
+    for (const kw of keywords) {
+      if (t.keywords.some((tk) => tk.includes(kw.toLowerCase()))) score++;
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      bestType = t;
+    }
+  }
+  if (bestType && bestScore > 0) {
+    const g1 = bestType.expGroup1 || "";
+    const level2Data = g1
+      ? ELECTION_EXP_TYPES.find((t) => t.label === g1)?.level2[0]
+      : undefined;
+    return {
+      wizardType: bestType,
+      expGroup1: g1,
+      expGroup2: level2Data?.label || "",
+      expGroup3: level2Data?.level3[0] || "",
+      confidence: 0.7,
+    };
+  }
+
+  // Step 3: 부분 문자열 매칭 (confidence 0.5)
+  for (const kw of keywords) {
+    for (const t of types) {
+      if (t.route) continue;
+      if (
+        t.label.toLowerCase().includes(kw.toLowerCase()) ||
+        t.description.toLowerCase().includes(kw.toLowerCase())
+      ) {
+        const g1 = t.expGroup1 || "";
+        return {
+          wizardType: t,
+          expGroup1: g1,
+          expGroup2: "",
+          expGroup3: "",
+          confidence: 0.5,
+        };
+      }
+    }
+  }
+
+  // Step 4: 매칭 없음
+  const otherType = types.find((t) => t.id === "other-expense") || null;
+  return { ...empty, wizardType: otherType };
+}

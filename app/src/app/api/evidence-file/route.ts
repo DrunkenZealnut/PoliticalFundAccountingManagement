@@ -10,6 +10,16 @@ const supabase = createClient(
 const BUCKET = "evidence";
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
+export const maxDuration = 60;
+
+/** 버킷 존재 확인 및 자동 생성 */
+async function ensureBucket() {
+  const { data } = await supabase.storage.getBucket(BUCKET);
+  if (!data) {
+    await supabase.storage.createBucket(BUCKET, { public: false });
+  }
+}
+
 /**
  * GET /api/evidence-file?accBookId=123
  * 특정 acc_book 항목의 증빙파일 목록 조회
@@ -58,7 +68,10 @@ export async function POST(request: NextRequest) {
 
     const storagePath = `${orgId}/${Date.now()}_${fileName}`;
 
-    // Supabase Storage에 업로드 (same client — storage is schema-independent)
+    // 버킷 존재 확인 (없으면 자동 생성)
+    await ensureBucket();
+
+    // Supabase Storage에 업로드
     const { error: uploadError } = await supabase.storage
       .from(BUCKET)
       .upload(storagePath, buffer, { contentType: fileType, upsert: false });

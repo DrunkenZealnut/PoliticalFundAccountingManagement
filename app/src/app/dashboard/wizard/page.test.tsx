@@ -48,6 +48,11 @@ vi.mock("@/components/customer-search-dialog", () => ({
 }));
 
 vi.mock("@/lib/expense-types", () => ({
+  ELECTION_EXP_TYPES: [
+    { label: "선거사무소", level2: [{ label: "기타", level3: [] }] },
+    { label: "인쇄물", level2: [{ label: "명함", level3: ["인쇄비"] }] },
+  ],
+  NON_ELECTION_EXP_TYPES: [],
   getExpTypeData: () => [
     { label: "선거사무소", level2: [{ label: "기타", level3: [] }] },
     { label: "인쇄물", level2: [{ label: "명함", level3: ["인쇄비"] }] },
@@ -128,6 +133,57 @@ describe("WizardPage", () => {
     fireEvent.click(otherCards[0]);
     expect(screen.getByText("어떤 종류의 지출인지 선택해주세요")).toBeTruthy();
   });
+
+  /* ---- Quick Register Tab Tests ---- */
+
+  it("shows quick register tab", () => {
+    render(<WizardPage />);
+    expect(screen.getAllByText("빠른 등록").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("카드 선택").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("switches to quick register tab on click", () => {
+    render(<WizardPage />);
+    const quickTabs = screen.getAllByText("빠른 등록");
+    fireEvent.click(quickTabs[0]);
+    expect(screen.getByPlaceholderText(/현수막 제작/)).toBeTruthy();
+  });
+
+  it("shows analyze button disabled when text is empty", () => {
+    render(<WizardPage />);
+    const quickTabs = screen.getAllByText("빠른 등록");
+    fireEvent.click(quickTabs[0]);
+    const analyzeBtn = screen.getByText("자동 분석하기").closest("button");
+    expect(analyzeBtn?.disabled).toBe(true);
+  });
+
+  it("enables analyze button when text is entered", () => {
+    render(<WizardPage />);
+    const quickTabs = screen.getAllByText("빠른 등록");
+    fireEvent.click(quickTabs[0]);
+    const textarea = screen.getByPlaceholderText(/현수막 제작/);
+    fireEvent.change(textarea, { target: { value: "명함 인쇄 50만원" } });
+    const analyzeBtn = screen.getByText("자동 분석하기").closest("button");
+    expect(analyzeBtn?.disabled).toBe(false);
+  });
+
+  it("switches back to card tab preserving state", () => {
+    render(<WizardPage />);
+    const quickTabs = screen.getAllByText("빠른 등록");
+    fireEvent.click(quickTabs[0]);
+    const cardTabs = screen.getAllByText("카드 선택");
+    fireEvent.click(cardTabs[0]);
+    expect(screen.getAllByText("사무소").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("shows file attachment input in quick register", () => {
+    render(<WizardPage />);
+    const quickTabs = screen.getAllByText("빠른 등록");
+    fireEvent.click(quickTabs[0]);
+    expect(screen.getAllByText("첨부파일 (선택)").length).toBeGreaterThanOrEqual(1);
+  });
+
+  /* ---- Card Mode Tests ---- */
 
   it("disables 다음 button when form is incomplete", () => {
     render(<WizardPage />);

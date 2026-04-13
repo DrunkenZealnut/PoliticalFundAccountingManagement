@@ -4,6 +4,7 @@ import {
   INCOME_WIZARD_TYPES,
   resolveCodeValues,
   searchWizardTypes,
+  inferExpenseType,
   type WizardType,
 } from "./wizard-mappings";
 import { getReimbursementStatus } from "./expense-types";
@@ -168,6 +169,81 @@ describe("wizard-mappings", () => {
     it("should match across income types too", () => {
       const result = searchWizardTypes(INCOME_WIZARD_TYPES, "후원");
       expect(result.has("donation")).toBe(true);
+    });
+  });
+
+  describe("inferExpenseType", () => {
+    it("should return empty result for no keywords", () => {
+      const result = inferExpenseType([]);
+      expect(result.confidence).toBe(0);
+      expect(result.wizardType).toBeNull();
+    });
+
+    it("Step 1: should match level2 labels with confidence 0.9", () => {
+      const result = inferExpenseType(["명함"]);
+      expect(result.confidence).toBe(0.9);
+      expect(result.expGroup1).toBe("인쇄물");
+      expect(result.expGroup2).toBe("명함");
+      expect(result.expGroup3).toBeTruthy();
+    });
+
+    it("Step 1: should match 선거벽보 as level2", () => {
+      const result = inferExpenseType(["선거벽보"]);
+      expect(result.confidence).toBe(0.9);
+      expect(result.expGroup1).toBe("인쇄물");
+      expect(result.expGroup2).toBe("선거벽보");
+    });
+
+    it("Step 1: should match 신문광고 as level2", () => {
+      const result = inferExpenseType(["신문광고"]);
+      expect(result.confidence).toBe(0.9);
+      expect(result.expGroup1).toBe("광고");
+    });
+
+    it("Step 2: should match WizardType keywords with confidence 0.7", () => {
+      // "설치"와 "철거"는 level2 라벨이 아니므로 Step 2로 떨어짐
+      const result = inferExpenseType(["설치", "철거"]);
+      expect(result.confidence).toBe(0.7);
+      expect(result.wizardType).not.toBeNull();
+      expect(result.wizardType?.id).toBe("banner");
+    });
+
+    it("Step 2: should prefer type with more keyword matches", () => {
+      const result = inferExpenseType(["사무소", "임대"]);
+      expect(result.confidence).toBe(0.7);
+      expect(result.wizardType?.id).toBe("office");
+    });
+
+    it("Step 2: should skip route-only cards", () => {
+      const result = inferExpenseType(["영수증"]);
+      // "영수증" matches receipt-scan card (has route), should be skipped
+      // It may match via Step 3 substring or fall to "기타"
+      expect(result.wizardType?.route).toBeFalsy();
+    });
+
+    it("Step 3: should do substring match with confidence 0.5", () => {
+      const result = inferExpenseType(["광고"]);
+      // "광고" exactly matches ad card label, could be Step 2 or 3
+      expect(result.confidence).toBeGreaterThanOrEqual(0.5);
+      expect(result.wizardType?.id).toBe("ad");
+    });
+
+    it("Step 4: should return other-expense for unrecognized keywords", () => {
+      const result = inferExpenseType(["xyz없는키워드"]);
+      expect(result.confidence).toBe(0);
+      expect(result.wizardType?.id).toBe("other-expense");
+    });
+
+    it("should populate expGroup1 from matched WizardType", () => {
+      const result = inferExpenseType(["수당", "사무원"]);
+      expect(result.confidence).toBe(0.7);
+      expect(result.expGroup1).toBe("선거사무관계자");
+    });
+
+    it("should set wizardType for level2 match when expGroup1 matches a card", () => {
+      const result = inferExpenseType(["명함"]);
+      expect(result.wizardType).not.toBeNull();
+      // "인쇄물" matches the print card's expGroup1
     });
   });
 

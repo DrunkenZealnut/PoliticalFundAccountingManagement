@@ -15,8 +15,10 @@ import {
   INCOME_WIZARD_TYPES,
   resolveCodeValues,
   searchWizardTypes,
+  inferExpenseType,
   type WizardType,
 } from "@/lib/wizard-mappings";
+import { parseExpenseText, compareWithOcr, type OcrComparison } from "@/lib/text-parser";
 
 const DEFAULT_CUST_SEC_CD = 63;
 const DEFAULT_REG_NUM = "9999";
@@ -56,6 +58,19 @@ export default function WizardPage() {
   const [saveResult, setSaveResult] = useState<SaveResult | null>(null);
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
   const [guideDismissed, setGuideDismissed] = useState(true);
+  const [activeTab, setActiveTab] = useState<"card" | "quick">("card");
+
+  // Quick register state
+  const [inputText, setInputText] = useState("");
+  const [quickFile, setQuickFile] = useState<{ name: string; type: string; base64: string } | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [quickAnalysis, setQuickAnalysis] = useState<{
+    parsed: ReturnType<typeof parseExpenseText>;
+    inferred: ReturnType<typeof inferExpenseType>;
+    ocrResult: { amount: number; date: string; provider: string; regNum: string; addr: string; content: string; payMethod: string } | null;
+    ocrComparison: OcrComparison | null;
+    customerMatch: { matched: boolean; custId: number; isNew: boolean; ocrData?: { regNum?: string; addr?: string } } | null;
+  } | null>(null);
 
   useEffect(() => {
     setGuideDismissed(localStorage.getItem(GUIDE_DISMISSED_KEY) === "true");
@@ -111,6 +126,9 @@ export default function WizardPage() {
       rcp_yn: "Y", rcp_no: "", bigo: "", acc_ins_type: "118", exp_group2_cd: "", exp_group3_cd: "",
     });
     setAutoSet({ acc_sec_cd: 0, item_sec_cd: 0, exp_group1_cd: "" });
+    setInputText("");
+    setQuickFile(null);
+    setQuickAnalysis(null);
   }
 
   /* ---- Step 1: 카드 선택 ---- */
@@ -177,13 +195,19 @@ export default function WizardPage() {
     let custWarning = "";
     if (!custId && form.customerName.trim()) {
       try {
+        // OCR 데이터가 있으면 사업자번호/주소 포함하여 등록
+        const ocrData = quickAnalysis?.ocrResult;
+        const custData: Record<string, unknown> = {
+          cust_sec_cd: DEFAULT_CUST_SEC_CD,
+          name: form.customerName.trim(),
+          reg_num: ocrData?.regNum || DEFAULT_REG_NUM,
+          reg_date: todayStr().replace(/-/g, ""),
+        };
+        if (ocrData?.addr) custData.addr = ocrData.addr;
+
         const r = await fetch("/api/customers", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "insert", data: {
-            cust_sec_cd: DEFAULT_CUST_SEC_CD,
-            name: form.customerName.trim(),
-            reg_num: DEFAULT_REG_NUM,
-          }}),
+          body: JSON.stringify({ action: "insert", data: custData }),
         });
         if (r.ok) {
           const d = await r.json();
@@ -244,22 +268,24 @@ export default function WizardPage() {
       const accBook = await res.json();
       const summary = `${selectedType?.icon} ${selectedType?.label} · ${form.customerName || "-"} · ${fmt(form.acc_amt)}원 · ${form.acc_date} · ${form.content}`;
 
-      // 증빙파일 업로드
+      // 증빙파일 업로드 (카드 모드: evidenceFile, 빠른 등록: quickFile)
+      const fileToUpload = evidenceFile || quickFile;
       let evidenceWarning = "";
-      if (evidenceFile && accBook.acc_book_id) {
+      if (fileToUpload && accBook.acc_book_id) {
         try {
           const evRes = await fetch("/api/evidence-file", {
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               accBookId: accBook.acc_book_id, orgId,
-              fileName: evidenceFile.name, fileType: evidenceFile.type, fileData: evidenceFile.base64,
+              fileName: fileToUpload.name, fileType: fileToUpload.type, fileData: fileToUpload.base64,
             }),
           });
           if (!evRes.ok) {
-            evidenceWarning = "증빙파일 저장에 실패했습니다. 내역관리에서 다시 첨부해주세요.";
+            const evErr = await evRes.json().catch(() => ({ error: "알 수 없는 오류" }));
+            evidenceWarning = `증빙파일 저장 실패: ${evErr.error || "서버 오류"}. 내역관리에서 다시 첨부해주세요.`;
           }
-        } catch {
-          evidenceWarning = "증빙파일 저장에 실패했습니다. 내역관리에서 다시 첨부해주세요.";
+        } catch (err) {
+          evidenceWarning = `증빙파일 저장 실패: ${err instanceof Error ? err.message : "네트워크 오류"}. 내역관리에서 다시 첨부해주세요.`;
         }
       }
 
@@ -275,6 +301,106 @@ export default function WizardPage() {
       setSaving(false);
       setSaveResult({ status: "error", message: "네트워크 오류가 발생했습니다. 인터넷 연결을 확인하세요." });
     }
+  }
+
+  /* ---- Quick Register: 분석 ---- */
+  async function handleQuickAnalyze() {
+    if (!inputText.trim()) return;
+    setAnalyzing(true);
+    setQuickAnalysis(null);
+    setSaveResult(null);
+
+    // 1. 텍스트 파싱
+    const parsed = parseExpenseText(inputText);
+
+    // 2. 지출유형 추론
+    const inferred = inferExpenseType(parsed.keywords, EXPENSE_WIZARD_TYPES);
+
+    // 3. 코드값 자동 매핑
+    if (orgSecCd && inferred.wizardType) {
+      const { accSecCd, itemSecCd } = resolveCodeValues(inferred.wizardType, orgSecCd, getAccounts, getItems);
+      setAutoSet({ acc_sec_cd: accSecCd, item_sec_cd: itemSecCd, exp_group1_cd: inferred.expGroup1 });
+    }
+
+    // 4. 폼 필드 설정
+    setForm((prev) => ({
+      ...prev,
+      acc_amt: parsed.amount || prev.acc_amt,
+      acc_date: parsed.date || todayStr(),
+      content: parsed.content || prev.content,
+      customerName: parsed.customerName || prev.customerName,
+      cust_id: 0,
+      acc_ins_type: parsed.payMethod || "118",
+      exp_group2_cd: inferred.expGroup2 || "",
+      exp_group3_cd: inferred.expGroup3 || "",
+    }));
+
+    setSelectedType(inferred.wizardType);
+
+    // 5. OCR (파일 있을 때)
+    let ocrResult: { amount: number; date: string; provider: string; regNum: string; addr: string; content: string; payMethod: string } | null = null;
+    if (quickFile) {
+      try {
+        const res = await fetch("/api/receipt-scan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image: quickFile.base64, mimeType: quickFile.type }),
+        });
+        if (res.ok) {
+          const ocr = await res.json();
+          ocrResult = ocr;
+          // OCR 결과로 폼 보완 (텍스트에서 추출 못한 필드)
+          if (!parsed.amount && ocr.amount) {
+            setForm((prev) => ({ ...prev, acc_amt: ocr.amount }));
+          }
+          if (!parsed.date && ocr.date) {
+            const d = ocr.date as string;
+            const formatted = d.length === 8 ? `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}` : d;
+            setForm((prev) => ({ ...prev, acc_date: formatted }));
+          }
+          if (!parsed.customerName && ocr.provider) {
+            setForm((prev) => ({ ...prev, customerName: ocr.provider }));
+          }
+          if (ocr.content && !parsed.content) {
+            setForm((prev) => ({ ...prev, content: ocr.content }));
+          }
+        }
+      } catch { /* OCR 실패는 무시, 텍스트 파싱 결과만 사용 */ }
+    }
+
+    // 6. OCR 교차검증
+    const ocrComparison = ocrResult ? compareWithOcr(parsed, ocrResult) : null;
+
+    // 7. 거래처 검색 — API에서 이름 ILIKE 검색, 결과를 클라이언트에서 재검증
+    const custName = parsed.customerName || ocrResult?.provider || "";
+    let customerMatch: { matched: boolean; custId: number; isNew: boolean; ocrData?: { regNum?: string; addr?: string } } | null = null;
+    if (custName) {
+      try {
+        const res = await fetch(`/api/customers?search=${encodeURIComponent(custName)}`);
+        if (res.ok) {
+          const data = await res.json();
+          const customers = Array.isArray(data) ? data : data.data || [];
+          // 클라이언트 재검증: 이름에 검색어가 포함되거나 검색어에 이름이 포함되는 결과만
+          const nameLC = custName.toLowerCase();
+          const verified = customers.filter((c: { name?: string }) =>
+            c.name && (c.name.toLowerCase().includes(nameLC) || nameLC.includes(c.name.toLowerCase()))
+          );
+          if (verified.length > 0) {
+            customerMatch = { matched: true, custId: verified[0].cust_id, isNew: false };
+            setForm((prev) => ({ ...prev, cust_id: verified[0].cust_id, customerName: verified[0].name || custName }));
+          } else {
+            customerMatch = {
+              matched: false, custId: 0, isNew: true,
+              ocrData: ocrResult ? { regNum: ocrResult.regNum, addr: ocrResult.addr } : undefined,
+            };
+          }
+        }
+      } catch { /* 검색 실패는 무시 */ }
+    }
+
+    setQuickAnalysis({ parsed, inferred, ocrResult, ocrComparison, customerMatch });
+    setAnalyzing(false);
+    setStep(3); // 확인/저장 화면으로
   }
 
   /* ---- Render helpers ---- */
@@ -309,6 +435,20 @@ export default function WizardPage() {
         <p className="text-gray-500 text-sm mt-1">3단계로 간편하게 회계자료를 등록하세요</p>
       </div>
 
+      {/* Tab selector */}
+      {!saveResult && step <= 1 && !showStep1_5 && (
+        <div className="flex justify-center border-b">
+          <button onClick={() => { setActiveTab("card"); setQuickAnalysis(null); }}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === "card" ? "border-[#1B3A5C] text-[#1B3A5C]" : "border-transparent text-gray-500 hover:text-gray-700"}`}>
+            카드 선택
+          </button>
+          <button onClick={() => { setActiveTab("quick"); setStep(1); }}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === "quick" ? "border-[#1B3A5C] text-[#1B3A5C]" : "border-transparent text-gray-500 hover:text-gray-700"}`}>
+            빠른 등록
+          </button>
+        </div>
+      )}
+
       {/* Step indicator */}
       <div className="flex items-center justify-center gap-2">
         {[1, 2, 3].map((s) => (
@@ -325,8 +465,134 @@ export default function WizardPage() {
         ))}
       </div>
 
+      {/* ============ Quick Register Tab ============ */}
+      {activeTab === "quick" && step === 1 && !quickAnalysis && (
+        <div className="bg-white rounded-lg border p-6 space-y-4">
+          <div>
+            <Label className="text-base font-semibold">지출 내용을 입력하세요</Label>
+            <textarea
+              className="w-full mt-2 border rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:border-blue-500"
+              rows={2}
+              placeholder='예: "현수막 제작 30만원 OO간판점 4/10 카드"'
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+            />
+            <p className="text-xs text-gray-400 mt-1">금액, 날짜, 결제수단, 거래처를 자동으로 추출합니다</p>
+          </div>
+
+          <div>
+            <Label>첨부파일 (선택)</Label>
+            <Input type="file" accept="image/*,application/pdf" className="mt-1"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) { setQuickFile(null); return; }
+                const reader = new FileReader();
+                reader.onload = () => {
+                  setQuickFile({ name: file.name, type: file.type, base64: (reader.result as string).split(",")[1] });
+                };
+                reader.readAsDataURL(file);
+              }} />
+            {quickFile && <p className="text-xs text-green-600 mt-1">{quickFile.name} (OCR로 교차검증됩니다)</p>}
+          </div>
+
+          <Button onClick={handleQuickAnalyze} disabled={!inputText.trim() || analyzing}
+            className="w-full bg-[#D4883A] hover:bg-[#E8A45C] text-white">
+            {analyzing ? "분석 중..." : "자동 분석하기"}
+          </Button>
+        </div>
+      )}
+
+      {/* Quick analysis → OCR comparison (if available) */}
+      {activeTab === "quick" && quickAnalysis && step === 3 && !saveResult && quickAnalysis.ocrComparison && (
+        <div className="bg-white rounded-lg border p-4 space-y-2">
+          <p className="text-sm font-semibold text-gray-700">OCR 교차검증</p>
+          <div className="text-sm space-y-1">
+            {quickAnalysis.ocrComparison.amount.ocr > 0 && (
+              <div className="flex items-center gap-2">
+                <span className={quickAnalysis.ocrComparison.amount.match ? "text-green-600" : "text-amber-600"}>
+                  {quickAnalysis.ocrComparison.amount.match ? "✓" : "⚠"}
+                </span>
+                <span className="text-gray-500">금액:</span>
+                <span>{fmt(quickAnalysis.ocrComparison.amount.ocr)}원</span>
+                {!quickAnalysis.ocrComparison.amount.match && (
+                  <button className="text-xs text-blue-600 underline"
+                    onClick={() => setForm({ ...form, acc_amt: quickAnalysis.ocrComparison!.amount.ocr })}>
+                    OCR 값 사용
+                  </button>
+                )}
+              </div>
+            )}
+            {quickAnalysis.ocrComparison.customer.ocr && (
+              <div className="flex items-center gap-2">
+                <span className={quickAnalysis.ocrComparison.customer.match ? "text-green-600" : "text-amber-600"}>
+                  {quickAnalysis.ocrComparison.customer.match ? "✓" : "⚠"}
+                </span>
+                <span className="text-gray-500">거래처:</span>
+                <span>{quickAnalysis.ocrComparison.customer.ocr}</span>
+                {quickAnalysis.ocrResult?.regNum && (
+                  <span className="text-xs text-gray-400">(사업자번호: {quickAnalysis.ocrResult.regNum})</span>
+                )}
+              </div>
+            )}
+            {quickAnalysis.ocrComparison.date.ocr && (
+              <div className="flex items-center gap-2">
+                <span className={quickAnalysis.ocrComparison.date.match ? "text-green-600" : "text-amber-600"}>
+                  {quickAnalysis.ocrComparison.date.match ? "✓" : "⚠"}
+                </span>
+                <span className="text-gray-500">날짜:</span>
+                <span>{quickAnalysis.ocrComparison.date.ocr}</span>
+                {!quickAnalysis.ocrComparison.date.match && (
+                  <button className="text-xs text-blue-600 underline"
+                    onClick={() => setForm({ ...form, acc_date: quickAnalysis.ocrComparison!.date.ocr })}>
+                    OCR 날짜로 변경
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Quick analysis → Customer match status */}
+      {activeTab === "quick" && quickAnalysis?.customerMatch && step === 3 && !saveResult && (
+        <div className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm ${
+          quickAnalysis.customerMatch.matched
+            ? "bg-green-50 text-green-700"
+            : "bg-blue-50 text-blue-700"
+        }`}>
+          {quickAnalysis.customerMatch.matched ? (
+            <>
+              <span>✓</span>
+              <span>기존 거래처 매칭</span>
+            </>
+          ) : quickAnalysis.customerMatch.ocrData?.regNum ? (
+            <>
+              <span>ⓘ</span>
+              <span>신규 거래처 — 등록 시 자동 생성 (사업자번호: {quickAnalysis.customerMatch.ocrData.regNum})</span>
+            </>
+          ) : (
+            <>
+              <span>ⓘ</span>
+              <span>신규 거래처 — 이름으로 자동 생성</span>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Quick analysis → confidence badge */}
+      {activeTab === "quick" && quickAnalysis && step === 3 && !saveResult && (
+        <div className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm ${
+          quickAnalysis.inferred.confidence >= 0.7 ? "bg-green-50 text-green-700" :
+          quickAnalysis.inferred.confidence >= 0.5 ? "bg-yellow-50 text-yellow-700" :
+          "bg-red-50 text-red-700"
+        }`}>
+          <span className="font-semibold">매칭 신뢰도: {Math.round(quickAnalysis.inferred.confidence * 100)}%</span>
+          {quickAnalysis.inferred.confidence < 0.5 && <span>— 지출유형을 확인해주세요</span>}
+        </div>
+      )}
+
       {/* Mode toggle */}
-      {step === 1 && !showStep1_5 && (
+      {step === 1 && !showStep1_5 && activeTab === "card" && (
         <div className="flex justify-center gap-2">
           <Button variant={mode === "expense" ? "default" : "outline"} size="sm"
             onClick={() => { setMode("expense"); setSearchKeyword(""); }}>
@@ -340,7 +606,7 @@ export default function WizardPage() {
       )}
 
       {/* ============ Step 1: 카드 선택 ============ */}
-      {step === 1 && !showStep1_5 && (
+      {step === 1 && !showStep1_5 && activeTab === "card" && (
         <div className="space-y-4">
           <div className="text-center">
             <p className="text-lg font-semibold">어떤 종류의 {isExpense ? "지출" : "수입"}인가요?</p>
@@ -704,8 +970,15 @@ export default function WizardPage() {
           </div>
 
           <div className="flex justify-between pt-4 border-t">
-            <Button variant="outline" onClick={() => setStep(2)}>
-              ← 이전
+            <Button variant="outline" onClick={() => {
+              if (activeTab === "quick") {
+                setStep(1);
+                setQuickAnalysis(null);
+              } else {
+                setStep(2);
+              }
+            }}>
+              ← {activeTab === "quick" ? "다시 입력" : "이전"}
             </Button>
             <Button onClick={handleSave} disabled={saving}>
               {saving ? "저장 중..." : "등록하기"}
