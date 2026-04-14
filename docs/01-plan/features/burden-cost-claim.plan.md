@@ -114,9 +114,13 @@
 
 ## 4. 구현 범위
 
-### Phase 1 (MVP)
+### Phase 1 (MVP) — ✅ 완료 항목 포함
 
-- [ ] `expense-types.ts`에 부담비용 판별 함수 (`getBurdenCostStatus`) 추가
+- [x] `expense-types.ts`에 부담비용 지출유형 카테고리 추가 (NON_ELECTION_EXP_TYPES)
+- [x] `expense-types.ts`에 `ReimbursementStatus`에 "부담비용" 상태 추가 + `getReimbursementStatus` 판별 로직
+- [x] `wizard-mappings.ts`에 "부담비용" 카드 추가 (♿ 점자형 공보, 저장매체, 활동보조인)
+- [x] `wizard-mappings.ts` LEVEL2_INDEX에 NON_ELECTION_EXP_TYPES 포함
+- [x] `wizard/page.tsx` 보전 여부 배지에 "부담비용" 스타일(파란색) 추가
 - [ ] `reimbursement/page.tsx`에 탭 UI 추가 (선거비용 보전 | 부담비용 청구)
 - [ ] 부담비용 해당 지출내역 조회 (선거비용외 + 부담 대상 필터)
 - [ ] 부담비용 체크/금액 집계

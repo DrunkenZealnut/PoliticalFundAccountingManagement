@@ -923,13 +923,14 @@ export default function WizardPage() {
             {/* 보전 여부 자동 판별 */}
             {isExpense && (() => {
               const reimbursement = getReimbursementStatus(itemName, autoSet.exp_group1_cd, form.exp_group2_cd);
-              const colors = {
+              const colors: Record<string, string> = {
                 "보전": "bg-green-50 border-green-200 text-green-700",
                 "미보전": "bg-red-50 border-red-200 text-red-700",
                 "선거비용외": "bg-gray-50 border-gray-200 text-gray-600",
+                "부담비용": "bg-blue-50 border-blue-200 text-blue-700",
                 "판별불가": "bg-yellow-50 border-yellow-200 text-yellow-700",
               };
-              const icons = { "보전": "✓", "미보전": "✕", "선거비용외": "—", "판별불가": "?" };
+              const icons: Record<string, string> = { "보전": "✓", "미보전": "✕", "선거비용외": "—", "부담비용": "♿", "판별불가": "?" };
               return (
                 <div className={`flex items-start gap-2 p-3 rounded-md border text-sm ${colors[reimbursement.status]}`}>
                   <span className="font-bold shrink-0">{icons[reimbursement.status]}</span>

@@ -11,8 +11,8 @@ import { getReimbursementStatus } from "./expense-types";
 
 describe("wizard-mappings", () => {
   describe("EXPENSE_WIZARD_TYPES", () => {
-    it("should have 10 expense types", () => {
-      expect(EXPENSE_WIZARD_TYPES).toHaveLength(10);
+    it("should have 11 expense types", () => {
+      expect(EXPENSE_WIZARD_TYPES).toHaveLength(11);
     });
 
     it("all expense types should have incmSecCd=2", () => {

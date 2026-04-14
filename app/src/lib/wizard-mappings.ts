@@ -100,6 +100,16 @@ export const EXPENSE_WIZARD_TYPES: WizardType[] = [
     keywords: ["현수막", "무대", "연단", "확성", "간판", "현판", "설치", "철거", "래핑"],
   },
   {
+    id: "burden-cost",
+    icon: "♿",
+    label: "부담비용",
+    description: "점자형 공보, 저장매체, 활동보조인",
+    incmSecCd: 2,
+    itemKeyword: "선거비용외",
+    expGroup1: "부담비용",
+    keywords: ["부담비용", "점자", "저장매체", "활동보조인", "시각장애", "산재보험", "점역"],
+  },
+  {
     id: "receipt-scan",
     icon: "🧾",
     label: "영수증/계약서 첨부",
@@ -223,7 +233,7 @@ export function searchWizardTypes(types: WizardType[], keyword: string): Set<str
 
 /* ---- 지출유형 추론 (텍스트 키워드 → 지출유형 3단계 매핑) ---- */
 
-import { ELECTION_EXP_TYPES } from "./expense-types";
+import { ELECTION_EXP_TYPES, NON_ELECTION_EXP_TYPES } from "./expense-types";
 
 export interface InferredExpenseType {
   wizardType: WizardType | null;
@@ -238,6 +248,14 @@ const LEVEL2_INDEX = new Map<string, { group1: string; group2: string }>();
 for (const t1 of ELECTION_EXP_TYPES) {
   for (const t2 of t1.level2) {
     LEVEL2_INDEX.set(t2.label.toLowerCase(), { group1: t1.label, group2: t2.label });
+  }
+}
+for (const t1 of NON_ELECTION_EXP_TYPES) {
+  for (const t2 of t1.level2) {
+    const key = t2.label.toLowerCase();
+    if (!LEVEL2_INDEX.has(key)) {
+      LEVEL2_INDEX.set(key, { group1: t1.label, group2: t2.label });
+    }
   }
 }
 
