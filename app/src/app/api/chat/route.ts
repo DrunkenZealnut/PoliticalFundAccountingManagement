@@ -181,6 +181,10 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: "message required" }, { status: 400 });
     }
 
+    if (message.length > 2000) {
+      return Response.json({ error: "메시지는 2000자 이내로 입력해주세요" }, { status: 400 });
+    }
+
     // 1. 회계 데이터 조회
     let accountingContext = "";
     try {

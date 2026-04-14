@@ -124,7 +124,7 @@ NEXT_PUBLIC_SUPABASE_URL        # Supabase project URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY   # Public anon key
 SUPABASE_SERVICE_ROLE_KEY       # Server-only, bypasses RLS (required for API routes)
 EPOST_API_KEY                   # 우정사업본부 address search API
-GOOGLE_GENERATIVE_AI_API_KEY    # Gemini API (used in /api/chat)
+GEMINI_API_KEY                  # Gemini API (used in /api/chat, /api/receipt-scan)
 ```
 
 ### Reference Documents

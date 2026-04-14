@@ -66,7 +66,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const storagePath = `${orgId}/${Date.now()}_${fileName}`;
+    // 파일 확장자 추출 후 안전한 storage key 생성 (한글/공백 등 제거)
+    const ext = fileName.includes(".") ? fileName.substring(fileName.lastIndexOf(".")) : "";
+    const safeName = fileName
+      .replace(/\.[^.]+$/, "")           // 확장자 제거
+      .replace(/[^a-zA-Z0-9_-]/g, "_")   // 영문/숫자/밑줄/대시만 허용
+      .replace(/_+/g, "_")               // 연속 밑줄 축약
+      .substring(0, 100);                // 길이 제한
+    const storagePath = `${orgId}/${Date.now()}_${safeName}${ext}`;
 
     // 버킷 존재 확인 (없으면 자동 생성)
     await ensureBucket();

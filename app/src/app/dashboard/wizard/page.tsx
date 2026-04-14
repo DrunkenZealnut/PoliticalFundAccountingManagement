@@ -411,14 +411,23 @@ export default function WizardPage() {
     ? (() => {
         const elec = getExpTypeData("선거비용");
         const nonElec = getExpTypeData("선거비용외");
-        const merged = [...elec];
+        // 깊은 복사하여 원본 데이터 보호
+        const merged = elec.map((t) => ({ ...t, level2: [...t.level2] }));
         for (const t of nonElec) {
-          if (!merged.some((m) => m.label === t.label)) merged.push(t);
+          const existing = merged.find((m) => m.label === t.label);
+          if (existing) {
+            // 동명 항목(선거사무소 등)은 level2를 합침
+            const newL2 = t.level2.filter((l2) => !existing.level2.some((e) => e.label === l2.label));
+            if (newL2.length > 0) existing.level2 = [...existing.level2, ...newL2];
+          } else {
+            merged.push({ ...t, level2: [...t.level2] });
+          }
         }
         return merged;
       })()
     : [];
   const currentCategoryTypes = getExpTypeData(itemName);
+  // 현재 과목에 맞는 데이터가 있으면 그것을 우선 사용, 없으면 병합본(allExpTypes) 사용
   const level2Items = (currentCategoryTypes.length > 0 ? currentCategoryTypes : allExpTypes)
     .find((t) => t.label === autoSet.exp_group1_cd)?.level2 || [];
   const level3Items = level2Items.find((t) => t.label === form.exp_group2_cd)?.level3 || [];

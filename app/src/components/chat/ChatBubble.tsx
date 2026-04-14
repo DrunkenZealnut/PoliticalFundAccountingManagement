@@ -274,17 +274,6 @@ export function ChatBubble() {
                     <p>{msg.content}</p>
                   )}
 
-                  {/* Sources */}
-                  {msg.sources && msg.sources.length > 0 && (
-                    <div className="mt-2 pt-2 border-t border-gray-200">
-                      <p className="text-sm font-semibold text-gray-500 mb-1">참고 자료:</p>
-                      {msg.sources.slice(0, 3).map((s, j) => (
-                        <p key={j} className="text-sm text-gray-400">
-                          {j + 1}. {s.title}{s.page ? ` (p.${s.page})` : ""} — {Math.round(s.score * 100)}% 일치
-                        </p>
-                      ))}
-                    </div>
-                  )}
                 </div>
               </div>
               );
