@@ -13,6 +13,9 @@ import { HelpTooltip } from "@/components/help-tooltip";
 import { CodeSelect } from "@/components/code-select";
 import { CustomerSearchDialog } from "@/components/customer-search-dialog";
 import { AccBookSearch, type SearchFilters } from "@/components/acc-book-search";
+import { PageGuide } from "@/components/page-guide";
+import { EmptyState } from "@/components/empty-state";
+import { PAGE_GUIDES } from "@/lib/page-guides";
 
 interface AccBook {
   acc_book_id: number;
@@ -393,6 +396,7 @@ export default function IncomePage() {
 
   return (
     <div className="space-y-6">
+      <PageGuide {...PAGE_GUIDES.income} />
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">수입내역 관리</h2>
         <HelpTooltip id="income.summary">
@@ -657,11 +661,16 @@ export default function IncomePage() {
               </tr>
             ) : records.length === 0 ? (
               <tr>
-                <td
-                  colSpan={10}
-                  className="px-3 py-8 text-center text-gray-400"
-                >
-                  수입내역이 없습니다.
+                <td colSpan={10} className="p-0">
+                  <EmptyState
+                    icon="📥"
+                    title="아직 수입 내역이 없습니다"
+                    description="수입 자료를 등록하면 여기에 목록이 표시됩니다. 먼저 수입지출처를 등록해두면 입력이 빠릅니다."
+                    actions={[
+                      { label: "간편등록 마법사로 시작", href: "/dashboard/wizard" },
+                      { label: "직접 등록하기", href: "/dashboard/income", variant: "outline" },
+                    ]}
+                  />
                 </td>
               </tr>
             ) : (

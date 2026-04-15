@@ -7,6 +7,8 @@ import { createSupabaseBrowser } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PageGuide } from "@/components/page-guide";
+import { PAGE_GUIDES } from "@/lib/page-guides";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -992,6 +994,7 @@ export default function ReportsPage() {
 
   return (
     <div className="space-y-6">
+      <PageGuide {...PAGE_GUIDES.reports} />
       <h2 className="text-2xl font-bold">보고서 및 과목별 수입지출부 출력</h2>
 
       <div className="bg-white rounded-lg border p-4 space-y-5">

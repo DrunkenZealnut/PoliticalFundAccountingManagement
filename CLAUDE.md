@@ -38,11 +38,15 @@ cd app && npx vitest run src/components/chat/ChatBubble.test.tsx
 ### Next.js 16 Warning
 This uses Next.js 16 which has breaking changes from training data. Always read `node_modules/next/dist/docs/` before writing Next.js-specific code. See `app/AGENTS.md`.
 
+### DB Schema Gotcha
+- `acc_ins_type` column is `VARCHAR(5)` (was CHAR(2), widened via `scripts/008`). PAY_METHODS codes are 3 chars ("118", "583").
+- All dates stored as `YYYYMMDD` strings (not DATE type). UI uses `YYYY-MM-DD`, convert on save/display.
+
 ### Source Layout (`app/src/`)
 
 ```
-app/api/          → 8 API route groups (chat, codes, customers, acc-book, excel/*, system/*, address/search)
-app/dashboard/    → 27 pages: income, expense, receipt, customer, reports, backup, settlement, etc.
+app/api/          → 10 API route groups (chat, codes, customers, acc-book, excel/*, system/*, address/search, receipt-scan, evidence-file)
+app/dashboard/    → 28 pages including wizard (beginner), document-register (OCR), income, expense, reports, etc.
 app/login/        → Supabase email/password auth
 components/chat/  → ChatBubble (FAQ browser + AI chat, well-tested)
 components/ui/    → shadcn/ui primitives (Button, Card, Dialog, Table, etc.)
@@ -50,6 +54,8 @@ hooks/            → use-chat, use-code-values, use-donation-limit, use-sort, u
 lib/supabase/     → client.ts (browser), server.ts (SSR), middleware.ts (session)
 lib/chat/         → FAQ data, election cost guide, sample accounting data
 lib/accounting/   → Business logic (balance calculation, validation)
+lib/expense-types.ts → Shared 3-level expense type data (선거비용/선거비용외) + PAY_METHODS
+lib/wizard-mappings.ts → Wizard card definitions + code auto-mapping
 lib/excel-template/ → Excel report generation with data-query
 stores/           → auth.ts (user + org state), help-mode.ts
 types/database.ts → Supabase-generated types for pfam schema
@@ -93,6 +99,20 @@ Two distinct export systems:
 
 Excel generation uses ExcelJS directly (not templates) to match official election commission form layouts. Each account/subject combination produces one sheet with both income and expense records sorted by date.
 
+### Evidence File Storage
+
+Uploaded receipt/contract images are stored in Supabase Storage (`evidence` bucket) and linked to `acc_book` entries via the `evidence_file` table:
+- `/api/receipt-scan` — Gemini 2.5 Flash Vision OCR (extracts date, amount, provider, content)
+- `/api/evidence-file` — upload to Supabase Storage + metadata to `pfam.evidence_file`
+- Max file size: 10MB. Schema: `scripts/007_evidence_file_table.sql`
+
+### Expense Type Architecture
+
+3-level expense type hierarchy shared across expense page, document-register, and wizard:
+- `lib/expense-types.ts` — single source of truth (ELECTION_EXP_TYPES, NON_ELECTION_EXP_TYPES)
+- `detectItemCategory(expGroup1)` — determines 선거비용 vs 선거비용외 from expense type name
+- Never duplicate this data in page files — always import from the shared module
+
 ### Auth Flow
 
 Login → Supabase Auth → Select organization (multi-org via `user_organ` table) → Zustand `auth` store persists `{ user, orgId, orgSecCd, orgName, orgType, acctName }` to localStorage.
@@ -104,7 +124,7 @@ NEXT_PUBLIC_SUPABASE_URL        # Supabase project URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY   # Public anon key
 SUPABASE_SERVICE_ROLE_KEY       # Server-only, bypasses RLS (required for API routes)
 EPOST_API_KEY                   # 우정사업본부 address search API
-GOOGLE_GENERATIVE_AI_API_KEY    # Gemini API (used in /api/chat)
+GEMINI_API_KEY                  # Gemini API (used in /api/chat, /api/receipt-scan)
 ```
 
 ### Reference Documents
@@ -113,6 +133,12 @@ GOOGLE_GENERATIVE_AI_API_KEY    # Gemini API (used in /api/chat)
 - `FORM_TEMPLATES.md` — Form layout specifications
 - `RAG/` — 80+ markdown files extracted from election commission PDFs (선거비용보전안내서, 정치관계법 사례집, 회계관리 매뉴얼)
 - `docs/` — PDCA documentation (plan → design → analysis) per feature
+
+## Design System
+Always read DESIGN.md before making any visual or UI decisions.
+All font choices, colors, spacing, and aesthetic direction are defined there.
+Do not deviate without explicit user approval.
+In QA mode, flag any code that doesn't match DESIGN.md.
 
 ## Skill routing
 

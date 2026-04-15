@@ -80,6 +80,8 @@ export default function SelectOrganPage() {
     org_sec_cd: number;
     org_name: string;
     acct_name?: string | null;
+    acc_from?: string | null;
+    acc_to?: string | null;
   }) {
     setOrgan(org);
     router.push("/dashboard");

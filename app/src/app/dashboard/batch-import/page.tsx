@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PageGuide } from "@/components/page-guide";
+import { PAGE_GUIDES } from "@/lib/page-guides";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -328,6 +330,7 @@ export default function BatchImportPage() {
 
   return (
     <div className="space-y-4">
+      <PageGuide {...PAGE_GUIDES["batch-import"]} />
       {/* Header + actions */}
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">수입 지출내역 일괄등록</h2>

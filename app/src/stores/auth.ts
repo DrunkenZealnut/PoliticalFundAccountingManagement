@@ -11,8 +11,10 @@ interface AuthState {
   orgName: string | null;
   orgType: OrgType | null;
   acctName: string | null;
+  accFrom: string | null;
+  accTo: string | null;
   setUser: (user: User | null) => void;
-  setOrgan: (organ: { org_id: number; org_sec_cd: number; org_name: string; acct_name?: string | null }) => void;
+  setOrgan: (organ: { org_id: number; org_sec_cd: number; org_name: string; acct_name?: string | null; acc_from?: string | null; acc_to?: string | null }) => void;
   clear: () => void;
 }
 
@@ -32,6 +34,8 @@ export const useAuth = create<AuthState>()(
       orgName: null,
       orgType: null,
       acctName: null,
+      accFrom: null,
+      accTo: null,
       setUser: (user) => set({ user }),
       setOrgan: (organ) =>
         set({
@@ -40,6 +44,8 @@ export const useAuth = create<AuthState>()(
           orgName: organ.org_name,
           orgType: getOrgType(organ.org_sec_cd),
           acctName: organ.acct_name || null,
+          accFrom: organ.acc_from || null,
+          accTo: organ.acc_to || null,
         }),
       clear: () =>
         set({
@@ -49,6 +55,8 @@ export const useAuth = create<AuthState>()(
           orgName: null,
           orgType: null,
           acctName: null,
+          accFrom: null,
+          accTo: null,
         }),
     }),
     {
@@ -59,6 +67,8 @@ export const useAuth = create<AuthState>()(
         orgName: state.orgName,
         orgType: state.orgType,
         acctName: state.acctName,
+        accFrom: state.accFrom,
+        accTo: state.accTo,
       }),
     }
   )

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
 import { useAuth } from "@/stores/auth";
-import { useHelpMode } from "@/stores/help-mode";
+import { useBeginnerMode, type WorkflowStep } from "@/stores/beginner-mode";
 import { HelpTooltip } from "@/components/help-tooltip";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ const MENU_ITEMS = {
       { href: "/dashboard/customer-batch", label: "수입지출처 일괄등록" },
     ]},
     { group: "정치자금관리", items: [
+      { href: "/dashboard/wizard", label: "간편등록 마법사" },
       { href: "/dashboard/income", label: "수입내역관리" },
       { href: "/dashboard/expense", label: "지출내역관리" },
       { href: "/dashboard/batch-import", label: "수입지출내역 일괄등록" },
@@ -52,6 +53,7 @@ const MENU_ITEMS = {
       { href: "/dashboard/customer-batch", label: "수입지출처 일괄등록" },
     ]},
     { group: "정치자금관리", items: [
+      { href: "/dashboard/wizard", label: "간편등록 마법사" },
       { href: "/dashboard/income", label: "수입내역관리" },
       { href: "/dashboard/expense", label: "지출내역관리" },
       { href: "/dashboard/batch-import", label: "수입지출내역 일괄등록" },
@@ -82,6 +84,7 @@ const MENU_ITEMS = {
       { href: "/dashboard/customer-batch", label: "수입지출처 일괄등록" },
     ]},
     { group: "정치자금관리", items: [
+      { href: "/dashboard/wizard", label: "간편등록 마법사" },
       { href: "/dashboard/income", label: "수입내역관리" },
       { href: "/dashboard/expense", label: "지출내역관리" },
       { href: "/dashboard/batch-import", label: "수입지출내역 일괄등록" },
@@ -113,6 +116,7 @@ const MENU_ITEMS = {
       { href: "/dashboard/customer-batch", label: "수입지출처 일괄등록" },
     ]},
     { group: "정치자금관리", items: [
+      { href: "/dashboard/wizard", label: "간편등록 마법사" },
       { href: "/dashboard/income", label: "수입내역관리" },
       { href: "/dashboard/expense", label: "지출내역관리" },
       { href: "/dashboard/batch-import", label: "수입지출내역 일괄등록" },
@@ -144,7 +148,7 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const router = useRouter();
-  const { user, orgName, orgType, orgId, orgSecCd, setUser } = useAuth();
+  const { user, orgName, orgType, orgId, orgSecCd, accFrom, accTo, setUser } = useAuth();
 
   const ORG_TYPE_LABELS: Record<number, string> = {
     50: "중앙당", 51: "정책연구소", 52: "시도당", 53: "정당선거사무소",
@@ -153,7 +157,29 @@ export default function DashboardLayout({
     107: "대통령선거경선후보자후원회", 108: "당대표경선후보자후원회",
     109: "(예비)후보자후원회", 587: "중앙당후원회", 588: "중앙당창당준비위원회후원회",
   };
-  const { isEnabled, toggle } = useHelpMode();
+  const isEnabled = useBeginnerMode((s) => s.isEnabled);
+  const toggle = useBeginnerMode((s) => s.toggle);
+  const workflowSteps = useBeginnerMode((s) => s.workflowSteps);
+  const currentStepId = useBeginnerMode((s) => s.currentStepId);
+
+  // 업무순서 → 메뉴 매핑
+  const STEP_TO_MENU: Record<string, string> = {
+    organ: "/dashboard/organ",
+    customer: "/dashboard/customer",
+    income: "/dashboard/income",
+    expense: "/dashboard/expense",
+    estate: "/dashboard/estate",
+    settlement: "/dashboard/settlement",
+    donors: "/dashboard/donors",
+    reports: "/dashboard/reports",
+    backup: "/dashboard/backup",
+  };
+
+  function getStepForHref(href: string): WorkflowStep | undefined {
+    if (!workflowSteps) return undefined;
+    const stepId = Object.entries(STEP_TO_MENU).find(([, h]) => h === href)?.[0];
+    return stepId ? workflowSteps.find((s) => s.id === stepId) : undefined;
+  }
   const [hydrated, setHydrated] = useState(false);
 
   // Wait for Zustand persist hydration (callback-only, no sync setState)
@@ -214,6 +240,13 @@ export default function DashboardLayout({
           <Link href="/dashboard" className="font-bold text-lg hover:text-blue-700 transition-colors">정치자금 회계관리</Link>
           <p className="text-sm font-bold text-black truncate">{orgName || "기관 미선택"}</p>
           {orgSecCd && <p className="text-xs font-semibold text-blue-700">{ORG_TYPE_LABELS[orgSecCd] || ""}</p>}
+          {accFrom && (
+            <p className="text-xs text-gray-500 mt-0.5">
+              {accFrom.slice(0, 4) === accTo?.slice(0, 4)
+                ? `${accFrom.slice(0, 4)}년 회계`
+                : `${accFrom.slice(0, 4)}~${accTo?.slice(0, 4)}년`}
+            </p>
+          )}
           <Link href="/select-organ" className="text-xs text-blue-500 hover:underline mt-1 inline-block">
             사용기관 전환/추가
           </Link>
@@ -224,15 +257,37 @@ export default function DashboardLayout({
               <h3 className="px-3 py-1 text-xs font-semibold text-gray-400 uppercase">
                 {group.group}
               </h3>
-              {group.items.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className="block px-3 py-2 text-sm rounded hover:bg-gray-100 transition-colors"
-                >
-                  {item.label}
-                </Link>
-              ))}
+              {group.items.map((item) => {
+                const step = isEnabled ? getStepForHref(item.href) : undefined;
+                const stepIndex = step && workflowSteps ? workflowSteps.indexOf(step) : -1;
+                const isWizardRecommended = isEnabled && item.href === "/dashboard/wizard"
+                  && workflowSteps?.some(s => (s.id === "income" || s.id === "expense") && !s.completed);
+
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`block px-3 py-2 text-sm rounded hover:bg-gray-100 transition-colors
+                      ${isEnabled && step && !step.completed && currentStepId !== step.id ? "opacity-50" : ""}`}
+                  >
+                    <span className="flex items-center gap-2">
+                      {isEnabled && step && (
+                        <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-medium shrink-0
+                          ${step.completed ? "bg-green-100 text-green-700" :
+                            step.id === currentStepId ? "bg-[#1B3A5C] text-white" :
+                            "bg-gray-100 text-gray-400"}`}
+                        >
+                          {step.completed ? "✓" : stepIndex + 1}
+                        </span>
+                      )}
+                      {item.label}
+                      {isWizardRecommended && (
+                        <span className="text-[#D4883A] text-[10px] font-semibold ml-auto">추천</span>
+                      )}
+                    </span>
+                  </Link>
+                );
+              })}
             </div>
           ))}
         </nav>
@@ -246,8 +301,8 @@ export default function DashboardLayout({
           <div className="flex items-center gap-4">
             <HelpTooltip id="help.toggle">
               <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-500">도움말</span>
-                <Switch checked={isEnabled} onCheckedChange={toggle} />
+                <span className="text-sm text-gray-500">초보자 모드</span>
+                <Switch checked={isEnabled} onCheckedChange={toggle} aria-label="초보자 모드 켜기/끄기" />
               </div>
             </HelpTooltip>
             <Button variant="outline" size="sm" onClick={handleLogout}>

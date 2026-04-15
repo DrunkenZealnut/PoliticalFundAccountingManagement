@@ -6,7 +6,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useHelpMode } from "@/stores/help-mode";
+import { useBeginnerMode } from "@/stores/beginner-mode";
 import { HELP_TEXTS } from "@/lib/help-texts";
 
 interface HelpTooltipProps {
@@ -15,7 +15,7 @@ interface HelpTooltipProps {
 }
 
 export function HelpTooltip({ id, children }: HelpTooltipProps) {
-  const isEnabled = useHelpMode((s) => s.isEnabled);
+  const isEnabled = useBeginnerMode((s) => s.isEnabled);
   const tooltip = HELP_TEXTS[id];
 
   if (!isEnabled || !tooltip) return <>{children}</>;

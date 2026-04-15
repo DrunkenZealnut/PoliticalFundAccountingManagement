@@ -10,6 +10,7 @@ const supabase = createClient(
 
 export async function GET(request: NextRequest) {
   const orgId = request.nextUrl.searchParams.get("orgId");
+  const search = request.nextUrl.searchParams.get("search");
 
   if (orgId) {
     // 해당 기관에서 사용 중인 cust_id 목록 조회
@@ -24,17 +25,34 @@ export async function GET(request: NextRequest) {
       return NextResponse.json([]);
     }
 
+    let query = supabase
+      .from("customer")
+      .select("*")
+      .in("cust_id", custIds);
+
+    if (search) {
+      query = query.ilike("name", `%${search}%`);
+    }
+
+    const { data, error } = await query.order("cust_id", { ascending: true });
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json(data || []);
+  }
+
+  // search 파라미터로 거래처명 검색
+  if (search) {
     const { data, error } = await supabase
       .from("customer")
       .select("*")
-      .in("cust_id", custIds)
+      .ilike("name", `%${search}%`)
       .order("cust_id", { ascending: true });
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json(data || []);
   }
 
-  // orgId 없으면 전체 (하위 호환)
+  // orgId, search 없으면 전체 (하위 호환)
   const { data, error } = await supabase
     .from("customer")
     .select("*")

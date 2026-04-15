@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/stores/auth";
 import { useCodeValues } from "@/hooks/use-code-values";
 import { Button } from "@/components/ui/button";
@@ -10,6 +11,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CodeSelect } from "@/components/code-select";
 import { CustomerSearchDialog } from "@/components/customer-search-dialog";
 import { getExpTypeData, PAY_METHODS } from "@/lib/expense-types";
+import { PageGuide } from "@/components/page-guide";
+import { PAGE_GUIDES } from "@/lib/page-guides";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -62,10 +65,11 @@ const NO_CUSTOMER_ID = -999;
 /* ------------------------------------------------------------------ */
 
 export default function DocumentRegisterPage() {
+  const searchParams = useSearchParams();
   const { orgId, orgSecCd, orgType } = useAuth();
   const { loading: codesLoading, getName, getAccounts, getItems } = useCodeValues();
 
-  const [tab, setTab] = useState("expense");
+  const [tab, setTab] = useState(searchParams.get("tab") || "expense");
   const [entries, setEntries] = useState<ParsedEntry[]>([]);
   const [saving, setSaving] = useState(false);
   const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
@@ -448,6 +452,7 @@ export default function DocumentRegisterPage() {
 
   return (
     <div className="space-y-4">
+      <PageGuide {...PAGE_GUIDES["document-register"]} />
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">영수증/계약서 자동등록</h2>
         <div className="flex gap-2">

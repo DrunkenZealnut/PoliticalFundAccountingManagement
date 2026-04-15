@@ -4,12 +4,6 @@ interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   source?: "faq" | "user";
-  sources?: Array<{
-    title: string;
-    page: number;
-    content: string;
-    score: number;
-  }>;
 }
 
 interface ChatContext {
@@ -75,12 +69,6 @@ export function useChat(context?: ChatContext) {
               setMessages((prev) => {
                 const updated = [...prev];
                 updated[updated.length - 1] = { ...updated[updated.length - 1], content: fullContent };
-                return updated;
-              });
-            } else if (parsed.type === "sources") {
-              setMessages((prev) => {
-                const updated = [...prev];
-                updated[updated.length - 1] = { ...updated[updated.length - 1], sources: parsed.sources };
                 return updated;
               });
             } else if (parsed.type === "error") {
