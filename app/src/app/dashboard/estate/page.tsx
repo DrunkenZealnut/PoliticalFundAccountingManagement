@@ -8,6 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { HelpTooltip } from "@/components/help-tooltip";
+import { PageGuide } from "@/components/page-guide";
+import { EmptyState } from "@/components/empty-state";
+import { PAGE_GUIDES } from "@/lib/page-guides";
 
 interface Estate {
   estate_id: number;
@@ -113,6 +116,9 @@ export default function EstatePage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">재산내역 관리</h2>
+      </div>
+      <PageGuide {...PAGE_GUIDES.estate} />
+      <div className="hidden">{/* spacer */}
         <div className="text-sm">
           합계수량: <b>{totalQty}</b> | 합계금액: <b>{fmt(totalAmt)}원</b>
         </div>
@@ -172,7 +178,16 @@ export default function EstatePage() {
             {loading ? (
               <tr><td colSpan={7} className="px-3 py-8 text-center text-gray-400">로딩 중...</td></tr>
             ) : records.length === 0 ? (
-              <tr><td colSpan={7} className="px-3 py-8 text-center text-gray-400">재산내역이 없습니다.</td></tr>
+              <tr>
+                <td colSpan={7} className="p-0">
+                  <EmptyState
+                    icon="🏦"
+                    title="아직 재산 내역이 없습니다"
+                    description="재산 내역을 등록하면 결산에 반영됩니다."
+                    actions={[{ label: "등록하기", href: "/dashboard/estate" }]}
+                  />
+                </td>
+              </tr>
             ) : sorted.map((r, i) => (
               <tr key={r.estate_id}
                 className={`border-b cursor-pointer hover:bg-gray-50 ${selected?.estate_id === r.estate_id ? "bg-blue-50" : ""}`}

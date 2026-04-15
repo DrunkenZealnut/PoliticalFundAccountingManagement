@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { HelpTooltip } from "@/components/help-tooltip";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageGuide } from "@/components/page-guide";
+import { PAGE_GUIDES } from "@/lib/page-guides";
 import { AddressSearchDialog } from "@/components/address-search-dialog";
 
 interface Organ {
@@ -96,6 +98,9 @@ export default function OrganPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">사용기관 관리</h2>
+      </div>
+      <PageGuide {...PAGE_GUIDES.organ} />
+      <div className="hidden">{/* spacer */}
         <HelpTooltip id="btn.save"><Button onClick={handleSave}>저장</Button></HelpTooltip>
       </div>
 

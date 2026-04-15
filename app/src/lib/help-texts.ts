@@ -77,5 +77,49 @@ export const HELP_TEXTS: Record<string, HelpText> = {
   "system.code-manage": { title: "코드관리", description: "공통코드 버전 확인 및 엑셀파일로 코드를 등록합니다. 등록 후 로그아웃→재로그인해야 적용됩니다." },
 
   // 도움말 토글
-  "help.toggle": { title: "도움말 ON/OFF", description: "모든 버튼과 입력란에 마우스를 올리면 사용법이 표시됩니다. 익숙해지면 끄세요." },
+  "help.toggle": { title: "초보자 모드 ON/OFF", description: "초보자 모드를 켜면 도움말 툴팁, 업무순서 안내, 페이지 가이드가 모두 표시됩니다. 익숙해지면 끄세요." },
+
+  // 대시보드
+  "dashboard.income": { title: "총 수입액", description: "선택한 사용기관의 전체 수입 금액 합계입니다." },
+  "dashboard.expense": { title: "총 지출액", description: "선택한 사용기관의 전체 지출 금액 합계입니다." },
+  "dashboard.balance": { title: "잔액", description: "수입액에서 지출액을 뺀 금액입니다. 결산 시 재산(현금및예금)과 일치해야 합니다." },
+  "dashboard.workflow": { title: "업무 진행 현황", description: "회계 업무의 전체 흐름을 보여줍니다. 사용기관 등록 → 거래처 → 수입/지출 → 결산 순서로 진행하세요." },
+  "dashboard.quick-actions": { title: "바로가기", description: "자주 사용하는 기능으로 빠르게 이동합니다." },
+
+  // 마법사
+  "wizard.card-select": { title: "거래 유형 선택", description: "거래 종류에 맞는 카드를 선택하면 복잡한 계정·과목을 시스템이 자동 설정합니다." },
+  "wizard.search": { title: "키워드 검색", description: "어떤 카드를 골라야 할지 모르겠다면, '현수막', '명함' 등 키워드를 입력해보세요." },
+  "wizard.step-indicator": { title: "진행 단계", description: "3단계만 거치면 등록이 완료됩니다: ① 유형 선택 → ② 세부 입력 → ③ 확인 및 저장" },
+  "wizard.auto-settings": { title: "자동 설정값", description: "시스템이 자동으로 설정한 계정·과목·지출유형입니다. 필요하면 수정할 수 있습니다." },
+  "wizard.mode-toggle": { title: "수입/지출 전환", description: "지출(기본) 또는 수입 모드를 선택합니다. 모드에 따라 사용 가능한 카드가 달라집니다." },
+
+  // 보고관리
+  "report.income-book": { title: "수입부", description: "계정·과목별 수입내역을 정리한 공식 서식입니다." },
+  "report.expense-book": { title: "지출부", description: "계정·과목별 지출내역을 정리한 공식 서식입니다." },
+  "report.total-summary": { title: "수입지출 총괄표", description: "수입과 지출의 전체 현황을 한눈에 보여주는 총괄표입니다." },
+  "settlement.period": { title: "결산기간", description: "결산할 회계기간의 시작일과 종료일을 설정합니다. 사용기관관리의 당해 회계기간을 참조하세요." },
+  "settlement.estate-check": { title: "재산 일치 확인", description: "수입지출 잔액과 재산(현금및예금) 금액이 일치해야 합니다. 불일치 시 경고가 표시됩니다." },
+  "audit.opinion": { title: "감사의견서", description: "감사인이 작성하는 회계 감사 의견서입니다. 후원회와 정당에서 사용합니다." },
+  "submit.file-gen": { title: "제출파일 생성", description: "선관위에 제출할 데이터 파일을 생성합니다. 결산 완료 후 사용하세요." },
+  "aggregate.method": { title: "취합방법", description: "시도당·정책연구소 등 하위 기관의 데이터를 중앙당에 취합합니다." },
+
+  // 재산내역
+  "estate.kind": { title: "종류", description: "재산의 구체적인 종류를 입력합니다. 예: '정기예금', '사무용 컴퓨터' 등." },
+  "estate.qty": { title: "수량", description: "재산의 수량입니다. 기본값은 1입니다." },
+  "estate.content": { title: "내용", description: "재산에 대한 상세 설명입니다. 예: '○○은행 정기예금 1년', '사무실 임대보증금' 등." },
+  "estate.debt-note": { title: "차입금 안내", description: "차입금은 양(+) 금액으로 입력하면 자동으로 음(-) 처리됩니다. 변제 시에는 음(-) 금액을 입력합니다." },
+
+  // 시스템
+  "reset.period": { title: "초기화 기간", description: "삭제할 수입/지출내역의 일자 범위를 설정합니다. 범위 밖의 데이터는 영향받지 않습니다." },
+  "reset.warning": { title: "초기화 주의사항", description: "삭제된 자료는 복구할 수 없습니다. 반드시 백업 후 진행하세요." },
+  "codes.version": { title: "코드 버전", description: "공통코드의 버전 정보입니다. 코드 등록 후 로그아웃→재로그인해야 적용됩니다." },
+
+  // 초보자 모드
+  "beginner.toggle": { title: "초보자 모드", description: "초보자 모드를 켜면 업무순서 안내, 페이지 가이드, 도움말 툴팁이 모두 표시됩니다." },
+  "beginner.workflow": { title: "업무순서 안내", description: "회계 업무는 순서대로 진행합니다. 현재 단계를 확인하고 다음 단계로 이동하세요." },
+  "beginner.page-guide": { title: "페이지 가이드", description: "각 화면의 사용법을 간단히 안내합니다. 접기 버튼으로 숨길 수 있습니다." },
+
+  // 기타
+  "document-register.ocr": { title: "AI 자동 인식", description: "업로드한 영수증·계약서 이미지에서 날짜, 금액, 거래처, 내역을 AI가 자동으로 읽어냅니다." },
+  "batch-import.template-note": { title: "엑셀 양식 안내", description: "양식 내의 유의사항 시트와 컬럼 헤더를 삭제하지 마세요. 검증 시 오류가 발생합니다." },
 };

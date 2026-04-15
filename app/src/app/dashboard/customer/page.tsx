@@ -9,6 +9,9 @@ import { Label } from "@/components/ui/label";
 import { HelpTooltip } from "@/components/help-tooltip";
 import { AddressSearchDialog } from "@/components/address-search-dialog";
 import { AddressHistoryDialog } from "@/components/address-history-dialog";
+import { PageGuide } from "@/components/page-guide";
+import { EmptyState } from "@/components/empty-state";
+import { PAGE_GUIDES } from "@/lib/page-guides";
 
 interface Customer {
   cust_id: number;
@@ -258,6 +261,9 @@ export default function CustomerPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">수입지출처 관리</h2>
+      </div>
+      <PageGuide {...PAGE_GUIDES.customer} />
+      <div className="hidden">{/* spacer for structure */}
         <div className="flex gap-2">
           <HelpTooltip id="btn.new">
             <Button variant="outline" onClick={resetForm}>신규입력</Button>
@@ -411,8 +417,16 @@ export default function CustomerPage() {
               </tr>
             ) : customers.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-3 py-8 text-center text-gray-400">
-                  등록된 수입지출처가 없습니다.
+                <td colSpan={7} className="p-0">
+                  <EmptyState
+                    icon="👥"
+                    title="아직 수입지출처가 없습니다"
+                    description="수입제공자·지출대상자를 등록하세요. 수입/지출 등록 시 거래처 검색이 빨라집니다."
+                    actions={[
+                      { label: "직접 등록하기", href: "/dashboard/customer" },
+                      { label: "엑셀 일괄등록", href: "/dashboard/customer-batch", variant: "outline" },
+                    ]}
+                  />
                 </td>
               </tr>
             ) : (

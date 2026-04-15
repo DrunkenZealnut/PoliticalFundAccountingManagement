@@ -14,6 +14,9 @@ import { CodeSelect } from "@/components/code-select";
 import { CustomerSearchDialog } from "@/components/customer-search-dialog";
 import { AccBookSearch, applyFiltersToQuery, type SearchFilters } from "@/components/acc-book-search";
 import { getExpTypeData, PAY_METHODS } from "@/lib/expense-types";
+import { PageGuide } from "@/components/page-guide";
+import { EmptyState } from "@/components/empty-state";
+import { PAGE_GUIDES } from "@/lib/page-guides";
 
 interface AccBook {
   acc_book_id: number;
@@ -474,6 +477,7 @@ export default function ExpensePage() {
 
   return (
     <div className="space-y-6">
+      <PageGuide {...PAGE_GUIDES.expense} />
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">지출내역 관리</h2>
         <div className="flex gap-4 text-sm">
@@ -860,11 +864,16 @@ export default function ExpensePage() {
               </tr>
             ) : records.length === 0 ? (
               <tr>
-                <td
-                  colSpan={orgType !== "supporter" ? 12 : 11}
-                  className="px-3 py-8 text-center text-gray-400"
-                >
-                  지출내역이 없습니다.
+                <td colSpan={orgType !== "supporter" ? 12 : 11} className="p-0">
+                  <EmptyState
+                    icon="📤"
+                    title="아직 지출 내역이 없습니다"
+                    description="지출 자료를 등록하면 여기에 목록이 표시됩니다."
+                    actions={[
+                      { label: "간편등록 마법사로 시작", href: "/dashboard/wizard" },
+                      { label: "직접 등록하기", href: "/dashboard/expense", variant: "outline" },
+                    ]}
+                  />
                 </td>
               </tr>
             ) : (

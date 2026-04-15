@@ -1,17 +1,8 @@
-import { create } from "zustand";
-import { persist } from "zustand/middleware";
+// Re-export from beginner-mode for backwards compatibility
+import { useBeginnerMode } from "./beginner-mode";
 
-interface HelpModeState {
-  isEnabled: boolean;
-  toggle: () => void;
-}
-
-export const useHelpMode = create<HelpModeState>()(
-  persist(
-    (set) => ({
-      isEnabled: true,
-      toggle: () => set((s) => ({ isEnabled: !s.isEnabled })),
-    }),
-    { name: "help-mode" }
-  )
-);
+export const useHelpMode = () => {
+  const isEnabled = useBeginnerMode((s) => s.isEnabled);
+  const toggle = useBeginnerMode((s) => s.toggle);
+  return { isEnabled, toggle };
+};

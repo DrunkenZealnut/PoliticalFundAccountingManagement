@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { HelpTooltip } from "@/components/help-tooltip";
+import { PageGuide } from "@/components/page-guide";
+import { PAGE_GUIDES } from "@/lib/page-guides";
 
 function fmt(n: number) {
   return n.toLocaleString("ko-KR");
@@ -192,6 +194,7 @@ export default function SettlementPage() {
 
   return (
     <div className="space-y-6">
+      <PageGuide {...PAGE_GUIDES.settlement} />
       <h2 className="text-2xl font-bold">결산작업</h2>
 
       <div className="bg-white rounded-lg border p-4 space-y-4">

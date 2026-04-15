@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
 import { useAuth } from "@/stores/auth";
-import { useHelpMode } from "@/stores/help-mode";
+import { useBeginnerMode, type WorkflowStep } from "@/stores/beginner-mode";
 import { HelpTooltip } from "@/components/help-tooltip";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
@@ -157,7 +157,29 @@ export default function DashboardLayout({
     107: "대통령선거경선후보자후원회", 108: "당대표경선후보자후원회",
     109: "(예비)후보자후원회", 587: "중앙당후원회", 588: "중앙당창당준비위원회후원회",
   };
-  const { isEnabled, toggle } = useHelpMode();
+  const isEnabled = useBeginnerMode((s) => s.isEnabled);
+  const toggle = useBeginnerMode((s) => s.toggle);
+  const workflowSteps = useBeginnerMode((s) => s.workflowSteps);
+  const currentStepId = useBeginnerMode((s) => s.currentStepId);
+
+  // 업무순서 → 메뉴 매핑
+  const STEP_TO_MENU: Record<string, string> = {
+    organ: "/dashboard/organ",
+    customer: "/dashboard/customer",
+    income: "/dashboard/income",
+    expense: "/dashboard/expense",
+    estate: "/dashboard/estate",
+    settlement: "/dashboard/settlement",
+    donors: "/dashboard/donors",
+    reports: "/dashboard/reports",
+    backup: "/dashboard/backup",
+  };
+
+  function getStepForHref(href: string): WorkflowStep | undefined {
+    if (!workflowSteps) return undefined;
+    const stepId = Object.entries(STEP_TO_MENU).find(([, h]) => h === href)?.[0];
+    return stepId ? workflowSteps.find((s) => s.id === stepId) : undefined;
+  }
   const [hydrated, setHydrated] = useState(false);
 
   // Wait for Zustand persist hydration (callback-only, no sync setState)
@@ -228,15 +250,37 @@ export default function DashboardLayout({
               <h3 className="px-3 py-1 text-xs font-semibold text-gray-400 uppercase">
                 {group.group}
               </h3>
-              {group.items.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className="block px-3 py-2 text-sm rounded hover:bg-gray-100 transition-colors"
-                >
-                  {item.label}
-                </Link>
-              ))}
+              {group.items.map((item) => {
+                const step = isEnabled ? getStepForHref(item.href) : undefined;
+                const stepIndex = step && workflowSteps ? workflowSteps.indexOf(step) : -1;
+                const isWizardRecommended = isEnabled && item.href === "/dashboard/wizard"
+                  && workflowSteps?.some(s => (s.id === "income" || s.id === "expense") && !s.completed);
+
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`block px-3 py-2 text-sm rounded hover:bg-gray-100 transition-colors
+                      ${isEnabled && step && !step.completed && currentStepId !== step.id ? "opacity-50" : ""}`}
+                  >
+                    <span className="flex items-center gap-2">
+                      {isEnabled && step && (
+                        <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-medium shrink-0
+                          ${step.completed ? "bg-green-100 text-green-700" :
+                            step.id === currentStepId ? "bg-[#1B3A5C] text-white" :
+                            "bg-gray-100 text-gray-400"}`}
+                        >
+                          {step.completed ? "✓" : stepIndex + 1}
+                        </span>
+                      )}
+                      {item.label}
+                      {isWizardRecommended && (
+                        <span className="text-[#D4883A] text-[10px] font-semibold ml-auto">추천</span>
+                      )}
+                    </span>
+                  </Link>
+                );
+              })}
             </div>
           ))}
         </nav>
@@ -250,7 +294,7 @@ export default function DashboardLayout({
           <div className="flex items-center gap-4">
             <HelpTooltip id="help.toggle">
               <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-500">도움말</span>
+                <span className="text-sm text-gray-500">초보자 모드</span>
                 <Switch checked={isEnabled} onCheckedChange={toggle} />
               </div>
             </HelpTooltip>

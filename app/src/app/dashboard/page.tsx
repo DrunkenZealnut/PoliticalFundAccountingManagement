@@ -7,6 +7,7 @@ import { SummaryCards } from "@/components/dashboard/SummaryCards";
 import { RecentTransactions } from "@/components/dashboard/RecentTransactions";
 import { ReceiptAlert } from "@/components/dashboard/ReceiptAlert";
 import { QuickActions } from "@/components/dashboard/QuickActions";
+import { WorkflowProgress } from "@/components/workflow-progress";
 
 const MonthlyTrendChart = dynamic(
   () => import("@/components/dashboard/MonthlyTrendChart"),
@@ -41,6 +42,9 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+
+      {/* Workflow Progress (초보자 모드) */}
+      <WorkflowProgress />
 
       {/* Summary Cards */}
       <SummaryCards
