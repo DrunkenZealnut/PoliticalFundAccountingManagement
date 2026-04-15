@@ -114,11 +114,9 @@ export default function EstatePage() {
 
   return (
     <div className="space-y-6">
+      <PageGuide {...PAGE_GUIDES.estate} />
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">재산내역 관리</h2>
-      </div>
-      <PageGuide {...PAGE_GUIDES.estate} />
-      <div className="hidden">{/* spacer */}
         <div className="text-sm">
           합계수량: <b>{totalQty}</b> | 합계금액: <b>{fmt(totalAmt)}원</b>
         </div>

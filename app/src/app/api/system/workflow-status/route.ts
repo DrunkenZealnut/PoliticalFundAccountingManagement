@@ -7,11 +7,12 @@ const supabase = createClient(
   { db: { schema: "pfam" } }
 );
 
+// 실측 가능한 단계만 포함 (settlement/reports/backup/donors는 완료 신호가 없어 제외)
 const WORKFLOW_DEFINITIONS: Record<string, string[]> = {
-  party:     ["organ", "customer", "income", "expense", "estate", "settlement", "reports", "backup"],
-  lawmaker:  ["organ", "customer", "income", "expense", "estate", "reports", "backup"],
-  candidate: ["organ", "customer", "income", "expense", "estate", "reports", "backup"],
-  supporter: ["organ", "customer", "income", "expense", "estate", "donors", "reports", "backup"],
+  party:     ["organ", "customer", "income", "expense", "estate"],
+  lawmaker:  ["organ", "customer", "income", "expense", "estate"],
+  candidate: ["organ", "customer", "income", "expense", "estate"],
+  supporter: ["organ", "customer", "income", "expense", "estate"],
 };
 
 const STEP_META: Record<string, { label: string; href: string; wizardHref?: string }> = {
@@ -35,6 +36,16 @@ export async function GET(req: NextRequest) {
   }
 
   const numOrgId = Number(orgId);
+
+  // 소유권 검증: 해당 orgId가 실제 존재하는지 확인
+  const { count: orgExists } = await supabase
+    .from("organ")
+    .select("org_id", { count: "exact", head: true })
+    .eq("org_id", numOrgId);
+  if (!orgExists) {
+    return NextResponse.json({ error: "invalid orgId" }, { status: 403 });
+  }
+
   const stepIds = WORKFLOW_DEFINITIONS[orgType] || WORKFLOW_DEFINITIONS.candidate;
 
   const [customerRes, incomeRes, expenseRes, estateRes] = await Promise.all([
@@ -50,10 +61,6 @@ export async function GET(req: NextRequest) {
     income: incomeRes.count ?? 0,
     expense: expenseRes.count ?? 0,
     estate: estateRes.count ?? 0,
-    settlement: 0,
-    donors: 0,
-    reports: 0,
-    backup: 0,
   };
 
   const steps = stepIds.map((id) => ({

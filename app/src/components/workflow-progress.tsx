@@ -36,7 +36,7 @@ export function WorkflowProgress() {
       .catch(() => {});
   }, [isEnabled, orgId, orgType, setWorkflow]);
 
-  if (!isEnabled || !workflowSteps) return null;
+  if (!isEnabled || !workflowSteps || workflowSteps.length === 0) return null;
 
   const currentStep = workflowSteps.find((s) => s.id === currentStepId);
   const allCompleted = workflowSteps.every((s) => s.completed);

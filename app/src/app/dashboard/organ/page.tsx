@@ -96,11 +96,9 @@ export default function OrganPage() {
 
   return (
     <div className="space-y-6">
+      <PageGuide {...PAGE_GUIDES.organ} />
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">사용기관 관리</h2>
-      </div>
-      <PageGuide {...PAGE_GUIDES.organ} />
-      <div className="hidden">{/* spacer */}
         <HelpTooltip id="btn.save"><Button onClick={handleSave}>저장</Button></HelpTooltip>
       </div>
 

@@ -259,11 +259,9 @@ export default function CustomerPage() {
 
   return (
     <div className="space-y-6">
+      <PageGuide {...PAGE_GUIDES.customer} />
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">수입지출처 관리</h2>
-      </div>
-      <PageGuide {...PAGE_GUIDES.customer} />
-      <div className="hidden">{/* spacer for structure */}
         <div className="flex gap-2">
           <HelpTooltip id="btn.new">
             <Button variant="outline" onClick={resetForm}>신규입력</Button>
