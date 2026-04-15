@@ -11,6 +11,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CodeSelect } from "@/components/code-select";
 import { CustomerSearchDialog } from "@/components/customer-search-dialog";
 import { getExpTypeData, PAY_METHODS } from "@/lib/expense-types";
+import { PageGuide } from "@/components/page-guide";
+import { PAGE_GUIDES } from "@/lib/page-guides";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -450,6 +452,7 @@ export default function DocumentRegisterPage() {
 
   return (
     <div className="space-y-4">
+      <PageGuide {...PAGE_GUIDES["document-register"]} />
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">영수증/계약서 자동등록</h2>
         <div className="flex gap-2">

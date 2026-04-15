@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { HelpTooltip } from "@/components/help-tooltip";
 import { PageGuide } from "@/components/page-guide";
+import { EmptyState } from "@/components/empty-state";
 import { PAGE_GUIDES } from "@/lib/page-guides";
 
 function fmt(n: number) {
@@ -226,6 +227,18 @@ export default function SettlementPage() {
             </Button>
           </HelpTooltip>
         </div>
+
+        {!result && !loading && (
+          <EmptyState
+            icon="📊"
+            title="결산 결과가 없습니다"
+            description="결산기간을 설정하고 [결산] 버튼을 클릭하세요. 결산하려면 수입/지출 자료가 필요합니다."
+            actions={[
+              { label: "수입 등록", href: "/dashboard/income" },
+              { label: "지출 등록", href: "/dashboard/expense", variant: "outline" },
+            ]}
+          />
+        )}
 
         {result && (
           <div className="space-y-4">

@@ -42,7 +42,7 @@ export function WorkflowProgress() {
   const allCompleted = workflowSteps.every((s) => s.completed);
 
   return (
-    <Card className="border">
+    <Card className="border" role="navigation" aria-label="회계 업무 진행 현황">
       <CardHeader className="pb-3">
         <CardTitle className="text-sm font-medium text-gray-500">
           회계 업무 진행 현황

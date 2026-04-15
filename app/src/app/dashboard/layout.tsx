@@ -295,7 +295,7 @@ export default function DashboardLayout({
             <HelpTooltip id="help.toggle">
               <div className="flex items-center gap-2">
                 <span className="text-sm text-gray-500">초보자 모드</span>
-                <Switch checked={isEnabled} onCheckedChange={toggle} />
+                <Switch checked={isEnabled} onCheckedChange={toggle} aria-label="초보자 모드 켜기/끄기" />
               </div>
             </HelpTooltip>
             <Button variant="outline" size="sm" onClick={handleLogout}>

@@ -118,6 +118,23 @@ interface CodeValue {
   cv_name: string;
 }
 
+const PAGE_CONTEXT: Record<string, string> = {
+  "/dashboard": "대시보드 — 수입/지출 요약과 업무 진행 현황을 보여주는 메인 화면입니다.",
+  "/dashboard/income": "수입내역관리 — 후원금, 보조금 등 수입을 등록·조회·수정하는 화면입니다. 계정→과목→수입제공자→금액 순서로 입력합니다.",
+  "/dashboard/expense": "지출내역관리 — 지출을 등록·조회·수정하는 화면입니다. 계정→과목→지출유형→지출방법→지출대상자→금액 순서로 입력합니다.",
+  "/dashboard/customer": "수입지출처관리 — 수입제공자(후원자)와 지출대상자(거래처)를 등록·관리하는 화면입니다.",
+  "/dashboard/organ": "사용기관관리 — 회계 사용기관 정보와 회계기간을 설정하는 화면입니다.",
+  "/dashboard/wizard": "간편등록 마법사 — 카드 선택만으로 계정·과목이 자동 설정되는 초보자용 등록 화면입니다.",
+  "/dashboard/settlement": "결산작업 — 수입·지출·재산을 종합하여 결산을 수행하는 화면입니다.",
+  "/dashboard/estate": "재산내역관리 — 토지, 건물, 현금 및 예금 등 재산을 등록하는 화면입니다.",
+  "/dashboard/reports": "보고서 출력 — 수입부, 지출부, 총괄표 등 회계보고 서식을 출력하는 화면입니다.",
+};
+
+function getPageContext(pathname: string): string {
+  const ctx = PAGE_CONTEXT[pathname];
+  return ctx ? `\n현재 화면: ${ctx}` : "";
+}
+
 async function fetchAccountingContext(orgId?: number): Promise<string> {
   const orgIds: number[] = [];
   if (orgId) {
@@ -202,8 +219,9 @@ export async function POST(request: NextRequest) {
     // 3. Gemini 채팅 생성
     const chatModel = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
+    const pageContext = context?.currentPage ? getPageContext(context.currentPage) : "";
     const contextInfo = context
-      ? `\n사용자: ${context.orgName || "미정"} (${context.orgType || "미정"})`
+      ? `\n사용자: ${context.orgName || "미정"} (${context.orgType || "미정"})${pageContext}`
       : "";
 
     const fullPrompt = `${SYSTEM_PROMPT}${contextInfo}\n${accountingContext}\n\n📋 관련 보전항목 가이드:\n${relevantGuide}\n\n📊 관련 샘플 데이터:\n${relevantSample}\n\n사용자 질문: ${message}`;
