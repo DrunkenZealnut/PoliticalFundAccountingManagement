@@ -148,7 +148,7 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const router = useRouter();
-  const { user, orgName, orgType, orgId, orgSecCd, setUser } = useAuth();
+  const { user, orgName, orgType, orgId, orgSecCd, accFrom, accTo, setUser } = useAuth();
 
   const ORG_TYPE_LABELS: Record<number, string> = {
     50: "중앙당", 51: "정책연구소", 52: "시도당", 53: "정당선거사무소",
@@ -240,6 +240,13 @@ export default function DashboardLayout({
           <Link href="/dashboard" className="font-bold text-lg hover:text-blue-700 transition-colors">정치자금 회계관리</Link>
           <p className="text-sm font-bold text-black truncate">{orgName || "기관 미선택"}</p>
           {orgSecCd && <p className="text-xs font-semibold text-blue-700">{ORG_TYPE_LABELS[orgSecCd] || ""}</p>}
+          {accFrom && (
+            <p className="text-xs text-gray-500 mt-0.5">
+              {accFrom.slice(0, 4) === accTo?.slice(0, 4)
+                ? `${accFrom.slice(0, 4)}년 회계`
+                : `${accFrom.slice(0, 4)}~${accTo?.slice(0, 4)}년`}
+            </p>
+          )}
           <Link href="/select-organ" className="text-xs text-blue-500 hover:underline mt-1 inline-block">
             사용기관 전환/추가
           </Link>
