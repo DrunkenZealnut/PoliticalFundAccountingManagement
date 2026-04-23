@@ -383,9 +383,9 @@ async function handleAnalyze() {
   let customerMatch = null;
   if (customerName) {
     const res = await fetch(`/api/customers?search=${encodeURIComponent(customerName)}`);
-    const { data } = await res.json();
-    if (data?.length > 0) {
-      customerMatch = { matched: true, custId: data[0].cust_id, isNew: false };
+    const customers = await res.json();
+    if (Array.isArray(customers) && customers.length > 0) {
+      customerMatch = { matched: true, custId: customers[0].cust_id, isNew: false };
     } else {
       customerMatch = {
         matched: false, custId: 0, isNew: true,
