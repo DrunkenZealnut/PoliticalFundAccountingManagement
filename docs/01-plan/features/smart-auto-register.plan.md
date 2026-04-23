@@ -144,7 +144,6 @@ function inferExpenseType(
 
 ### 구현 대상
 - `lib/text-parser.ts` — 텍스트 파싱 로직 (금액/날짜/결제수단/거래처 추출)
-- `lib/expense-inferrer.ts` — 키워드 → 지출유형 자동 추론
 - `dashboard/wizard/page.tsx` — "빠른 등록" 탭 추가 (기존 마법사 페이지에 통합)
 - `lib/wizard-mappings.ts` — inferExpenseType 함수 추가
 
@@ -246,7 +245,7 @@ const [ocrResult, setOcrResult] = useState<OcrResult | null>(null);
 | `4/10` | 2026-04-10 | `(\d{1,2})/(\d{1,2})` |
 | `오늘` | 오늘 날짜 | 키워드 |
 | `어제` | 어제 날짜 | 키워드 |
-| (없음) | 오늘 날짜 | 기본값 |
+| (없음) | null | 기본값은 UI에서 오늘 날짜로 설정 |
 
 ### 결제수단 키워드
 
@@ -257,7 +256,7 @@ const [ocrResult, setOcrResult] = useState<OcrResult | null>(null);
 | 현금 | 120 | 현금 |
 | 계좌, 이체, 입금, 송금 | 118 | 계좌입금 |
 | 수표 | 583 | 수표 |
-| (없음) | 118 | 계좌입금 (기본값) |
+| (없음) | null | 기본값은 UI에서 계좌입금으로 설정 |
 
 ## 7. 디자인 시스템 적용 (DESIGN.md 참조)
 

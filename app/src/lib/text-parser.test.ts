@@ -60,7 +60,10 @@ describe("text-parser", () => {
 
       it("should parse 어제", () => {
         const result = parseExpenseText("명함 어제");
-        expect(result.date).not.toBeNull();
+        const d = new Date();
+        d.setDate(d.getDate() - 1);
+        const expected = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        expect(result.date).toBe(expected);
       });
 
       it("should return null when no date", () => {

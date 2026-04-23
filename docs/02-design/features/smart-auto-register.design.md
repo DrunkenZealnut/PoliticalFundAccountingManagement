@@ -51,7 +51,7 @@ const DATE_KEYWORDS: Record<string, number> = {
 ```typescript
 const PAY_KEYWORDS: Record<string, string> = {
   "신용카드": "584", "체크카드": "585", "카드": "584",
-  "현금": "120", "계좌": "118", "이체": "118",
+  "현금": "120", "계좌이체": "118", "계좌": "118", "이체": "118",
   "입금": "118", "송금": "118", "수표": "583",
 };
 ```
@@ -165,10 +165,10 @@ const LEVEL2_INDEX: Map<string, { group1: string; group2: string }> = new Map();
 ```typescript
 // 거래처 이름으로 검색
 const res = await fetch(`/api/customers?search=${encodeURIComponent(name)}`);
-const { data } = await res.json();
-if (data.length > 0) {
+const customers = await res.json();
+if (Array.isArray(customers) && customers.length > 0) {
   // 기존 거래처 사용 (가장 유사한 첫 번째)
-  return data[0].cust_id;
+  return customers[0].cust_id;
 }
 // 없으면 자동등록
 ```
