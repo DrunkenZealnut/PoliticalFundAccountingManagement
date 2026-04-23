@@ -33,3 +33,17 @@ Thumbs.db
 # Legacy Windows program (entire folder)
 중앙선거관리위원회_정치자금회계관리2/
 .vercel
+
+# Dropbox/iCloud sync duplicate files (" 2" suffix)
+* 2.md
+* 2.sql
+* 2.ts
+* 2.tsx
+* 2.js
+* 2.mjs
+* 2.json
+* 2.jpeg
+* 2.jpg
+* 2.png
+* 2.pdf
+* 2/
