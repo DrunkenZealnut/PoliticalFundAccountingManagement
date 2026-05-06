@@ -9,6 +9,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CodeSelect } from "@/components/code-select";
 import { generateBurdenCostForm, type BurdenCostFormData, type BurdenCostAmounts } from "@/lib/excel-template/burden-cost-form";
+import {
+  generateReimbursementClaimForm,
+  type ReimbursementClaimFormData,
+} from "@/lib/excel-template/reimbursement-claim-form";
+import type { ClaimAmounts } from "@/lib/accounting/reimbursement-aggregator";
 
 /* ================================================================== */
 /*  공통 타입                                                          */
@@ -59,7 +64,7 @@ const tdR = "border border-gray-300 px-2 py-1 text-xs whitespace-nowrap text-rig
 
 export default function ReimbursementPage() {
   const { loading: codesLoading } = useCodeValues();
-  const [activeTab, setActiveTab] = useState<"reimbursement" | "burden">("reimbursement");
+  const [activeTab, setActiveTab] = useState<"reimbursement" | "burden" | "claim">("reimbursement");
 
   if (codesLoading) {
     return <div className="flex items-center justify-center h-64 text-gray-400">코드 데이터 로딩 중...</div>;
@@ -81,9 +86,14 @@ export default function ReimbursementPage() {
         <button className={tabCls("burden")} onClick={() => setActiveTab("burden")}>
           부담비용 청구
         </button>
+        <button className={tabCls("claim")} onClick={() => setActiveTab("claim")}>
+          보전청구서 (서식1)
+        </button>
       </div>
 
-      {activeTab === "reimbursement" ? <ReimbursementTab /> : <BurdenCostTab />}
+      {activeTab === "reimbursement" && <ReimbursementTab />}
+      {activeTab === "burden" && <BurdenCostTab />}
+      {activeTab === "claim" && <ClaimFormTab />}
     </div>
   );
 }
@@ -336,6 +346,290 @@ function BurdenCostTab() {
       {/* 청구서 정보 입력 Dialog */}
       {showFormDialog && (
         <BurdenCostFormDialog summary={summary} onGenerate={handleGenerateForm} onClose={() => setShowFormDialog(false)} />
+      )}
+    </div>
+  );
+}
+
+/* ================================================================== */
+/*  선거비용 보전청구서 탭 (서식 1 생성)                                  */
+/* ================================================================== */
+
+interface AggregateResult {
+  byFundingSource: ClaimAmounts;
+  rowCount: number;
+  uncheckedCount: number;
+  nonElectionCount: number;
+}
+
+function ClaimFormTab() {
+  const { orgId, orgName } = useAuth();
+  const [aggregate, setAggregate] = useState<AggregateResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+
+  // 청구서 입력 상태
+  const [partyName, setPartyName] = useState("");
+  const [districtName, setDistrictName] = useState("");
+  const [candidateName, setCandidateName] = useState(orgName || "");
+  const [campaignManager, setCampaignManager] = useState("");
+  const [accountant, setAccountant] = useState("");
+  const [accHolder, setAccHolder] = useState("");
+  const [bankName, setBankName] = useState("");
+  const [accountNumber, setAccountNumber] = useState("");
+  const [submissionDate, setSubmissionDate] = useState("");
+  const [receivingCommittee, setReceivingCommittee] = useState("");
+  const [isAdditional, setIsAdditional] = useState(false);
+
+  // 부속서류 체크리스트 (UI 안내용 — 양식에는 영향 없음)
+  const [attaches, setAttaches] = useState({
+    ledger: false,
+    receipts: false,
+    branchClaims: false,
+    bankbook: false,
+  });
+
+  const fetchAggregate = useCallback(async () => {
+    if (!orgId) return;
+    setLoading(true);
+    try {
+      const res = await fetch("/api/reimbursement/claim-form/aggregate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orgId }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(`집계 실패: ${err.error || res.statusText}`);
+        return;
+      }
+      const data = (await res.json()) as AggregateResult;
+      setAggregate(data);
+    } finally {
+      setLoading(false);
+    }
+  }, [orgId]);
+
+  const claimantsValid = candidateName && campaignManager && accountant;
+  const accountValid = accHolder && bankName && accountNumber;
+  const canDownload =
+    aggregate !== null &&
+    aggregate.byFundingSource.합계 > 0 &&
+    claimantsValid &&
+    accountValid &&
+    !!submissionDate &&
+    !!receivingCommittee;
+
+  async function handleDownload() {
+    if (!aggregate) return;
+    setDownloading(true);
+    try {
+      const data: ReimbursementClaimFormData = {
+        formType: "form1",
+        electionName: "제9회 전국동시지방선거",
+        partyName,
+        electionDistrictName: districtName,
+        candidateName,
+        rows: [
+          {
+            label: "선거사무소",
+            amounts: aggregate.byFundingSource,
+          },
+        ],
+        totalAmount: aggregate.byFundingSource.합계,
+        account: {
+          holder: accHolder,
+          bankName,
+          accountNumber,
+        },
+        claimants: {
+          candidate: candidateName,
+          campaignManager,
+          accountant,
+        },
+        submissionDate,
+        receivingCommittee,
+        isAdditional,
+      };
+      const wb = await generateReimbursementClaimForm(data);
+      const buffer = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+      a.download = `선거비용_보전청구서_${candidateName}_${dateStr}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  const sums = aggregate?.byFundingSource;
+
+  return (
+    <div className="space-y-4 mt-4">
+      <div className="bg-white rounded-lg border p-4 space-y-4">
+        <div className="bg-blue-50 rounded p-3 text-sm text-blue-800">
+          선거비용 보전청구서(서식 1)를 자동 생성합니다. <b>선거비용 보전</b> 탭에서 보전 대상으로 체크된 지출이 자금원별로 자동 집계됩니다.<br />
+          청구기한: <b>2026년 6월 15일(월)</b> · 보전금 지급기한: 2026년 7월 31일(금)
+        </div>
+        <Button onClick={fetchAggregate} disabled={loading}>
+          {loading ? "집계 중..." : aggregate ? "집계 새로고침" : "보전 대상 집계"}
+        </Button>
+      </div>
+
+      {/* 자금원별 집계 결과 */}
+      {sums && (
+        <div className="bg-white rounded-lg border p-4 space-y-3">
+          <h3 className="font-bold text-sm">청구내역 (자금원별 집계)</h3>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            {([
+              ["후보자자산", sums.후보자자산],
+              ["후원회기부금", sums.후원회기부금],
+              ["보조금", sums.보조금],
+              ["보조금외", sums.보조금외],
+              ["합계 (보전청구 총액)", sums.합계],
+            ] as [string, number][]).map(([label, amt]) => {
+              const isTotal = label.startsWith("합계");
+              return (
+                <div
+                  key={label}
+                  className={`rounded-lg border p-3 text-center ${
+                    isTotal ? "bg-blue-50 border-blue-200" : "bg-white"
+                  }`}
+                >
+                  <div className="text-xs text-gray-500">{label}</div>
+                  <div
+                    className={`font-bold text-sm mt-1 font-mono ${
+                      isTotal ? "text-blue-700" : "text-gray-800"
+                    }`}
+                  >
+                    {fmt(amt)}원
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="text-xs text-gray-500 flex gap-4">
+            <span>📊 집계 거래: <b>{aggregate!.rowCount}건</b></span>
+            {aggregate!.uncheckedCount > 0 && (
+              <span className="text-amber-600">
+                ⚠️ 보전 미체크 거래 <b>{aggregate!.uncheckedCount}건</b> 제외 — 보전 탭에서 체크 필요
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 입력 폼 */}
+      {aggregate && (
+        <div className="bg-white rounded-lg border p-4 space-y-4">
+          <h3 className="font-bold text-sm">기본 정보</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Label>소속정당명</Label>
+              <Input value={partyName} onChange={(e) => setPartyName(e.target.value)} placeholder="○○당" />
+            </div>
+            <div>
+              <Label>선거구명</Label>
+              <Input value={districtName} onChange={(e) => setDistrictName(e.target.value)} placeholder="○○선거구" />
+            </div>
+            <div>
+              <Label>후보자명</Label>
+              <Input value={candidateName} onChange={(e) => setCandidateName(e.target.value)} />
+            </div>
+            <div>
+              <Label>수신처 (○○선거관리위원회)</Label>
+              <Input value={receivingCommittee} onChange={(e) => setReceivingCommittee(e.target.value)} placeholder="송파구선거관리위원회" />
+            </div>
+          </div>
+
+          <h3 className="font-bold text-sm pt-3 border-t">청구인 정보 (기명·날인)</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <Label>후보자</Label>
+              <Input value={candidateName} onChange={(e) => setCandidateName(e.target.value)} />
+            </div>
+            <div>
+              <Label>선거사무장</Label>
+              <Input value={campaignManager} onChange={(e) => setCampaignManager(e.target.value)} />
+            </div>
+            <div>
+              <Label>회계책임자</Label>
+              <Input value={accountant} onChange={(e) => setAccountant(e.target.value)} />
+            </div>
+          </div>
+
+          <h3 className="font-bold text-sm pt-3 border-t">수령계좌</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <Label>예금주</Label>
+              <Input value={accHolder} onChange={(e) => setAccHolder(e.target.value)} />
+            </div>
+            <div>
+              <Label>금융기관명</Label>
+              <Input value={bankName} onChange={(e) => setBankName(e.target.value)} placeholder="○○은행" />
+            </div>
+            <div>
+              <Label>계좌번호</Label>
+              <Input value={accountNumber} onChange={(e) => setAccountNumber(e.target.value)} />
+            </div>
+          </div>
+
+          <h3 className="font-bold text-sm pt-3 border-t">제출일자 및 옵션</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Label>작성일자 (예: 2026년 6월 10일)</Label>
+              <Input value={submissionDate} onChange={(e) => setSubmissionDate(e.target.value)} placeholder="2026년 6월 10일" />
+            </div>
+            <div className="flex items-end gap-2">
+              <input
+                type="checkbox"
+                id="additional-claim"
+                checked={isAdditional}
+                onChange={(e) => setIsAdditional(e.target.checked)}
+              />
+              <label htmlFor="additional-claim" className="text-sm">
+                추가청구 모드 (제목에 &quot;(추가)&quot; 표기)
+              </label>
+            </div>
+          </div>
+
+          <h3 className="font-bold text-sm pt-3 border-t">부속서류 안내 (수기 첨부)</h3>
+          <div className="space-y-2 text-sm">
+            {([
+              ["ledger", "정치자금 수입·지출부(선거비용과목) 사본 — Excel 메뉴에서 별도 출력"],
+              ["receipts", "영수증 등 증빙서류 사본"],
+              ["branchClaims", "선거연락소별 보전청구서 사본 (해당 시)"],
+              ["bankbook", "정치자금 수입·지출 통장(수령계좌 통장) 사본"],
+            ] as [keyof typeof attaches, string][]).map(([key, label]) => (
+              <label key={key} className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={attaches[key]}
+                  onChange={(e) => setAttaches({ ...attaches, [key]: e.target.checked })}
+                  className="mt-1"
+                />
+                <span>{label}</span>
+              </label>
+            ))}
+          </div>
+
+          <div className="pt-4 border-t flex gap-2 items-center">
+            <Button onClick={handleDownload} disabled={!canDownload || downloading}>
+              {downloading ? "생성 중..." : "보전청구서 (서식1) 다운로드 📥"}
+            </Button>
+            {!canDownload && (
+              <span className="text-xs text-amber-600">
+                ⚠️ 청구인·수령계좌·작성일자·수신처를 모두 입력하세요.
+              </span>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
