@@ -96,12 +96,13 @@ export default function DocumentRegisterPage() {
   }
 
   /* ---- File handling ---- */
+  const MAX_UPLOAD = 10;
+
   const handleFiles = useCallback(async (files: FileList | File[]) => {
     const fileArr = Array.from(files).filter((f) =>
       f.type.startsWith("image/") || f.type === "application/pdf"
     );
     if (fileArr.length === 0) { alert("지원 형식: JPG, PNG, PDF"); return; }
-    if (entries.length + fileArr.length > 10) { alert("최대 10건까지 업로드 가능합니다."); return; }
 
     const newEntries: ParsedEntry[] = [];
     for (const file of fileArr) {
@@ -118,8 +119,19 @@ export default function DocumentRegisterPage() {
       });
     }
 
-    setEntries((prev) => [...prev, ...newEntries]);
-  }, [entries.length]);
+    // 최종 10건 제한은 setEntries 내부에서 prev.length 기준으로 enforce —
+    // 동시 업로드 race condition 방어. 초과분은 preview URL을 revoke하고 truncate.
+    setEntries((prev) => {
+      const available = Math.max(0, MAX_UPLOAD - prev.length);
+      if (newEntries.length > available) {
+        for (let i = available; i < newEntries.length; i++) {
+          if (newEntries[i].preview) URL.revokeObjectURL(newEntries[i].preview);
+        }
+        alert(`최대 ${MAX_UPLOAD}건까지 업로드 가능합니다. ${newEntries.length - available}건은 제외됩니다.`);
+      }
+      return [...prev, ...newEntries.slice(0, available)];
+    });
+  }, []);
 
   function updateEntry(id: number, patch: Partial<ParsedEntry>) {
     setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
@@ -371,7 +383,7 @@ export default function DocumentRegisterPage() {
             <input ref={fileRef} type="file" accept="image/*,application/pdf" multiple className="hidden"
               onChange={(e) => e.target.files && handleFiles(e.target.files)} />
             <p className="text-gray-500 text-lg mb-1">영수증 또는 계약서 이미지를 드래그하거나 클릭하여 업로드</p>
-            <p className="text-gray-400 text-sm">JPG, PNG, PDF 지원 | 최대 10건 | 일자·금액·거래처·내역을 직접 입력하세요</p>
+            <p className="text-gray-400 text-sm">JPG, PNG, PDF 지원 | 최대 10건 | 저장에는 계정·과목·일자·금액이 필요합니다 (거래처·내역도 직접 입력)</p>
           </div>
 
           {/* Entries */}
