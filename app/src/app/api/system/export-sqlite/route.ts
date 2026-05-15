@@ -8,8 +8,10 @@ import {
   buildOrganExport as buildOrganExportShared,
   remapOrgId as remapOrgIdShared,
   type SupabaseOrgan as OrganRowShared,
+  type CandidateCredentials,
 } from "@/lib/accounting/organ-pair";
 import { computeBalances, type AccBookRow } from "@/lib/accounting/settlement-calc";
+import { ParityError, ParityErrors } from "@/lib/accounting/parity-errors";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -398,17 +400,32 @@ CREATE TABLE info (
 type SupabaseOrgan = OrganRowShared & { [key: string]: unknown };
 
 // ORGAN pair 변환과 org_id remap은 lib/accounting/organ-pair로 이동.
-const buildOrganExport = (org: SupabaseOrgan) =>
-  buildOrganExportShared(org, { maskPasswd: false }) as unknown as {
+const buildOrganExport = (
+  org: SupabaseOrgan,
+  candidateCredentials?: CandidateCredentials,
+) =>
+  buildOrganExportShared(org, {
+    maskPasswd: false,
+    candidateCredentials,
+  }) as unknown as {
     organRows: Record<string, unknown>[];
     orgIdMap: Map<number, number>;
   };
 const remapOrgId = remapOrgIdShared;
 
-async function fetchTable(table: string, orgFilter?: { col: string; orgId: number }) {
+async function fetchTable(
+  table: string,
+  orgFilter?: { col: string; orgId: number },
+  yearFilter?: { col: string; year: string },
+) {
   let query = supabase.from(table).select("*");
   if (orgFilter) {
     query = query.eq(orgFilter.col, orgFilter.orgId);
+  }
+  if (yearFilter) {
+    query = query
+      .gte(yearFilter.col, `${yearFilter.year}0101`)
+      .lte(yearFilter.col, `${yearFilter.year}1231`);
   }
   const { data, error } = await query;
   if (error) throw new Error(`${table}: ${error.message}`);
@@ -440,14 +457,74 @@ function insertRows(
 export async function GET(request: NextRequest) {
   const orgId = request.nextUrl.searchParams.get("orgId");
   const orgName = request.nextUrl.searchParams.get("orgName") || "data";
+  const candUseridParam = request.nextUrl.searchParams.get("candUserid");
+  const candPasswdParam = request.nextUrl.searchParams.get("candPasswd");
+  const yearParam = request.nextUrl.searchParams.get("year");
 
   if (!orgId) {
     return NextResponse.json({ error: "orgId required" }, { status: 400 });
   }
 
+  // year은 옵션. 형식 YYYY (1900~2099). 잘못된 값은 400.
+  let yearFilter: { col: string; year: string } | undefined;
+  if (yearParam !== null && yearParam !== "") {
+    if (!/^(19|20)\d{2}$/.test(yearParam)) {
+      return NextResponse.json(
+        { error: { code: "INVALID_YEAR", message: "year은 YYYY 형식이어야 합니다 (예: 2026)" } },
+        { status: 400 },
+      );
+    }
+    yearFilter = { col: "acc_date", year: yearParam };
+  }
+
   const numOrgId = Number(orgId);
 
   try {
+    // ──────────────────────────────────────────────────────
+    // Step 0: 사전 검증 — PFund2 호환 자격증명 (PARITY-007)
+    // WASM/DDL 비용 회피를 위해 fail-fast.
+    // ──────────────────────────────────────────────────────
+    const { data: credCheck, error: credErr } = await supabase
+      .from("organ")
+      .select("userid, passwd")
+      .eq("org_id", numOrgId)
+      .maybeSingle();
+
+    if (credErr) throw new Error(`organ credential check: ${credErr.message}`);
+    if (!credCheck) {
+      return NextResponse.json({ error: "organ not found" }, { status: 404 });
+    }
+
+    const missing: string[] = [];
+    if (!credCheck.userid || String(credCheck.userid).trim() === "") missing.push("userid");
+    if (!credCheck.passwd || String(credCheck.passwd).trim() === "") missing.push("passwd");
+    if (missing.length > 0) {
+      throw ParityErrors.organCredentialsMissing({
+        organId: numOrgId,
+        missing,
+        actionUrl: "/dashboard/organ",
+      });
+    }
+
+    // 페어 자격증명 partial 검증 — 둘 다 입력하거나 둘 다 비워야 함
+    const candUseridTrimmed = candUseridParam?.trim() ?? "";
+    const candPasswdTrimmed = candPasswdParam?.trim() ?? "";
+    const hasCandUserid = candUseridTrimmed.length > 0;
+    const hasCandPasswd = candPasswdTrimmed.length > 0;
+    if (hasCandUserid !== hasCandPasswd) {
+      throw ParityErrors.organCredentialsMissing({
+        organId: numOrgId,
+        candidate_partial: true,
+        message_detail:
+          "후보자 계정 자격증명은 ID/비밀번호 둘 다 입력하거나 둘 다 비워야 합니다",
+      });
+    }
+
+    const candidateCredentials: CandidateCredentials | undefined =
+      hasCandUserid && hasCandPasswd
+        ? { userid: candUseridTrimmed, passwd: candPasswdTrimmed }
+        : undefined;
+
     const wasmPath = path.join(process.cwd(), "node_modules", "sql.js", "dist", "sql-wasm.wasm");
     const wasmBinary = readFileSync(wasmPath);
     const SQL = await initSqlJs({ wasmBinary });
@@ -463,8 +540,9 @@ export async function GET(request: NextRequest) {
       fetchTable("organ", { col: "org_id", orgId: numOrgId }),
       fetchTable("customer"),
       fetchTable("customer_addr"),
-      fetchTable("acc_book", { col: "org_id", orgId: numOrgId }),
-      fetchTable("acc_book_bak", { col: "org_id", orgId: numOrgId }),
+      // year 지정 시 acc_date 기준으로 회계연도 1년만 추출 (PFund2 호환 유지)
+      fetchTable("acc_book", { col: "org_id", orgId: numOrgId }, yearFilter),
+      fetchTable("acc_book_bak", { col: "org_id", orgId: numOrgId }, yearFilter),
       fetchTable("accbooksend"),
       fetchTable("estate", { col: "org_id", orgId: numOrgId }),
       fetchTable("opinion", { col: "org_id", orgId: numOrgId }),
@@ -483,7 +561,7 @@ export async function GET(request: NextRequest) {
     const supabaseOrgan = organList[0] as SupabaseOrgan;
 
     // Build ORGAN export rows + org_id remap (supports 후보자+후원회 pair)
-    const { organRows, orgIdMap } = buildOrganExport(supabaseOrgan);
+    const { organRows, orgIdMap } = buildOrganExport(supabaseOrgan, candidateCredentials);
 
     // OPINION 결산 동기화: 마이너스 수입 보정 후 in_amt/cm_amt/balance_amt + estate 합계
     const accBookRows: AccBookRow[] = (accBook as Record<string, unknown>[])
@@ -543,7 +621,8 @@ export async function GET(request: NextRequest) {
     const dbBinary = db.export();
     db.close();
 
-    const filename = encodeURIComponent(`${orgName}(자체분).db`);
+    const suffix = yearFilter ? `자체분-${yearFilter.year}` : "자체분";
+    const filename = encodeURIComponent(`${orgName}(${suffix}).db`);
 
     return new NextResponse(dbBinary.buffer as ArrayBuffer, {
       headers: {
@@ -552,7 +631,13 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (err) {
+    if (err instanceof ParityError) {
+      return NextResponse.json(err.toResponse(), { status: err.httpStatus });
+    }
     const message = err instanceof Error ? err.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: { code: "INTERNAL", message } },
+      { status: 500 },
+    );
   }
 }

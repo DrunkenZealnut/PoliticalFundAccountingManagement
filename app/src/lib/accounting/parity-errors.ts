@@ -12,6 +12,7 @@ export const PARITY_ERROR_CODES = {
   SQLITE_HEADER_INVALID: "PARITY-004",
   IMPORT_CONFLICT_POLICY_REQUIRED: "PARITY-005",
   SQLJS_INIT_FAILED: "PARITY-006",
+  ORGAN_CREDENTIALS_MISSING: "PARITY-007",
 } as const;
 
 export type ParityErrorCode = typeof PARITY_ERROR_CODES[keyof typeof PARITY_ERROR_CODES];
@@ -102,6 +103,14 @@ export const ParityErrors = {
       PARITY_ERROR_CODES.SQLJS_INIT_FAILED,
       "SQLite WASM 초기화 실패",
       500,
+      details,
+    );
+  },
+  organCredentialsMissing(details?: Record<string, unknown>): ParityError {
+    return new ParityError(
+      PARITY_ERROR_CODES.ORGAN_CREDENTIALS_MISSING,
+      "선관위 프로그램 로그인 정보(사용자ID/비밀번호)가 등록되지 않았습니다",
+      400,
       details,
     );
   },

@@ -86,6 +86,54 @@ describe("buildOrganExport - 후원회(109)", () => {
     const { organRows } = buildOrganExport(baseSupporter, { maskPasswd: false });
     expect(organRows[1].PASSWD).toBe("secret-cloud-only");
   });
+
+  describe("candidateCredentials 옵션 (FR-05/FR-06)", () => {
+    it("FR-05: candidateCredentials 명시 시 후보자 행 USERID/PASSWD에 적용", () => {
+      const supporter: SupabaseOrgan = { ...baseSupporter, userid: "supporter_id" };
+      const { organRows } = buildOrganExport(supporter, {
+        maskPasswd: false,
+        candidateCredentials: { userid: "cand_id", passwd: "cand_pw" },
+      });
+      expect(organRows[0].USERID).toBe("cand_id");
+      expect(organRows[0].PASSWD).toBe("cand_pw");
+      // 후원회 행은 supporter 자격증명 유지
+      expect(organRows[1].USERID).toBe("supporter_id");
+      expect(organRows[1].PASSWD).toBe("secret-cloud-only");
+    });
+
+    it("FR-06 fallback: candidateCredentials 미지정 시 후보자 행은 후원회 자격증명 복제", () => {
+      const supporter: SupabaseOrgan = {
+        ...baseSupporter,
+        userid: "shared_id",
+        passwd: "shared_pw",
+      };
+      const { organRows } = buildOrganExport(supporter, { maskPasswd: false });
+      expect(organRows[0].USERID).toBe("shared_id");
+      expect(organRows[0].PASSWD).toBe("shared_pw");
+      expect(organRows[1].USERID).toBe("shared_id");
+      expect(organRows[1].PASSWD).toBe("shared_pw");
+    });
+
+    it("maskPasswd=true(기본)면 candidateCredentials.passwd가 있어도 후보자 PASSWD 마스킹", () => {
+      const { organRows } = buildOrganExport(baseSupporter, {
+        candidateCredentials: { userid: "cand_id", passwd: "cand_pw" },
+      });
+      expect(organRows[0].USERID).toBe("cand_id"); // userid는 보존
+      expect(organRows[0].PASSWD).toBeNull(); // passwd는 마스킹
+      expect(organRows[1].PASSWD).toBeNull();
+    });
+
+    it("정당(후원회 아님)에서는 candidateCredentials가 무시됨 (단일 행)", () => {
+      const party: SupabaseOrgan = { ...baseCandidate, org_sec_cd: 50, org_name: "정당" };
+      const { organRows } = buildOrganExport(party, {
+        maskPasswd: false,
+        candidateCredentials: { userid: "x", passwd: "y" },
+      });
+      expect(organRows).toHaveLength(1);
+      // 정당 row의 USERID는 party.userid (null), 무시된 x는 반영 안 됨
+      expect(organRows[0].USERID).toBeNull();
+    });
+  });
 });
 
 describe("buildOrganExport - 후보자(90)", () => {

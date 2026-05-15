@@ -1,9 +1,12 @@
 "use client";
 
 import { useState, useCallback, useReducer, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
 import { useAuth } from "@/stores/auth";
 import { Button } from "@/components/ui/button";
+
+const ORGAN_CRED_SESSION_KEY = "organ-credentials-candidate";
 
 type ConflictPolicy = "overwrite" | "skip" | "merge";
 
@@ -64,7 +67,8 @@ const INITIAL_IMPORT_STATE: ImportState = {
 
 export default function SubmitPage() {
   const supabase = createSupabaseBrowser();
-  const { orgId, orgType, orgName, orgSecCd } = useAuth();
+  const router = useRouter();
+  const { orgId, orgType, orgName, orgSecCd, accFrom } = useAuth();
   const [generating, setGenerating] = useState(false);
   const [stats, setStats] = useState<{
     income: number;
@@ -72,6 +76,13 @@ export default function SubmitPage() {
     customers: number;
     estates: number;
   } | null>(null);
+
+  // 회계연도 — 기본값은 organ.acc_from의 앞 4자리, 없으면 현재 연도
+  const defaultYear = (accFrom && accFrom.length >= 4)
+    ? accFrom.slice(0, 4)
+    : String(new Date().getFullYear());
+  const [exportYear, setExportYear] = useState<string>(defaultYear);
+  const [exportYearMode, setExportYearMode] = useState<"all" | "year">("year");
 
   const [imp, dispatch] = useReducer(importReducer, INITIAL_IMPORT_STATE);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -277,13 +288,62 @@ export default function SubmitPage() {
     setGenerating(true);
 
     try {
-      const res = await fetch(
-        `/api/system/export-sqlite?orgId=${orgId}&orgName=${encodeURIComponent(orgName)}`
-      );
+      // 페어 자격증명 (후보자 별도 지정) — sessionStorage에서 읽기
+      let candUserid: string | null = null;
+      let candPasswd: string | null = null;
+      if (typeof window !== "undefined") {
+        try {
+          const raw = sessionStorage.getItem(`${ORGAN_CRED_SESSION_KEY}-${orgId}`);
+          if (raw) {
+            const parsed = JSON.parse(raw) as { userid?: string; passwd?: string };
+            candUserid = parsed.userid ?? null;
+            candPasswd = parsed.passwd ?? null;
+          }
+        } catch {
+          // sessionStorage 파싱 실패는 무시
+        }
+      }
+
+      const params = new URLSearchParams({
+        orgId: String(orgId),
+        orgName,
+      });
+      if (candUserid && candPasswd) {
+        params.set("candUserid", candUserid);
+        params.set("candPasswd", candPasswd);
+      }
+      if (exportYearMode === "year" && /^(19|20)\d{2}$/.test(exportYear)) {
+        params.set("year", exportYear);
+      }
+
+      const res = await fetch(`/api/system/export-sqlite?${params.toString()}`);
 
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "서버 오류");
+        const errBody = (await res.json().catch(() => null)) as
+          | { error?: { code?: string; message?: string; details?: Record<string, unknown> } | string }
+          | null;
+        // PARITY-007: 자격증명 누락 → 등록 페이지로 안내
+        if (
+          errBody?.error &&
+          typeof errBody.error === "object" &&
+          errBody.error.code === "PARITY-007"
+        ) {
+          const detailMsg =
+            (errBody.error.details?.message_detail as string | undefined) ||
+            errBody.error.message ||
+            "선관위 프로그램 로그인 정보가 등록되지 않았습니다";
+          const actionUrl =
+            (errBody.error.details?.actionUrl as string | undefined) || "/dashboard/organ";
+          if (confirm(`${detailMsg}\n\n사용기관관리 페이지로 이동하시겠습니까?`)) {
+            router.push(actionUrl);
+          }
+          return;
+        }
+        const message =
+          (typeof errBody?.error === "object"
+            ? errBody.error.message
+            : (errBody?.error as string)) || "서버 오류";
+        throw new Error(message);
       }
 
       const blob = await res.blob();
@@ -358,6 +418,43 @@ export default function SubmitPage() {
               테이블명과 컬럼명은 원본 대문자 형식(ACC_BOOK, CUSTOMER 등)으로
               복원됩니다.
             </p>
+          </div>
+        )}
+
+        {orgType !== "party" && (
+          <div className="rounded border p-3 text-sm space-y-2">
+            <p className="font-semibold">회계기간 선택</p>
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="exportYearMode"
+                checked={exportYearMode === "year"}
+                onChange={() => setExportYearMode("year")}
+              />
+              <span>회계연도</span>
+              <input
+                type="text"
+                value={exportYear}
+                onChange={(e) => setExportYear(e.target.value)}
+                onFocus={() => setExportYearMode("year")}
+                maxLength={4}
+                className="w-20 px-2 py-1 border rounded"
+                placeholder="YYYY"
+                aria-label="회계연도"
+              />
+              <span className="text-xs text-gray-500">
+                ACC_BOOK / ACC_BOOK_BAK이 해당 연도(YYYY-01-01 ~ YYYY-12-31)로만 필터됩니다
+              </span>
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="exportYearMode"
+                checked={exportYearMode === "all"}
+                onChange={() => setExportYearMode("all")}
+              />
+              <span>전체 기간 (모든 acc_book)</span>
+            </label>
           </div>
         )}
 

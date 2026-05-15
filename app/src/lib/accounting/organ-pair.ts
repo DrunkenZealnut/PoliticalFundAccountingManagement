@@ -112,17 +112,40 @@ function makeOrganRow(
   };
 }
 
+export interface CandidateCredentials {
+  userid: string | null;
+  passwd: string | null;
+}
+
+export interface BuildOrganExportOptions {
+  /** Supabase PASSWD를 export에 포함할지 (기본 true=마스킹). export-sqlite 라우트에서는 false로 호출 */
+  maskPasswd?: boolean;
+  /**
+   * 후원회 → 후보자 페어 export 시 후보자 행에 사용할 자격증명.
+   * 미지정 시 FR-06 fallback — 후원회(`supabaseOrgan`)의 userid/passwd로 복제.
+   * 정당/단일 organ에서는 무시.
+   */
+  candidateCredentials?: CandidateCredentials;
+}
+
 export function buildOrganExport(
   supabaseOrgan: SupabaseOrgan,
-  options: { maskPasswd?: boolean } = {},
+  options: BuildOrganExportOptions = {},
 ): BuildOrganExportResult {
-  const { maskPasswd = true } = options;
+  const { maskPasswd = true, candidateCredentials } = options;
   const passwd = maskPasswd ? null : supabaseOrgan.passwd ?? null;
   const orgIdMap = new Map<number, number>();
 
   if (SUPPORTER_SEC_CDS.has(supabaseOrgan.org_sec_cd)) {
     const candidateName =
       supabaseOrgan.acct_name || supabaseOrgan.rep_name || "후보자";
+
+    // FR-05/FR-06: 후보자 자격증명이 명시되면 사용, 아니면 후원회 자격증명으로 fallback.
+    // maskPasswd=true(기본)인 호출 경로에서는 PASSWD가 null로 마스킹 — 보안 우선.
+    const candidateUserid = candidateCredentials?.userid ?? supabaseOrgan.userid ?? null;
+    const candidatePasswd = maskPasswd
+      ? null
+      : candidateCredentials?.passwd ?? supabaseOrgan.passwd ?? null;
 
     const candidateRow = makeOrganRow(supabaseOrgan, {
       ORG_ID: 1,
@@ -136,8 +159,8 @@ export function buildOrganExport(
       FAX: null,
       REP_NAME: candidateName,
       ACCT_NAME: candidateName,
-      USERID: null,
-      PASSWD: null,
+      USERID: candidateUserid,
+      PASSWD: candidatePasswd,
       HINT1: null,
       HINT2: null,
       ORG_ORDER: 1,

@@ -6,8 +6,8 @@ import {
 } from "./parity-errors";
 
 describe("PARITY_ERROR_CODES", () => {
-  it("6개 코드 모두 정의됨", () => {
-    expect(Object.keys(PARITY_ERROR_CODES)).toHaveLength(6);
+  it("7개 코드 모두 정의됨", () => {
+    expect(Object.keys(PARITY_ERROR_CODES)).toHaveLength(7);
   });
 
   it("코드는 PARITY-NNN 형식", () => {
@@ -60,5 +60,20 @@ describe("ParityErrors factory", () => {
     const e = ParityErrors.organPairInconsistent({ orgSecCd: 109 });
     expect(e.code).toBe("PARITY-002");
     expect(e.details).toEqual({ orgSecCd: 109 });
+  });
+
+  it("organCredentialsMissing → PARITY-007, 400", () => {
+    const e = ParityErrors.organCredentialsMissing({
+      organId: 11,
+      missing: ["userid", "passwd"],
+      actionUrl: "/dashboard/organ",
+    });
+    expect(e.code).toBe("PARITY-007");
+    expect(e.httpStatus).toBe(400);
+    expect(e.details).toEqual({
+      organId: 11,
+      missing: ["userid", "passwd"],
+      actionUrl: "/dashboard/organ",
+    });
   });
 });
