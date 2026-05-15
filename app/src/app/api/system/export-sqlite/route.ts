@@ -549,9 +549,11 @@ export async function GET(request: NextRequest) {
       fetchTable("codeset"),
       fetchTable("codevalue"),
       fetchTable("acc_rel"),
-      fetchTable("sum_rept"),
-      fetchTable("col_organ"),
-      fetchTable("alarm"),
+      // 아래 3개 테이블: org_id PK/구성요소를 포함 → 다른 organ 데이터까지 가져오면
+      // remap 후 PK 충돌 가능. org_id 필터로 1차 차단 후 insert 단에서 2차 dedup.
+      fetchTable("sum_rept", { col: "org_id", orgId: numOrgId }),
+      fetchTable("col_organ", { col: "org_id", orgId: numOrgId }),
+      fetchTable("alarm", { col: "org_id", orgId: numOrgId }),
     ]);
 
     if (organList.length === 0) {
@@ -608,12 +610,45 @@ export async function GET(request: NextRequest) {
     // Tables with org_id — remap before insert
     insertRows(db, "ACC_BOOK", remapOrgId(accBook, orgIdMap));
     insertRows(db, "ACC_BOOK_BAK", remapOrgId(accBookBak, orgIdMap));
-    insertRows(db, "ACCBOOKSEND", accBookSend);
+
+    // ACCBOOKSEND: 이 organ의 ACC_BOOK_ID에 속하는 행만 — 다른 organ 행 차단
+    const myAccBookIds = new Set(
+      (accBook as Record<string, unknown>[]).map((r) => Number(r.acc_book_id ?? -1)),
+    );
+    const filteredAccBookSend = (accBookSend as Record<string, unknown>[]).filter((r) =>
+      myAccBookIds.has(Number(r.acc_book_id ?? -1)),
+    );
+    insertRows(db, "ACCBOOKSEND", filteredAccBookSend);
+
     insertRows(db, "ESTATE", remapOrgId(estate, orgIdMap));
     insertRows(db, "OPINION", remapOrgId(syncedOpinion, orgIdMap));
+
+    // SUM_REPT: PK = SUM_REPT_ID. fetch 단에서 org_id 필터 적용했으므로 그대로.
     insertRows(db, "SUM_REPT", remapOrgId(sumRept, orgIdMap));
-    insertRows(db, "COL_ORGAN", remapOrgId(colOrgan, orgIdMap));
-    insertRows(db, "ALARM", remapOrgId(alarm, orgIdMap));
+
+    // COL_ORGAN: PK = ORG_ID. remap 후 동일 ORG_ID 행이 여러 개면 PK 충돌 → dedup.
+    const colOrganRemapped = remapOrgId(colOrgan, orgIdMap);
+    const seenColOrganIds = new Set<number>();
+    const dedupedColOrgan = colOrganRemapped.filter((r) => {
+      const oid = Number((r as Record<string, unknown>).org_id ?? -1);
+      if (seenColOrganIds.has(oid)) return false;
+      seenColOrganIds.add(oid);
+      return true;
+    });
+    insertRows(db, "COL_ORGAN", dedupedColOrgan);
+
+    // ALARM: PK = (YEAR, ORG_ID, CHK_YN). 사용자 환경에서 중복 행이 발견됨.
+    // remap 후 (YEAR, ORG_ID, CHK_YN) 조합 dedup으로 PK 충돌 완전 차단.
+    const alarmRemapped = remapOrgId(alarm, orgIdMap);
+    const seenAlarmKey = new Set<string>();
+    const dedupedAlarm = alarmRemapped.filter((r) => {
+      const row = r as Record<string, unknown>;
+      const key = `${row.year ?? ""}|${row.org_id ?? ""}|${row.chk_yn ?? ""}`;
+      if (seenAlarmKey.has(key)) return false;
+      seenAlarmKey.add(key);
+      return true;
+    });
+    insertRows(db, "ALARM", dedupedAlarm);
 
     // info: 선관위 프로그램이 이 테이블을 사용하지 않으므로 빈 상태 유지
 
