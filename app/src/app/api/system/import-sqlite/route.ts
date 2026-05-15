@@ -407,20 +407,64 @@ export async function POST(request: NextRequest) {
 
     // ──────────────────────────────────────────────────────
     // STEP 3: ORGAN — update existing org with data from SQLite
+    // 페어(후보자+후원회)면 후원회 행은 organ 본 컬럼에, 후보자 행은 candidate_*에 매핑.
     // We don't create a new org; instead update the target org (numOrgId)
     // ──────────────────────────────────────────────────────
     if (existingTables.has("ORGAN")) {
       const rows = readSqliteTable(db, "ORGAN");
       if (rows.length > 0) {
-        // Use the first organ row, remap org_id to the target
-        const organData = { ...rows[0] };
-        delete organData.org_id; // don't try to set identity column
-        const { error } = await supabase.from("organ").update(organData).eq("org_id", numOrgId);
+        // 후보자 vs 후원회 분류
+        const SUPPORTER_SEC_CDS = new Set([91, 92, 107, 108, 109, 587, 588]);
+        const CANDIDATE_SEC_CDS = new Set([54, 90, 106]);
+
+        let supporterRow: Record<string, unknown> | null = null;
+        let candidateRow: Record<string, unknown> | null = null;
+
+        for (const r of rows) {
+          const secCd = Number(r.org_sec_cd ?? 0);
+          if (SUPPORTER_SEC_CDS.has(secCd)) {
+            supporterRow = r;
+          } else if (CANDIDATE_SEC_CDS.has(secCd)) {
+            candidateRow = r;
+          } else if (!supporterRow) {
+            // 페어가 아닌 단일 organ (정당 등) — 후원회 자리로 처리
+            supporterRow = r;
+          }
+        }
+
+        // 단일 organ뿐이면 그 행을 main organ에 update (기존 동작 유지)
+        const mainRow = supporterRow ?? rows[0];
+        const organUpdate: Record<string, unknown> = { ...mainRow };
+        delete organUpdate.org_id;
+
+        // 페어인 경우 후보자 행을 candidate_* 컬럼에 매핑
+        if (candidateRow) {
+          organUpdate.candidate_org_name = candidateRow.org_name ?? null;
+          organUpdate.candidate_reg_num = candidateRow.reg_num ?? null;
+          organUpdate.candidate_reg_date = candidateRow.reg_date ?? null;
+          organUpdate.candidate_post = candidateRow.post ?? null;
+          organUpdate.candidate_addr = candidateRow.addr ?? null;
+          organUpdate.candidate_addr_detail = candidateRow.addr_detail ?? null;
+          organUpdate.candidate_tel = candidateRow.tel ?? null;
+          organUpdate.candidate_fax = candidateRow.fax ?? null;
+          organUpdate.candidate_rep_name = candidateRow.rep_name ?? null;
+          organUpdate.candidate_acct_name = candidateRow.acct_name ?? null;
+          organUpdate.candidate_userid = candidateRow.userid ?? null;
+          organUpdate.candidate_passwd = candidateRow.passwd ?? null;
+          organUpdate.candidate_hint1 = candidateRow.hint1 ?? null;
+          organUpdate.candidate_hint2 = candidateRow.hint2 ?? null;
+        }
+
+        const { error } = await supabase.from("organ").update(organUpdate).eq("org_id", numOrgId);
         if (error) {
           report.ORGAN = { imported: 0, skipped: 1, error: error.message };
         } else {
-          report.ORGAN = { imported: 1, skipped: 0 };
-          totalImported += 1;
+          report.ORGAN = {
+            imported: candidateRow ? 2 : 1,
+            skipped: 0,
+            ...(candidateRow ? { error: "후보자 정보를 candidate_* 컬럼에 저장" } : {}),
+          };
+          totalImported += candidateRow ? 2 : 1;
         }
       }
     }

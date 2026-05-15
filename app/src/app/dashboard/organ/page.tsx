@@ -23,10 +23,25 @@ interface OrganRow {
   passwd: string | null;
   hint1: string | null;
   hint2: string | null;
+  // PFund2 호환 후보자 정보 (010 마이그레이션)
+  candidate_org_name: string | null;
+  candidate_reg_num: string | null;
+  candidate_reg_date: string | null;
+  candidate_post: string | null;
+  candidate_addr: string | null;
+  candidate_addr_detail: string | null;
+  candidate_tel: string | null;
+  candidate_fax: string | null;
+  candidate_rep_name: string | null;
+  candidate_acct_name: string | null;
+  candidate_userid: string | null;
+  candidate_passwd: string | null;
+  candidate_hint1: string | null;
+  candidate_hint2: string | null;
 }
 
 interface FormState {
-  // 기관 식별/PFund2 호환 필드 (Fix-2 추가)
+  // 후원회/단일 organ 기본 정보
   org_name: string;
   reg_num: string;
   rep_name: string;
@@ -34,14 +49,30 @@ interface FormState {
   comm: string;
   acc_from: string;
   acc_to: string;
-  // 자격증명
+  // 후원회 자격증명
   userid: string;
   passwd: string;
   hint1: string;
   hint2: string;
+  // 페어 export 임시 자격증명 (sessionStorage)
   useSeparateCandidate: boolean;
   candidateUserid: string;
   candidatePasswd: string;
+  // PFund2 호환 후보자 영구 정보 (DB 저장)
+  candidate_org_name: string;
+  candidate_reg_num: string;
+  candidate_reg_date: string;
+  candidate_post: string;
+  candidate_addr: string;
+  candidate_addr_detail: string;
+  candidate_tel: string;
+  candidate_fax: string;
+  candidate_rep_name: string;
+  candidate_acct_name: string;
+  candidate_userid_db: string;
+  candidate_passwd_db: string;
+  candidate_hint1: string;
+  candidate_hint2: string;
 }
 
 const SESSION_KEY = "organ-credentials-candidate";
@@ -163,6 +194,20 @@ export default function OrganInfoPage() {
     useSeparateCandidate: false,
     candidateUserid: "",
     candidatePasswd: "",
+    candidate_org_name: "",
+    candidate_reg_num: "",
+    candidate_reg_date: "",
+    candidate_post: "",
+    candidate_addr: "",
+    candidate_addr_detail: "",
+    candidate_tel: "",
+    candidate_fax: "",
+    candidate_rep_name: "",
+    candidate_acct_name: "",
+    candidate_userid_db: "",
+    candidate_passwd_db: "",
+    candidate_hint1: "",
+    candidate_hint2: "",
   });
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string | null>>>({});
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
@@ -179,7 +224,7 @@ export default function OrganInfoPage() {
     const { data, error } = await supabase
       .from("organ")
       .select(
-        "org_id, org_sec_cd, org_name, reg_num, rep_name, acct_name, comm, acc_from, acc_to, userid, passwd, hint1, hint2",
+        "org_id, org_sec_cd, org_name, reg_num, rep_name, acct_name, comm, acc_from, acc_to, userid, passwd, hint1, hint2, candidate_org_name, candidate_reg_num, candidate_reg_date, candidate_post, candidate_addr, candidate_addr_detail, candidate_tel, candidate_fax, candidate_rep_name, candidate_acct_name, candidate_userid, candidate_passwd, candidate_hint1, candidate_hint2",
       )
       .eq("org_id", orgId)
       .single();
@@ -202,6 +247,20 @@ export default function OrganInfoPage() {
       passwd: row.passwd ?? "",
       hint1: row.hint1 ?? "",
       hint2: row.hint2 ?? "",
+      candidate_org_name: row.candidate_org_name ?? "",
+      candidate_reg_num: row.candidate_reg_num ?? "",
+      candidate_reg_date: row.candidate_reg_date ?? "",
+      candidate_post: row.candidate_post ?? "",
+      candidate_addr: row.candidate_addr ?? "",
+      candidate_addr_detail: row.candidate_addr_detail ?? "",
+      candidate_tel: row.candidate_tel ?? "",
+      candidate_fax: row.candidate_fax ?? "",
+      candidate_rep_name: row.candidate_rep_name ?? "",
+      candidate_acct_name: row.candidate_acct_name ?? "",
+      candidate_userid_db: row.candidate_userid ?? "",
+      candidate_passwd_db: row.candidate_passwd ?? "",
+      candidate_hint1: row.candidate_hint1 ?? "",
+      candidate_hint2: row.candidate_hint2 ?? "",
     }));
     // 후보자 자격증명은 sessionStorage에서 복원 (DB에 저장 안 함)
     if (typeof window !== "undefined") {
@@ -274,6 +333,20 @@ export default function OrganInfoPage() {
         passwd: form.passwd,
         hint1: form.hint1.trim() || null,
         hint2: form.hint2.trim() || null,
+        candidate_org_name: form.candidate_org_name.trim() || null,
+        candidate_reg_num: form.candidate_reg_num.trim() || null,
+        candidate_reg_date: form.candidate_reg_date.trim() || null,
+        candidate_post: form.candidate_post.trim() || null,
+        candidate_addr: form.candidate_addr.trim() || null,
+        candidate_addr_detail: form.candidate_addr_detail.trim() || null,
+        candidate_tel: form.candidate_tel.trim() || null,
+        candidate_fax: form.candidate_fax.trim() || null,
+        candidate_rep_name: form.candidate_rep_name.trim() || null,
+        candidate_acct_name: form.candidate_acct_name.trim() || null,
+        candidate_userid: form.candidate_userid_db.trim() || null,
+        candidate_passwd: form.candidate_passwd_db || null,
+        candidate_hint1: form.candidate_hint1.trim() || null,
+        candidate_hint2: form.candidate_hint2.trim() || null,
       })
       .eq("org_id", orgId);
     setSaving(false);
@@ -563,6 +636,206 @@ export default function OrganInfoPage() {
           )}
         </div>
       </Card>
+
+      {isSupporter && (
+        <Card className="p-4 space-y-4">
+          <div>
+            <h2 className="text-sm font-semibold text-gray-700">
+              후보자 정보 (PFund2 호환) <span className="text-xs font-normal text-gray-500">선택</span>
+            </h2>
+            <p className="mt-1 text-xs text-gray-500 leading-relaxed">
+              PFund2는 후보자(ORG_ID=1)와 후원회(ORG_ID=2)를 별도 `.db`로 운영합니다. 정확한
+              자료 복구를 위해 후보자 본인 정보를 입력해주세요 (PFund2 Fund_Data_1.db의 ORGAN
+              행과 동일하게). 비워두면 후원회 정식명에서 자동 유도되거나 fallback 값이 사용되는데,
+              부정확할 수 있습니다.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label htmlFor="candidate_org_name">후보자 ORG_NAME</Label>
+              <Input
+                id="candidate_org_name"
+                value={form.candidate_org_name}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, candidate_org_name: e.target.value }))
+                }
+                maxLength={100}
+                placeholder="예: 오준석후보"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="candidate_reg_num">후보자 REG_NUM (생년월일)</Label>
+              <Input
+                id="candidate_reg_num"
+                value={form.candidate_reg_num}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, candidate_reg_num: e.target.value }))
+                }
+                maxLength={15}
+                placeholder="예: 19850228"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label htmlFor="candidate_rep_name">후보자 REP_NAME (대표자)</Label>
+              <Input
+                id="candidate_rep_name"
+                value={form.candidate_rep_name}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, candidate_rep_name: e.target.value }))
+                }
+                maxLength={50}
+                placeholder="예: 곽호준 (선거사무장)"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="candidate_acct_name">후보자 ACCT_NAME (회계담당)</Label>
+              <Input
+                id="candidate_acct_name"
+                value={form.candidate_acct_name}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, candidate_acct_name: e.target.value }))
+                }
+                maxLength={50}
+                placeholder="예: 오준석 (후보자 본인)"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-[100px_1fr] gap-3 items-end">
+            <div className="space-y-1">
+              <Label htmlFor="candidate_post">우편번호</Label>
+              <Input
+                id="candidate_post"
+                value={form.candidate_post}
+                onChange={(e) => setForm((f) => ({ ...f, candidate_post: e.target.value }))}
+                maxLength={7}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="candidate_addr">후보자 주소</Label>
+              <Input
+                id="candidate_addr"
+                value={form.candidate_addr}
+                onChange={(e) => setForm((f) => ({ ...f, candidate_addr: e.target.value }))}
+                maxLength={100}
+                placeholder="예: 서울특별시 동대문구 휘경로 14 (이문동)"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label htmlFor="candidate_addr_detail">상세주소</Label>
+              <Input
+                id="candidate_addr_detail"
+                value={form.candidate_addr_detail}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, candidate_addr_detail: e.target.value }))
+                }
+                maxLength={100}
+                placeholder="예: 2층"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="candidate_tel">전화</Label>
+              <Input
+                id="candidate_tel"
+                value={form.candidate_tel}
+                onChange={(e) => setForm((f) => ({ ...f, candidate_tel: e.target.value }))}
+                maxLength={20}
+                placeholder="예: 0260811700"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label htmlFor="candidate_reg_date">등록일</Label>
+              <Input
+                id="candidate_reg_date"
+                value={form.candidate_reg_date}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, candidate_reg_date: e.target.value }))
+                }
+                maxLength={8}
+                placeholder="YYYYMMDD"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="candidate_fax">팩스</Label>
+              <Input
+                id="candidate_fax"
+                value={form.candidate_fax}
+                onChange={(e) => setForm((f) => ({ ...f, candidate_fax: e.target.value }))}
+                maxLength={20}
+              />
+            </div>
+          </div>
+
+          <div className="border-t pt-3 space-y-3">
+            <p className="text-xs font-semibold text-gray-700">
+              후보자 PFund2 로그인 (영구 저장)
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="candidate_userid_db">후보자 USERID</Label>
+                <Input
+                  id="candidate_userid_db"
+                  value={form.candidate_userid_db}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, candidate_userid_db: e.target.value }))
+                  }
+                  maxLength={20}
+                  placeholder="예: ohjunsuk"
+                />
+              </div>
+              <PasswordField
+                id="candidate_passwd_db"
+                label="후보자 비밀번호"
+                value={form.candidate_passwd_db}
+                onChange={(v) =>
+                  setForm((f) => ({ ...f, candidate_passwd_db: v }))
+                }
+                error={null}
+              />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="candidate_hint1">힌트 1</Label>
+                <Input
+                  id="candidate_hint1"
+                  value={form.candidate_hint1}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, candidate_hint1: e.target.value }))
+                  }
+                  maxLength={50}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="candidate_hint2">힌트 2</Label>
+                <Input
+                  id="candidate_hint2"
+                  value={form.candidate_hint2}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, candidate_hint2: e.target.value }))
+                  }
+                  maxLength={50}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded bg-blue-50 border border-blue-200 p-2 text-xs text-blue-800">
+            💡 <strong>Tip</strong>: PFund2 데이터를 가지고 있다면 `Fund_Master.db` 또는
+            `Fund_Data_1.db`/`Fund_Data_2.db`를 <a href="/dashboard/submit" className="underline">제출파일생성</a> 페이지의
+            <em>PFund2 .db 가져오기</em>로 한 번 import하면 본 후보자 정보가 자동으로 채워집니다.
+          </div>
+        </Card>
+      )}
     </div>
   );
 }

@@ -114,6 +114,91 @@ describe("buildOrganExport - 후원회(109)", () => {
     expect(organRows[1].PASSWD).toBe("secret-cloud-only");
   });
 
+  describe("candidate_* 컬럼 (010 마이그레이션 — PFund2 호환)", () => {
+    const baseWithCandidate: SupabaseOrgan = {
+      ...baseSupporter,
+      candidate_org_name: "오준석후보",
+      candidate_reg_num: "19850228",
+      candidate_reg_date: "20220428",
+      candidate_post: "02441",
+      candidate_addr: "서울특별시 동대문구 휘경로 14 (이문동)",
+      candidate_addr_detail: "2층",
+      candidate_tel: "0260811700",
+      candidate_rep_name: "곽호준",
+      candidate_acct_name: "오준석",
+      candidate_userid: "ohjunsuk",
+      candidate_passwd: "0427",
+      candidate_hint1: "427선언",
+      candidate_hint2: "0427",
+    };
+
+    it("candidate_* 값이 후보자 행에 그대로 반영됨", () => {
+      const { organRows } = buildOrganExport(baseWithCandidate, {
+        maskPasswd: false,
+      });
+      const cand = organRows[0];
+      expect(cand.ORG_ID).toBe(1);
+      expect(cand.ORG_NAME).toBe("오준석후보");
+      expect(cand.REG_NUM).toBe("19850228");
+      expect(cand.REG_DATE).toBe("20220428");
+      expect(cand.POST).toBe("02441");
+      expect(cand.ADDR).toBe("서울특별시 동대문구 휘경로 14 (이문동)");
+      expect(cand.ADDR_DETAIL).toBe("2층");
+      expect(cand.TEL).toBe("0260811700");
+      expect(cand.REP_NAME).toBe("곽호준");
+      expect(cand.ACCT_NAME).toBe("오준석");
+      expect(cand.USERID).toBe("ohjunsuk");
+      expect(cand.PASSWD).toBe("0427");
+      expect(cand.HINT1).toBe("427선언");
+      expect(cand.HINT2).toBe("0427");
+    });
+
+    it("candidate_org_name이 derive 결과보다 우선", () => {
+      // derive("...오준석후원회") = "오준석후보". 그러나 명시값이 있으면 그게 우선.
+      const supporter: SupabaseOrgan = {
+        ...baseSupporter,
+        candidate_org_name: "곽호준후보", // 명시값 (다름)
+      };
+      const { organRows } = buildOrganExport(supporter);
+      expect(organRows[0].ORG_NAME).toBe("곽호준후보");
+    });
+
+    it("후원회 행은 candidate_*에 영향받지 않음", () => {
+      const { organRows } = buildOrganExport(baseWithCandidate, {
+        maskPasswd: false,
+      });
+      const sup = organRows[1];
+      expect(sup.ORG_ID).toBe(2);
+      expect(sup.ORG_NAME).toBe("동대문구라선거구구의회의원후보자오준석후원회");
+      expect(sup.USERID).toBe(baseSupporter.userid ?? null);
+    });
+
+    it("candidate_userid는 organ.userid보다 우선, candidateCredentials보다는 후순위", () => {
+      const supporter: SupabaseOrgan = {
+        ...baseSupporter,
+        userid: "supporter_id",
+        candidate_userid: "saved_cand_id",
+      };
+      // candidateCredentials 없음 → candidate_userid 사용
+      const { organRows: a } = buildOrganExport(supporter, {
+        maskPasswd: false,
+      });
+      expect(a[0].USERID).toBe("saved_cand_id");
+
+      // candidateCredentials 명시 → override
+      const { organRows: b } = buildOrganExport(supporter, {
+        maskPasswd: false,
+        candidateCredentials: { userid: "session_cand_id", passwd: "p" },
+      });
+      expect(b[0].USERID).toBe("session_cand_id");
+    });
+
+    it("candidate_passwd는 maskPasswd=true면 null 마스킹", () => {
+      const { organRows } = buildOrganExport(baseWithCandidate);
+      expect(organRows[0].PASSWD).toBeNull();
+    });
+  });
+
   describe("candidateCredentials 옵션 (FR-05/FR-06)", () => {
     it("FR-05: candidateCredentials 명시 시 후보자 행 USERID/PASSWD에 적용", () => {
       const supporter: SupabaseOrgan = { ...baseSupporter, userid: "supporter_id" };

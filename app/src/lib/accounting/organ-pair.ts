@@ -38,6 +38,21 @@ export interface SupabaseOrgan {
   acc_from?: string | null;
   acc_to?: string | null;
   code_date?: string | null;
+  // PFund2 호환: 후원회 단위일 때 후보자 행(ORG_ID=1) 전용 데이터 (010 마이그레이션)
+  candidate_org_name?: string | null;
+  candidate_reg_num?: string | null;
+  candidate_reg_date?: string | null;
+  candidate_post?: string | null;
+  candidate_addr?: string | null;
+  candidate_addr_detail?: string | null;
+  candidate_tel?: string | null;
+  candidate_fax?: string | null;
+  candidate_rep_name?: string | null;
+  candidate_acct_name?: string | null;
+  candidate_userid?: string | null;
+  candidate_passwd?: string | null;
+  candidate_hint1?: string | null;
+  candidate_hint2?: string | null;
 }
 
 export interface ExportOrganRow {
@@ -157,44 +172,49 @@ export function buildOrganExport(
   const orgIdMap = new Map<number, number>();
 
   if (SUPPORTER_SEC_CDS.has(supabaseOrgan.org_sec_cd)) {
-    // PFund2 호환: 후보자 행(ORG_ID=1) ORG_NAME은 후보자 본명이어야 함.
-    // ⚠️ supabase organ.acct_name/rep_name은 **후원회**의 회계책임자/대표 정보지
-    //    후보자 본인 정보가 아님. 따라서 그 값을 후보자명으로 쓰면 안 됨.
-    // 우선순위:
-    //   1) 후원회 정식명에서 유도 ("...후보자{이름}후원회" → "{이름}후보") — 가장 정확
-    //   2) acct_name(trim) — 유도 실패 시 fallback (정확하지 않을 수 있음)
-    //   3) rep_name(trim)
-    //   4) "후보자" 고정값
-    // (`||`은 빈 문자열만 falsy 처리하므로 공백 1자 같은 케이스 차단 위해 trim 필요)
+    // PFund2 호환: 후보자 행(ORG_ID=1) 데이터.
+    // 우선순위 (각 필드):
+    //   1) supabase organ.candidate_* — 사용자가 명시 입력 또는 PFund2 import로 들어온 값 (가장 정확)
+    //   2) 후원회 정식명에서 유도 (ORG_NAME만 해당)
+    //   3) acct_name/rep_name (후원회 측 정보라 부정확하지만 fallback)
+    //   4) 고정값
     const candidateName =
+      supabaseOrgan.candidate_org_name?.trim() ||
       deriveCandidateNameFromSupporter(supabaseOrgan.org_name) ||
       supabaseOrgan.acct_name?.trim() ||
       supabaseOrgan.rep_name?.trim() ||
       "후보자";
 
-    // FR-05/FR-06: 후보자 자격증명이 명시되면 사용, 아니면 후원회 자격증명으로 fallback.
-    // maskPasswd=true(기본)인 호출 경로에서는 PASSWD가 null로 마스킹 — 보안 우선.
-    const candidateUserid = candidateCredentials?.userid ?? supabaseOrgan.userid ?? null;
+    // 자격증명: candidateCredentials(sessionStorage) → organ.candidate_* → organ.userid/passwd
+    const candidateUserid =
+      candidateCredentials?.userid ??
+      supabaseOrgan.candidate_userid?.trim() ??
+      supabaseOrgan.userid ??
+      null;
     const candidatePasswd = maskPasswd
       ? null
-      : candidateCredentials?.passwd ?? supabaseOrgan.passwd ?? null;
+      : candidateCredentials?.passwd ??
+        supabaseOrgan.candidate_passwd ??
+        supabaseOrgan.passwd ??
+        null;
 
     const candidateRow = makeOrganRow(supabaseOrgan, {
       ORG_ID: 1,
       ORG_SEC_CD: 90,
       ORG_NAME: candidateName,
-      REG_NUM: "",
-      POST: null,
-      ADDR: null,
-      ADDR_DETAIL: null,
-      TEL: null,
-      FAX: null,
-      REP_NAME: candidateName,
-      ACCT_NAME: candidateName,
+      REG_NUM: supabaseOrgan.candidate_reg_num ?? "",
+      REG_DATE: supabaseOrgan.candidate_reg_date ?? null,
+      POST: supabaseOrgan.candidate_post ?? null,
+      ADDR: supabaseOrgan.candidate_addr ?? null,
+      ADDR_DETAIL: supabaseOrgan.candidate_addr_detail ?? null,
+      TEL: supabaseOrgan.candidate_tel ?? null,
+      FAX: supabaseOrgan.candidate_fax ?? null,
+      REP_NAME: supabaseOrgan.candidate_rep_name?.trim() || candidateName,
+      ACCT_NAME: supabaseOrgan.candidate_acct_name?.trim() || candidateName,
       USERID: candidateUserid,
       PASSWD: candidatePasswd,
-      HINT1: null,
-      HINT2: null,
+      HINT1: supabaseOrgan.candidate_hint1 ?? null,
+      HINT2: supabaseOrgan.candidate_hint2 ?? null,
       ORG_ORDER: 1,
     });
 
