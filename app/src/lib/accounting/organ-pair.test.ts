@@ -61,40 +61,47 @@ describe("buildOrganExport - 후원회(109)", () => {
     expect(orgIdMap.get(11)).toBe(2);
   });
 
-  it("후보자 행은 acct_name을 ORG_NAME으로 사용", () => {
+  it("후보자 행은 후원회 정식명에서 후보자명을 유도 (acct_name보다 우선)", () => {
+    // baseSupporter.org_name = "...후보자오준석후원회"
+    // acct_name "신하섭"은 후원회 회계책임자라 후보자명으로 부적합 → derive가 우선
     const { organRows } = buildOrganExport(baseSupporter);
-    expect(organRows[0].ORG_NAME).toBe("신하섭"); // acct_name
-  });
-
-  it("acct_name 없으면 rep_name fallback", () => {
-    const supporter = { ...baseSupporter, acct_name: null };
-    const { organRows } = buildOrganExport(supporter);
-    expect(organRows[0].ORG_NAME).toBe("양진성"); // rep_name
-  });
-
-  it("acct_name, rep_name 모두 비면 후원회 정식명에서 유도", () => {
-    // 동대문구라선거구... + "오준석후원회" → "오준석후보"
-    const supporter = { ...baseSupporter, acct_name: null, rep_name: null };
-    const { organRows } = buildOrganExport(supporter);
     expect(organRows[0].ORG_NAME).toBe("오준석후보");
   });
 
-  it("acct_name/rep_name 비고 후원회명 유도도 실패하면 '후보자' 기본값", () => {
+  it("후원회명 유도 실패 시 acct_name fallback", () => {
+    const supporter = {
+      ...baseSupporter,
+      org_name: "이상한이름", // 유도 패턴 매칭 실패
+    };
+    const { organRows } = buildOrganExport(supporter);
+    expect(organRows[0].ORG_NAME).toBe("신하섭"); // acct_name fallback
+  });
+
+  it("후원회명 유도 실패 + acct_name 없으면 rep_name fallback", () => {
+    const supporter = {
+      ...baseSupporter,
+      org_name: "이상한이름",
+      acct_name: null,
+    };
+    const { organRows } = buildOrganExport(supporter);
+    expect(organRows[0].ORG_NAME).toBe("양진성"); // rep_name fallback
+  });
+
+  it("모든 fallback 실패 시 '후보자' 기본값", () => {
     const supporter = {
       ...baseSupporter,
       acct_name: null,
       rep_name: null,
-      org_name: "이상한이름", // 유도 패턴(후보자.+후원회) 매칭 실패
+      org_name: "이상한이름",
     };
     const { organRows } = buildOrganExport(supporter);
     expect(organRows[0].ORG_NAME).toBe("후보자");
   });
 
-  it("acct_name이 공백 1자(' ')면 trim 후 fallback 진입", () => {
+  it("acct_name이 공백 1자(' ')라도 derive가 우선", () => {
     const supporter = { ...baseSupporter, acct_name: " ", rep_name: null };
     const { organRows } = buildOrganExport(supporter);
-    // 공백 trim → falsy → 후원회명에서 유도
-    expect(organRows[0].ORG_NAME).toBe("오준석후보");
+    expect(organRows[0].ORG_NAME).toBe("오준석후보"); // derive
   });
 
   it("PASSWD는 기본적으로 null 마스킹", () => {
