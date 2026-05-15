@@ -157,13 +157,19 @@ export function buildOrganExport(
   const orgIdMap = new Map<number, number>();
 
   if (SUPPORTER_SEC_CDS.has(supabaseOrgan.org_sec_cd)) {
-    // PFund2 호환: 후보자 행(ORG_ID=1) ORG_NAME은 비어서는 안 됨.
-    // 우선순위: acct_name(trim) → rep_name(trim) → 후원회명에서 유도 → "후보자"
+    // PFund2 호환: 후보자 행(ORG_ID=1) ORG_NAME은 후보자 본명이어야 함.
+    // ⚠️ supabase organ.acct_name/rep_name은 **후원회**의 회계책임자/대표 정보지
+    //    후보자 본인 정보가 아님. 따라서 그 값을 후보자명으로 쓰면 안 됨.
+    // 우선순위:
+    //   1) 후원회 정식명에서 유도 ("...후보자{이름}후원회" → "{이름}후보") — 가장 정확
+    //   2) acct_name(trim) — 유도 실패 시 fallback (정확하지 않을 수 있음)
+    //   3) rep_name(trim)
+    //   4) "후보자" 고정값
     // (`||`은 빈 문자열만 falsy 처리하므로 공백 1자 같은 케이스 차단 위해 trim 필요)
     const candidateName =
+      deriveCandidateNameFromSupporter(supabaseOrgan.org_name) ||
       supabaseOrgan.acct_name?.trim() ||
       supabaseOrgan.rep_name?.trim() ||
-      deriveCandidateNameFromSupporter(supabaseOrgan.org_name) ||
       "후보자";
 
     // FR-05/FR-06: 후보자 자격증명이 명시되면 사용, 아니면 후원회 자격증명으로 fallback.
