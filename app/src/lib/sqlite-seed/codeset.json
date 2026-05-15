@@ -1,0 +1,122 @@
+[
+  {
+    "cs_id": 0,
+    "cs_name": "공통코드버전일자",
+    "cs_activeflag": "TRUE",
+    "cs_comment": "공통코드버전일자"
+  },
+  {
+    "cs_id": 1,
+    "cs_name": "총괄계정",
+    "cs_activeflag": "TRUE",
+    "cs_comment": "총괄계정"
+  },
+  {
+    "cs_id": 2,
+    "cs_name": "계정구분",
+    "cs_activeflag": "TRUE",
+    "cs_comment": "계정구분"
+  },
+  {
+    "cs_id": 3,
+    "cs_name": "계정과목",
+    "cs_activeflag": "TRUE",
+    "cs_comment": "계정과목"
+  },
+  {
+    "cs_id": 4,
+    "cs_name": "경비구분",
+    "cs_activeflag": "TRUE",
+    "cs_comment": "경비구분"
+  },
+  {
+    "cs_id": 5,
+    "cs_name": "재산구분",
+    "cs_activeflag": "TRUE",
+    "cs_comment": "재산구분"
+  },
+  {
+    "cs_id": 6,
+    "cs_name": "사용기관",
+    "cs_activeflag": "TRUE",
+    "cs_comment": "사용기관"
+  },
+  {
+    "cs_id": 7,
+    "cs_name": "수입지출처구분",
+    "cs_activeflag": "TRUE",
+    "cs_comment": "수입지출처구분"
+  },
+  {
+    "cs_id": 8,
+    "cs_name": "시도구분",
+    "cs_activeflag": "TRUE",
+    "cs_comment": "시도구분"
+  },
+  {
+    "cs_id": 9,
+    "cs_name": "영수증첨부여부",
+    "cs_activeflag": "TRUE",
+    "cs_comment": "영수증첨부여부"
+  },
+  {
+    "cs_id": 10,
+    "cs_name": "후보자계정",
+    "cs_activeflag": "TRUE",
+    "cs_comment": "국회의원·후보자용 계정"
+  },
+  {
+    "cs_id": 11,
+    "cs_name": "후보자과목",
+    "cs_activeflag": "TRUE",
+    "cs_comment": "국회의원·후보자용 과목"
+  },
+  {
+    "cs_id": 12,
+    "cs_name": "후원회과목",
+    "cs_activeflag": "TRUE",
+    "cs_comment": "후원회용 과목"
+  },
+  {
+    "cs_id": 13,
+    "cs_name": "기부제한액(1회 한도, 연간 한도)",
+    "cs_activeflag": "TRUE",
+    "cs_comment": "기부제한액(1회 한도, 연간 한도)"
+  },
+  {
+    "cs_id": 14,
+    "cs_name": "익명후원금 1회 한도액",
+    "cs_activeflag": "TRUE",
+    "cs_comment": "익명후원금 1회 한도액"
+  },
+  {
+    "cs_id": 15,
+    "cs_name": "전년이월팝업",
+    "cs_activeflag": "TRUE",
+    "cs_comment": "전년이월자료 등록안내 팝업"
+  },
+  {
+    "cs_id": 16,
+    "cs_name": "지출방법",
+    "cs_activeflag": "TRUE",
+    "cs_comment": "지출방법"
+  },
+  {
+    "cs_id": 17,
+    "cs_name": "지출유형",
+    "cs_activeflag": "TRUE",
+    "cs_comment": "지출유형"
+  },
+  {
+    "cs_id": 18,
+    "cs_name": "복구허용건수",
+    "cs_activeflag": "TRUE",
+    "cs_comment": "복구허용건수"
+  },
+  {
+    "cs_id": 19,
+    "cs_name": "지출결의서 동시 출력 제한수",
+    "cs_activeflag": "TRUE",
+    "cs_comment": "지출결의서 동시 출력 제한수"
+  }
+]
