@@ -8,6 +8,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { HelpTooltip } from "@/components/help-tooltip";
+import {
+  applyCorrections,
+  computeBalances,
+  type AccBookRow,
+  type Correction,
+  type RedistributionDetail,
+  type ReimbursementCaps,
+} from "@/lib/accounting/settlement-calc";
 
 interface AccountRow {
   acc_sec_cd: number;
@@ -15,6 +23,15 @@ interface AccountRow {
   electionExpense: number;
   nonElectionExpense: number;
 }
+
+const SUBSIDY_CODES = [82, 83] as const;
+const SUBSIDY_LABELS: Record<number, string> = {
+  82: "보조금",
+  83: "보조금외 지원금",
+};
+const ASSET_ACC_SEC_CD = 84;
+const SUPPORTER_ACC_SEC_CD = 85;
+const ELECTION_EXPENSE_ITEM_SEC_CD = 86;
 
 export default function IncomeExpenseReportPage() {
   const supabase = createSupabaseBrowser();
@@ -27,7 +44,17 @@ export default function IncomeExpenseReportPage() {
   const [districtName, setDistrictName] = useState("");
   const [loading, setLoading] = useState(false);
   const [accounts, setAccounts] = useState<AccountRow[]>([]);
+  const [corrections, setCorrections] = useState<Correction[]>([]);
   const [searched, setSearched] = useState(false);
+
+  // ====== 자금출처 재배분 (Rule 2) 옵션 ======
+  const [redistEnabled, setRedistEnabled] = useState(false);
+  const [redistSupporter, setRedistSupporter] = useState(true);
+  const [redistCaps, setRedistCaps] = useState<Record<number, string>>({
+    82: "",
+    83: "",
+  });
+  const [redistDetails, setRedistDetails] = useState<RedistributionDetail[]>([]);
 
   const fmt = (n: number) => n.toLocaleString("ko-KR");
 
@@ -45,22 +72,48 @@ export default function IncomeExpenseReportPage() {
 
     const { data } = await supabase
       .from("acc_book")
-      .select("incm_sec_cd, acc_sec_cd, item_sec_cd, acc_amt")
+      .select("acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_amt, acc_date")
       .eq("org_id", orgId)
       .gte("acc_date", fromStr)
       .lte("acc_date", toStr);
 
     if (!data) {
       setAccounts([]);
+      setCorrections([]);
       setLoading(false);
       return;
     }
 
-    // Aggregate by acc_sec_cd
+    // 선관위 PFund2와 동일하게 마이너스 수입을 지출로 전환 (단일 진실원천)
+    const { rows: correctedRows, corrections: appliedCorrections } =
+      applyCorrections(data);
+    setCorrections(appliedCorrections);
+
+    // 자금출처 재배분 detail 계산 (옵션) — settlement-calc.computeBalances로 SSOT 호출
+    let details: RedistributionDetail[] = [];
+    if (redistEnabled) {
+      const byAccSecCd: Record<number, number> = {};
+      for (const cd of SUBSIDY_CODES) {
+        const v = Number(redistCaps[cd]);
+        if (Number.isFinite(v) && v > 0) byAccSecCd[cd] = v;
+      }
+      const caps: ReimbursementCaps = {
+        byAccSecCd,
+        redistributeSupporterRemainder: redistSupporter,
+      };
+      const settlement = computeBalances(correctedRows as AccBookRow[], {
+        applyNegativeIncomeRule: false, // 이미 위에서 적용됨
+        applyFundSourceRedistribution: true,
+        reimbursementCaps: caps,
+      });
+      details = settlement.redistributions;
+    }
+    setRedistDetails(details);
+
+    // Aggregate by acc_sec_cd (item_sec_cd=86 기반 선거비용 분류)
     const map = new Map<number, AccountRow>();
-    for (const r of data) {
+    for (const r of correctedRows) {
       const existing = map.get(r.acc_sec_cd);
-      // 선거비용 과목: item_sec_cd = 86 (선거비용) or 19 (선거비용)
       const isElectionExpense =
         r.incm_sec_cd === 2 && (r.item_sec_cd === 86 || r.item_sec_cd === 19);
       const isNonElectionExpense = r.incm_sec_cd === 2 && !isElectionExpense;
@@ -79,11 +132,25 @@ export default function IncomeExpenseReportPage() {
       }
     }
 
+    // 재배분 detail을 page의 byAccount 분류에 overlay (선거비용 -> 자산 이동)
+    for (const d of details) {
+      const from = map.get(d.fromAccSecCd);
+      if (from) from.electionExpense = Math.max(0, from.electionExpense - d.amount);
+      const to = map.get(d.toAccSecCd) ?? {
+        acc_sec_cd: d.toAccSecCd,
+        income: 0,
+        electionExpense: 0,
+        nonElectionExpense: 0,
+      };
+      to.electionExpense += d.amount;
+      map.set(d.toAccSecCd, to);
+    }
+
     setAccounts(
       Array.from(map.values()).sort((a, b) => a.acc_sec_cd - b.acc_sec_cd)
     );
     setLoading(false);
-  }, [orgId, supabase, dateFrom, dateTo]);
+  }, [orgId, supabase, dateFrom, dateTo, redistEnabled, redistSupporter, redistCaps]);
 
   async function handleExcel() {
     if (accounts.length === 0) {
@@ -421,6 +488,60 @@ export default function IncomeExpenseReportPage() {
           </div>
         </div>
 
+        <div className="border-t pt-4">
+          <details className="text-sm">
+            <summary className="cursor-pointer font-medium">
+              자금출처 충당 재배분 설정 (PFund2 호환, 선택)
+            </summary>
+            <div className="mt-3 space-y-3 pl-4 border-l-2 border-gray-100">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={redistEnabled}
+                  onChange={(e) => setRedistEnabled(e.target.checked)}
+                />
+                <span>보조금 비인정분 → 자산 선거비용 이전 활성화</span>
+              </label>
+              {redistEnabled && (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {SUBSIDY_CODES.map((cd) => (
+                      <div key={cd}>
+                        <Label>
+                          {SUBSIDY_LABELS[cd]} (CV {cd}) 보전 인정액 (원)
+                        </Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          value={redistCaps[cd] ?? ""}
+                          onChange={(e) =>
+                            setRedistCaps((prev) => ({
+                              ...prev,
+                              [cd]: e.target.value,
+                            }))
+                          }
+                          placeholder="예: 2548335"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={redistSupporter}
+                      onChange={(e) => setRedistSupporter(e.target.checked)}
+                    />
+                    <span>후원회기부금 잔액 → 자산 선거비용 이전</span>
+                  </label>
+                  <p className="text-xs text-gray-500">
+                    재배분은 자금출처별 분포만 이동시키며, 수입/지출 총액과 잔액은 변하지 않습니다.
+                  </p>
+                </>
+              )}
+            </div>
+          </details>
+        </div>
+
         <div className="flex gap-2 pt-4 border-t">
           <Button onClick={handleQuery} disabled={loading}>
             {loading ? "조회 중..." : "조회"}
@@ -434,6 +555,51 @@ export default function IncomeExpenseReportPage() {
           </Button>
         </div>
       </div>
+
+      {searched && corrections.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm">
+          <p className="font-medium text-amber-900">
+            ⚠️ 선관위 PFund2 규칙에 따라 마이너스 수입 {corrections.filter((c) => c.rule === "negative_income_to_expense").length}건을 지출로 전환하여 합산했습니다.
+          </p>
+          <details className="mt-2 text-amber-800">
+            <summary className="cursor-pointer">변환 내역 보기</summary>
+            <ul className="mt-2 ml-4 list-disc text-xs">
+              {corrections.map((c, i) => (
+                <li key={i}>
+                  {c.rule === "negative_income_to_expense" && (
+                    <>ACC_BOOK #{c.acc_book_id ?? "?"}: 수입 {fmt(c.before.acc_amt)} → 지출 {fmt(c.after.acc_amt)}</>
+                  )}
+                  {c.rule !== "negative_income_to_expense" && c.reason}
+                </li>
+              ))}
+            </ul>
+          </details>
+        </div>
+      )}
+
+      {searched && redistDetails.length > 0 && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm">
+          <p className="font-medium text-blue-900">
+            💰 자금출처 재배분 {redistDetails.length}건 적용 (PFund2 호환)
+          </p>
+          <ul className="mt-2 ml-4 list-disc text-xs text-blue-800">
+            {redistDetails.map((d, i) => {
+              const fromName =
+                d.fromAccSecCd === SUPPORTER_ACC_SEC_CD
+                  ? "후원회기부금"
+                  : SUBSIDY_LABELS[d.fromAccSecCd] ?? `CV${d.fromAccSecCd}`;
+              return (
+                <li key={i}>
+                  {fromName} → 자산 (선거비용): {fmt(d.amount)}원
+                </li>
+              );
+            })}
+          </ul>
+          <p className="mt-2 text-xs text-blue-700">
+            * 재배분은 자금출처별 분포만 이동시키며, 수입/지출/잔액 총액은 변하지 않습니다.
+          </p>
+        </div>
+      )}
 
       {searched && (
         <div className="bg-white rounded-lg border overflow-x-auto">

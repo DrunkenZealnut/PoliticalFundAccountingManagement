@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import {
+  tryResolveAccountCodes,
+  type CodeValueLike,
+  type AccRelLike,
+} from "@/lib/accounting/code-mapping";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -160,7 +165,50 @@ export async function POST(request: NextRequest) {
       anonCustId = (newAnon as { cust_id: number })?.cust_id ?? 0;
     }
 
+    // Safety net: load code/org references once for fallback mapping.
+    // Old clients may still send acc_sec_cd=0; server resolves from _account/_subject.
+    const orgIds = [...new Set((rows as Record<string, unknown>[]).map((r) => r.org_id as number).filter(Boolean))];
+    const [cvRes, arRes, orgRes] = await Promise.all([
+      supabase.from("codevalue").select("cv_id, cs_id, cv_name"),
+      supabase.from("acc_rel").select("org_sec_cd, incm_sec_cd, acc_sec_cd, item_sec_cd, exp_sec_cd, input_yn, acc_order").eq("input_yn", "Y"),
+      orgIds.length > 0
+        ? supabase.from("organ").select("org_id, org_sec_cd").in("org_id", orgIds)
+        : Promise.resolve({ data: [] as { org_id: number; org_sec_cd: number }[] }),
+    ]);
+    const codeValues = (cvRes.data || []) as CodeValueLike[];
+    const accRels = (arRes.data || []) as AccRelLike[];
+    const orgSecMap = new Map<number, number>(
+      (orgRes.data || []).map((o) => [o.org_id, o.org_sec_cd]),
+    );
+
     for (const row of rows as Record<string, unknown>[]) {
+      // Safety net: if client sent acc_sec_cd=0 but provided _account/_subject, map server-side
+      const accSecRaw = row.acc_sec_cd;
+      const orgId = row.org_id as number | undefined;
+      const account = row._account as string | undefined;
+      const subject = row._subject as string | undefined;
+      const incmSec = row.incm_sec_cd as number | undefined;
+      const orgSec = orgId != null ? orgSecMap.get(orgId) : undefined;
+
+      if (
+        (accSecRaw === 0 || accSecRaw == null) &&
+        account && subject && orgSec != null && incmSec != null
+      ) {
+        const codes = tryResolveAccountCodes(
+          account, subject,
+          { orgSecCd: orgSec, incmSecCd: incmSec },
+          codeValues, accRels,
+        );
+        if (codes) {
+          row.acc_sec_cd = codes.acc_sec_cd;
+          row.item_sec_cd = codes.item_sec_cd;
+          row.exp_sec_cd = codes.exp_sec_cd;
+        } else {
+          errors.push(`row ${account}/${subject}: 코드 매핑 실패 (orgSec=${orgSec}, incm=${incmSec})`);
+          continue;
+        }
+      }
+
       // Auto-register or match customer
       let custId = anonCustId;
       const provider = row._provider as string | undefined;

@@ -6,6 +6,7 @@ import { useAuth } from "@/stores/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { computeBalances } from "@/lib/accounting/settlement-calc";
 
 interface ColOrgan {
   id?: number;
@@ -27,6 +28,7 @@ export default function AggregatePage() {
     incomeTotal: number;
     expenseTotal: number;
     orgCount: number;
+    correctionsCount: number;
   } | null>(null);
 
   const orgSecCdOptions = [
@@ -93,25 +95,27 @@ export default function AggregatePage() {
       let incomeTotal = 0;
       let expenseTotal = 0;
       let orgCount = 0;
+      let correctionsCount = 0;
 
       if (organs) {
         for (const org of organs) {
           const { data: accData } = await supabase
             .from("acc_book")
-            .select("incm_sec_cd, acc_amt")
+            .select("acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_amt, acc_date")
             .eq("org_id", org.org_id);
 
           if (accData) {
             orgCount++;
-            for (const r of accData) {
-              if (r.incm_sec_cd === 1) incomeTotal += r.acc_amt;
-              else expenseTotal += r.acc_amt;
-            }
+            // 선관위 PFund2와 동일한 보정 적용 (마이너스 수입 → 지출 전환)
+            const result = computeBalances(accData);
+            incomeTotal += result.incomeTotal;
+            expenseTotal += result.expenseTotal;
+            correctionsCount += result.corrections.length;
           }
         }
       }
 
-      setAggregateResult({ incomeTotal, expenseTotal, orgCount });
+      setAggregateResult({ incomeTotal, expenseTotal, orgCount, correctionsCount });
       setAggregated(true);
     } catch (err) {
       alert(`취합 실패: ${err instanceof Error ? err.message : "오류"}`);
@@ -225,6 +229,11 @@ export default function AggregatePage() {
               <p className="text-sm text-yellow-700 bg-yellow-50 p-2 rounded">
                 {targets.length - aggregateResult.orgCount}개 기관의 데이터를
                 찾을 수 없습니다. 해당 기관의 제출파일을 먼저 가져와야 합니다.
+              </p>
+            )}
+            {aggregateResult.correctionsCount > 0 && (
+              <p className="text-sm text-amber-700 bg-amber-50 p-2 rounded">
+                ⚠️ 선관위 PFund2 규칙에 따라 마이너스 수입 {aggregateResult.correctionsCount}건을 지출로 전환하여 합산했습니다.
               </p>
             )}
           </div>
