@@ -3,6 +3,7 @@ import {
   buildOrganExport,
   parseOrganImport,
   remapOrgId,
+  deriveCandidateNameFromSupporter,
   SUPPORTER_SEC_CDS,
   CANDIDATE_SEC_CDS,
   type SupabaseOrgan,
@@ -71,10 +72,29 @@ describe("buildOrganExport - 후원회(109)", () => {
     expect(organRows[0].ORG_NAME).toBe("양진성"); // rep_name
   });
 
-  it("acct_name, rep_name 모두 없으면 '후보자' 기본값", () => {
+  it("acct_name, rep_name 모두 비면 후원회 정식명에서 유도", () => {
+    // 동대문구라선거구... + "오준석후원회" → "오준석후보"
     const supporter = { ...baseSupporter, acct_name: null, rep_name: null };
     const { organRows } = buildOrganExport(supporter);
+    expect(organRows[0].ORG_NAME).toBe("오준석후보");
+  });
+
+  it("acct_name/rep_name 비고 후원회명 유도도 실패하면 '후보자' 기본값", () => {
+    const supporter = {
+      ...baseSupporter,
+      acct_name: null,
+      rep_name: null,
+      org_name: "이상한이름", // 유도 패턴(후보자.+후원회) 매칭 실패
+    };
+    const { organRows } = buildOrganExport(supporter);
     expect(organRows[0].ORG_NAME).toBe("후보자");
+  });
+
+  it("acct_name이 공백 1자(' ')면 trim 후 fallback 진입", () => {
+    const supporter = { ...baseSupporter, acct_name: " ", rep_name: null };
+    const { organRows } = buildOrganExport(supporter);
+    // 공백 trim → falsy → 후원회명에서 유도
+    expect(organRows[0].ORG_NAME).toBe("오준석후보");
   });
 
   it("PASSWD는 기본적으로 null 마스킹", () => {
@@ -245,6 +265,39 @@ describe("parseOrganImport", () => {
     expect(result.candidates[0].organ.reg_num).toBe("12345");
     expect(result.candidates[0].organ.addr).toBe("서울");
     expect(result.candidates[0].organ.passwd).toBe("should-be-preserved");
+  });
+});
+
+describe("deriveCandidateNameFromSupporter", () => {
+  it("표준 패턴 — '후보자{이름}후원회' → '{이름}후보'", () => {
+    expect(
+      deriveCandidateNameFromSupporter(
+        "동대문구라선거구구의회의원후보자오준석후원회",
+      ),
+    ).toBe("오준석후보");
+  });
+
+  it("대통령 케이스도 매칭", () => {
+    expect(
+      deriveCandidateNameFromSupporter("대통령선거후보자홍길동후원회"),
+    ).toBe("홍길동후보");
+  });
+
+  it("매칭 패턴 없으면 null", () => {
+    expect(deriveCandidateNameFromSupporter("그냥기관명")).toBeNull();
+    expect(deriveCandidateNameFromSupporter("후보자후원회")).toBeNull(); // 이름 부분 비어 있음
+  });
+
+  it("null/undefined/빈 입력 → null", () => {
+    expect(deriveCandidateNameFromSupporter(null)).toBeNull();
+    expect(deriveCandidateNameFromSupporter(undefined)).toBeNull();
+    expect(deriveCandidateNameFromSupporter("")).toBeNull();
+  });
+
+  it("내부 이름이 공백이면 null (truthy로 통과 안 됨)", () => {
+    expect(
+      deriveCandidateNameFromSupporter("선거구구의회의원후보자   후원회"),
+    ).toBeNull();
   });
 });
 
