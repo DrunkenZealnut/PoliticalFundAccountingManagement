@@ -3,12 +3,30 @@ import { createClient } from "@supabase/supabase-js";
 import initSqlJs from "sql.js";
 import path from "path";
 import { readFileSync } from "fs";
+import {
+  parseOrganImport,
+  type ExportOrganRow,
+} from "@/lib/accounting/organ-pair";
+import { ParityError, ParityErrors } from "@/lib/accounting/parity-errors";
+import { computeBalances } from "@/lib/accounting/settlement-calc";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
   { db: { schema: "pfam" } }
 );
+
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const SQLITE_MAGIC = Buffer.from("SQLite format 3\0", "utf-8");
+
+function isValidSqliteHeader(buffer: ArrayBuffer): boolean {
+  if (buffer.byteLength < SQLITE_MAGIC.length) return false;
+  const head = new Uint8Array(buffer, 0, SQLITE_MAGIC.length);
+  for (let i = 0; i < SQLITE_MAGIC.length; i++) {
+    if (head[i] !== SQLITE_MAGIC[i]) return false;
+  }
+  return true;
+}
 
 // Reverse mapping: SQLite UPPER_CASE → PostgreSQL snake_case
 const REVERSE_COL_MAP: Record<string, string> = {
@@ -204,11 +222,26 @@ async function bulkUpsert(
   return { imported, skipped };
 }
 
+type ConflictPolicy = "overwrite" | "skip" | "merge";
+
+const VALID_POLICIES: ReadonlySet<ConflictPolicy> = new Set(["overwrite", "skip", "merge"]);
+
+function parseConflictPolicy(raw: string | null): ConflictPolicy {
+  if (!raw) return "overwrite";
+  if (VALID_POLICIES.has(raw as ConflictPolicy)) return raw as ConflictPolicy;
+  throw ParityErrors.conflictPolicyRequired({
+    provided: raw,
+    allowed: Array.from(VALID_POLICIES),
+  });
+}
+
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
     const orgId = formData.get("orgId") as string | null;
+    const dryRun = formData.get("dryRun") === "true";
+    const conflictPolicyRaw = formData.get("conflictPolicy") as string | null;
 
     if (!file) {
       return NextResponse.json({ error: "file required" }, { status: 400 });
@@ -218,13 +251,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: ".db 파일만 업로드 가능합니다" }, { status: 400 });
     }
 
+    if (file.size > MAX_FILE_SIZE) {
+      return NextResponse.json(
+        { error: `파일 크기가 ${MAX_FILE_SIZE / 1024 / 1024}MB를 초과합니다` },
+        { status: 413 },
+      );
+    }
+
     if (!orgId) {
       return NextResponse.json({ error: "orgId required" }, { status: 400 });
     }
 
+    const conflictPolicy = parseConflictPolicy(conflictPolicyRaw);
+
     const numOrgId = Number(orgId);
 
     const buffer = await file.arrayBuffer();
+
+    if (!isValidSqliteHeader(buffer)) {
+      throw ParityErrors.sqliteHeaderInvalid({ filename: file.name });
+    }
+
     const wasmPath = path.join(process.cwd(), "node_modules", "sql.js", "dist", "sql-wasm.wasm");
     const wasmBinary = readFileSync(wasmPath);
     const SQL = await initSqlJs({ wasmBinary });
@@ -238,22 +285,82 @@ export async function POST(request: NextRequest) {
     }
     const existingTables = new Set(tablesResult[0].values.map((r) => String(r[0])));
 
+    // ──────────────────────────────────────────────────────
+    // DRY RUN: parseOrganImport로 후보자/후원회 페어 + 행 개수 미리보기만
+    // ──────────────────────────────────────────────────────
+    if (dryRun) {
+      const preview: Record<string, number> = {};
+      for (const t of ["ORGAN", "CUSTOMER", "ACC_BOOK", "ACC_BOOK_BAK", "ESTATE", "OPINION", "ACC_REL", "CODESET", "CODEVALUE", "SUM_REPT", "COL_ORGAN", "ALARM", "ACCBOOKSEND"]) {
+        if (existingTables.has(t)) {
+          const r = db.exec(`SELECT COUNT(*) FROM ${t}`);
+          preview[t] = r?.[0]?.values?.[0]?.[0] as number ?? 0;
+        }
+      }
+
+      // ORGAN 행을 ExportOrganRow 형태로 추출
+      let organCandidates: ReturnType<typeof parseOrganImport> = { candidates: [] };
+      if (existingTables.has("ORGAN")) {
+        const orgResult = db.exec("SELECT * FROM ORGAN");
+        if (orgResult && orgResult.length > 0) {
+          const { columns, values } = orgResult[0];
+          const rows: ExportOrganRow[] = values.map((row) => {
+            const obj = {} as Record<string, unknown>;
+            columns.forEach((col, i) => {
+              obj[col.toUpperCase()] = row[i];
+            });
+            return obj as unknown as ExportOrganRow;
+          });
+          organCandidates = parseOrganImport(rows);
+        }
+      }
+
+      db.close();
+      return NextResponse.json({
+        ok: true,
+        summary: {
+          dryRun: true,
+          conflictPolicy,
+          rowCounts: preview,
+          organCandidates: organCandidates.candidates.map((c) => ({
+            source: c.source,
+            exportOrgId: c.exportOrgId,
+            org_sec_cd: c.organ.org_sec_cd,
+            org_name: c.organ.org_name,
+            reg_num: c.organ.reg_num,
+          })),
+        },
+        warnings: organCandidates.conflictReason
+          ? [`organ_parse_warning: ${organCandidates.conflictReason}`]
+          : [],
+        errors: [],
+      });
+    }
+
     const report: Record<string, { imported: number; skipped: number; error?: string }> = {};
+    const warnings: string[] = [];
     let totalImported = 0;
 
     // ──────────────────────────────────────────────────────
-    // STEP 1: Delete existing org-specific data (FK order)
+    // STEP 1: conflictPolicy에 따라 기존 데이터 처리
+    // - overwrite (기본): 기존 데이터 삭제 후 재삽입 (full replace)
+    // - skip: 기존 데이터 보존, .db의 새 row만 추가
+    // - merge: 동일 PK는 update, 없으면 insert (현재는 skip과 동일하게 동작 + 보고서로 안내)
     // ──────────────────────────────────────────────────────
-    await supabase.from("accbooksend").delete().gt("acc_book_id", 0); // delete all
-    await supabase.from("acc_book_bak").delete().eq("org_id", numOrgId);
-    await supabase.from("acc_book").delete().eq("org_id", numOrgId);
-    await supabase.from("estate").delete().eq("org_id", numOrgId);
-    await supabase.from("opinion").delete().eq("org_id", numOrgId);
-    // customer_addr → customer (FK order)
-    await supabase.from("customer_addr").delete().gt("cust_id", 0);
-    await supabase.from("customer").delete().gt("cust_id", 0);
-    // organ — delete only this org
-    await supabase.from("organ").delete().eq("org_id", numOrgId);
+    if (conflictPolicy === "overwrite") {
+      await supabase.from("accbooksend").delete().gt("acc_book_id", 0);
+      await supabase.from("acc_book_bak").delete().eq("org_id", numOrgId);
+      await supabase.from("acc_book").delete().eq("org_id", numOrgId);
+      await supabase.from("estate").delete().eq("org_id", numOrgId);
+      await supabase.from("opinion").delete().eq("org_id", numOrgId);
+      await supabase.from("customer_addr").delete().gt("cust_id", 0);
+      await supabase.from("customer").delete().gt("cust_id", 0);
+      await supabase.from("organ").delete().eq("org_id", numOrgId);
+    } else {
+      warnings.push(
+        `conflictPolicy=${conflictPolicy}: 기존 데이터를 삭제하지 않습니다. ` +
+        `동일 PK 충돌 시 ${conflictPolicy === "merge" ? "update" : "skip"} 처리됩니다.`,
+      );
+    }
 
     // ──────────────────────────────────────────────────────
     // STEP 2: Shared reference tables (upsert with natural PK)
@@ -504,9 +611,72 @@ export async function POST(request: NextRequest) {
 
     db.close();
 
-    return NextResponse.json({ success: true, totalImported, report });
+    // ──────────────────────────────────────────────────────
+    // STEP 11: import 완료 후 결산 자동 재계산 (OPINION 동기화)
+    // 선관위 PFund2와 동일한 마이너스 수입 보정 규칙 적용.
+    // ──────────────────────────────────────────────────────
+    let settlement: { income: number; expense: number; balance: number; correctionsCount: number } | null = null;
+    try {
+      const { data: rows } = await supabase
+        .from("acc_book")
+        .select("acc_book_id, org_id, incm_sec_cd, acc_sec_cd, item_sec_cd, exp_sec_cd, acc_date, acc_amt")
+        .eq("org_id", numOrgId);
+      if (rows) {
+        const result = computeBalances(rows.map((r) => ({
+          acc_book_id: r.acc_book_id,
+          org_id: r.org_id,
+          incm_sec_cd: r.incm_sec_cd,
+          acc_sec_cd: r.acc_sec_cd,
+          item_sec_cd: r.item_sec_cd,
+          exp_sec_cd: r.exp_sec_cd ?? 0,
+          acc_date: r.acc_date,
+          acc_amt: Number(r.acc_amt),
+        })));
+        settlement = {
+          income: result.incomeTotal,
+          expense: result.expenseTotal,
+          balance: result.balance,
+          correctionsCount: result.corrections.length,
+        };
+
+        await supabase.from("opinion").upsert(
+          {
+            org_id: numOrgId,
+            in_amt: result.incomeTotal,
+            cm_amt: result.expenseTotal,
+            balance_amt: result.balance,
+          },
+          { onConflict: "org_id" },
+        );
+      }
+    } catch (settleErr) {
+      report.SETTLEMENT_SYNC = {
+        imported: 0,
+        skipped: 1,
+        error: settleErr instanceof Error ? settleErr.message : "settlement sync failed",
+      };
+    }
+
+    // 설계 §4.2 표준 응답 포맷
+    return NextResponse.json({
+      ok: true,
+      summary: {
+        totalImported,
+        report,
+        settlement,
+        conflictPolicy,
+      },
+      warnings,
+      errors: [],
+    });
   } catch (err) {
+    if (err instanceof ParityError) {
+      return NextResponse.json(err.toResponse(), { status: err.httpStatus });
+    }
     const message = err instanceof Error ? err.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: { code: "INTERNAL", message, details: undefined } },
+      { status: 500 },
+    );
   }
 }

@@ -3,6 +3,13 @@ import { createClient } from "@supabase/supabase-js";
 import initSqlJs from "sql.js";
 import path from "path";
 import { readFileSync } from "fs";
+import accRel2Seed from "@/lib/sqlite-seed/acc_rel2.json";
+import {
+  buildOrganExport as buildOrganExportShared,
+  remapOrgId as remapOrgIdShared,
+  type SupabaseOrgan as OrganRowShared,
+} from "@/lib/accounting/organ-pair";
+import { computeBalances, type AccBookRow } from "@/lib/accounting/settlement-calc";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -76,99 +83,327 @@ function toUpper(col: string): string {
   return COL_MAP[col] || col.toUpperCase();
 }
 
-// Original SQLite DDL for the .db file
+// SQLite DDL matching the 선관위 Fund_Master.db format.
+// Includes NOT NULL/FK constraints and the 5 auxiliary tables expected by the
+// Windows accounting program (ACC_REL2, CODESETTEMP, CODEVALUETEMP, CUSTOMERTEMP, TEST).
 const SQLITE_DDL = `
-CREATE TABLE IF NOT EXISTS ORGAN (
-  ORG_ID INTEGER PRIMARY KEY, ORG_SEC_CD INTEGER, ORG_NAME TEXT,
-  REG_NUM TEXT, REG_DATE TEXT, POST TEXT, ADDR TEXT, ADDR_DETAIL TEXT,
-  TEL TEXT, FAX TEXT, REP_NAME TEXT, ACCT_NAME TEXT, COMM TEXT,
-  USERID TEXT, PASSWD TEXT, HINT1 TEXT, HINT2 TEXT, ORG_ORDER INTEGER,
-  PRE_ACC_FROM TEXT, PRE_ACC_TO TEXT, ACC_FROM TEXT, ACC_TO TEXT, CODE_DATE TEXT
+CREATE TABLE [ORGAN] (
+  [ORG_ID] INTEGER NOT NULL PRIMARY KEY,
+  [ORG_SEC_CD] INTEGER NOT NULL CONSTRAINT [ORGAN_FK1] REFERENCES [CODEVALUE]([CV_ID]),
+  [ORG_NAME] varchar(100) NOT NULL,
+  [REG_NUM] varchar(13) NOT NULL,
+  [REG_DATE] Char(8),
+  [POST] varchar(6),
+  [ADDR] varchar(100),
+  [ADDR_DETAIL] varchar(100),
+  [TEL] varchar(20),
+  [FAX] varchar(20),
+  [REP_NAME] varchar(50),
+  [ACCT_NAME] varchar(50),
+  [COMM] varchar(50),
+  [USERID] varchar(20),
+  [PASSWD] varchar(20),
+  [HINT1] varchar(50),
+  [HINT2] varchar(50),
+  [ORG_ORDER] INTEGER,
+  [PRE_ACC_FROM] Char(8),
+  [PRE_ACC_TO] Char(8),
+  [ACC_FROM] Char(8),
+  [ACC_TO] Char(8),
+  [CODE_DATE] CHAR(8)
 );
-CREATE TABLE IF NOT EXISTS CUSTOMER (
-  CUST_ID INTEGER PRIMARY KEY, CUST_SEC_CD INTEGER, REG_NUM TEXT,
-  NAME TEXT, JOB TEXT, TEL TEXT, SIDO INTEGER, POST TEXT, ADDR TEXT,
-  ADDR_DETAIL TEXT, FAX TEXT, BIGO TEXT, REG_DATE TEXT, CUST_ORDER INTEGER
+CREATE TABLE CUSTOMER (
+  CUST_ID INTEGER NOT NULL,
+  CUST_SEC_CD INTEGER NOT NULL,
+  REG_NUM VARCHAR(15),
+  NAME VARCHAR(50),
+  JOB VARCHAR(30),
+  TEL VARCHAR(20),
+  SIDO INTEGER,
+  POST VARCHAR(7),
+  ADDR VARCHAR(100),
+  ADDR_DETAIL VARCHAR(100),
+  FAX VARCHAR(20),
+  BIGO VARCHAR(50),
+  REG_DATE VARCHAR(8),
+  CUST_ORDER INTEGER,
+  CONSTRAINT CUSTOMER_PK PRIMARY KEY (CUST_ID),
+  CONSTRAINT CUSTOMER_FK1 FOREIGN KEY (CUST_SEC_CD) REFERENCES CODEVALUE(CV_ID)
 );
-CREATE TABLE IF NOT EXISTS CUSTOMER_ADDR (
-  CUST_ID INTEGER, CUST_SEQ INTEGER, REG_DATE TEXT, TEL TEXT,
-  POST TEXT, ADDR TEXT, ADDR_DETAIL TEXT, PRIMARY KEY (CUST_ID, CUST_SEQ)
+CREATE TABLE CUSTOMER_ADDR (
+  CUST_ID INTEGER NOT NULL,
+  CUST_SEQ INTEGER NOT NULL,
+  REG_DATE VARCHAR(8),
+  TEL VARCHAR(20),
+  POST VARCHAR(7),
+  ADDR VARCHAR(100),
+  ADDR_DETAIL VARCHAR(100),
+  CONSTRAINT CUSTOMER_ADDR_PK PRIMARY KEY (CUST_ID, CUST_SEQ),
+  CONSTRAINT CUSTOMER_ADDR_FK1 FOREIGN KEY (CUST_ID) REFERENCES CUSTOMER(CUST_ID)
 );
-CREATE TABLE IF NOT EXISTS ACC_BOOK (
-  ACC_BOOK_ID INTEGER PRIMARY KEY, ORG_ID INTEGER, INCM_SEC_CD INTEGER,
-  ACC_SEC_CD INTEGER, ITEM_SEC_CD INTEGER, EXP_SEC_CD INTEGER,
-  CUST_ID INTEGER, ACC_DATE TEXT, CONTENT TEXT, ACC_AMT INTEGER,
-  RCP_YN TEXT, RCP_NO TEXT, RCP_NO2 INTEGER, TEL TEXT, POST TEXT,
-  ADDR TEXT, ADDR_DETAIL TEXT, ACC_SORT_NUM INTEGER, REG_DATE TEXT,
-  ACC_INS_TYPE TEXT, ACC_PRINT_OK TEXT, BIGO TEXT, BIGO2 TEXT,
-  RETURN_YN TEXT, EXP_TYPE_CD INTEGER, EXP_GROUP1_CD TEXT,
-  EXP_GROUP2_CD TEXT, EXP_GROUP3_CD TEXT
+CREATE TABLE [ACC_BOOK] (
+  [ACC_BOOK_ID] INTEGER NOT NULL PRIMARY KEY,
+  [ORG_ID] INTEGER NOT NULL CONSTRAINT [ACC_BOOK_FK1] REFERENCES [ORGAN]([ORG_ID]),
+  [INCM_SEC_CD] INTEGER NOT NULL,
+  [ACC_SEC_CD] INTEGER NOT NULL,
+  [ITEM_SEC_CD] INTEGER NOT NULL,
+  [EXP_SEC_CD] INTEGER NOT NULL,
+  [CUST_ID] INTEGER NOT NULL CONSTRAINT [ACC_BOOK_FK3] REFERENCES [CUSTOMER]([CUST_ID]),
+  [ACC_DATE] CHAR(8) NOT NULL,
+  [CONTENT] VARCHAR(100) NOT NULL,
+  [ACC_AMT] NUMERIC(15,0) NOT NULL,
+  [RCP_YN] CHAR(1) NOT NULL,
+  [RCP_NO] VARCHAR(30),
+  [RCP_NO2] INTEGER DEFAULT 0,
+  [TEL] VARCHAR(20),
+  [POST] VARCHAR(7),
+  [ADDR] VARCHAR(100),
+  [ADDR_DETAIL] VARCHAR(100),
+  [ACC_SORT_NUM] INTEGER,
+  [REG_DATE] CHAR(8),
+  [ACC_INS_TYPE] CHAR(2),
+  [ACC_PRINT_OK] CHAR(1) DEFAULT 'N',
+  [BIGO] VARCHAR(100),
+  [BIGO2] VARCHAR(100),
+  [RETURN_YN] CHAR(1) DEFAULT 'N',
+  [EXP_TYPE_CD] INTEGER DEFAULT (-1),
+  [EXP_GROUP1_CD] VARCHAR(40),
+  [EXP_GROUP2_CD] VARCHAR(40),
+  [EXP_GROUP3_CD] VARCHAR(40)
 );
-CREATE TABLE IF NOT EXISTS ACC_BOOK_BAK (
-  BAK_ID INTEGER PRIMARY KEY, WORK_KIND INTEGER,
-  ACC_BOOK_ID INTEGER, ORG_ID INTEGER, INCM_SEC_CD INTEGER,
-  ACC_SEC_CD INTEGER, ITEM_SEC_CD INTEGER, EXP_SEC_CD INTEGER,
-  CUST_ID INTEGER, ACC_DATE TEXT, CONTENT TEXT, ACC_AMT INTEGER,
-  RCP_YN TEXT, RCP_NO TEXT, RCP_NO2 INTEGER, TEL TEXT, POST TEXT,
-  ADDR TEXT, ADDR_DETAIL TEXT, ACC_SORT_NUM INTEGER, REG_DATE TEXT,
-  ACC_INS_TYPE TEXT, ACC_PRINT_OK TEXT, BIGO TEXT, BIGO2 TEXT,
-  RETURN_YN TEXT, EXP_TYPE_CD INTEGER, EXP_GROUP1_CD TEXT,
-  EXP_GROUP2_CD TEXT, EXP_GROUP3_CD TEXT
+CREATE TABLE [ACC_BOOK_BAK] (
+  [BAK_ID] INTEGER NOT NULL PRIMARY KEY,
+  [WORK_KIND] INTEGER NOT NULL,
+  [ACC_BOOK_ID] INTEGER NOT NULL,
+  [ORG_ID] INTEGER NOT NULL,
+  [INCM_SEC_CD] INTEGER NOT NULL,
+  [ACC_SEC_CD] INTEGER NOT NULL,
+  [ITEM_SEC_CD] INTEGER NOT NULL,
+  [EXP_SEC_CD] INTEGER NOT NULL,
+  [CUST_ID] INTEGER NOT NULL,
+  [ACC_DATE] CHAR(8) NOT NULL,
+  [CONTENT] VARCHAR(100) NOT NULL,
+  [ACC_AMT] NUMERIC(15,0) NOT NULL,
+  [RCP_YN] CHAR(1) NOT NULL,
+  [RCP_NO] VARCHAR(30),
+  [RCP_NO2] INTEGER DEFAULT 0,
+  [TEL] VARCHAR(20),
+  [POST] VARCHAR(7),
+  [ADDR] VARCHAR(100),
+  [ADDR_DETAIL] VARCHAR(100),
+  [ACC_SORT_NUM] INTEGER,
+  [REG_DATE] CHAR(8),
+  [ACC_INS_TYPE] CHAR(2),
+  [ACC_PRINT_OK] CHAR(1),
+  [BIGO] VARCHAR(100),
+  [BIGO2] VARCHAR(100),
+  [RETURN_YN] CHAR(1),
+  [EXP_TYPE_CD] INTEGER DEFAULT (-1),
+  [EXP_GROUP1_CD] VARCHAR(40),
+  [EXP_GROUP2_CD] VARCHAR(40),
+  [EXP_GROUP3_CD] VARCHAR(40)
 );
-CREATE TABLE IF NOT EXISTS ACCBOOKSEND (
-  ACC_BOOK_ID INTEGER, SEND_DATE TEXT
+CREATE TABLE ACCBOOKSEND (
+  ACC_BOOK_ID INTEGER NOT NULL,
+  SEND_DATE Char(8)
 );
-CREATE TABLE IF NOT EXISTS ESTATE (
-  ESTATE_ID INTEGER PRIMARY KEY, ORG_ID INTEGER,
-  ESTATE_SEC_CD INTEGER, KIND TEXT, QTY INTEGER, CONTENT TEXT,
-  AMT INTEGER, REMARK TEXT, REG_DATE TEXT, ESTATE_ORDER INTEGER
+CREATE TABLE ESTATE (
+  ESTATE_ID INTEGER NOT NULL,
+  ORG_ID INTEGER NOT NULL,
+  ESTATE_SEC_CD INTEGER NOT NULL,
+  KIND varchar(50) NOT NULL,
+  QTY INTEGER NOT NULL,
+  CONTENT varchar(100) NOT NULL,
+  AMT INTEGER NOT NULL,
+  REMARK varchar(100) NOT NULL,
+  REG_DATE varCHAR(8),
+  ESTATE_ORDER INTEGER DEFAULT 0,
+  CONSTRAINT ESTATE_PK PRIMARY KEY (ESTATE_ID),
+  CONSTRAINT ESTATE_FK1 FOREIGN KEY (ORG_ID) REFERENCES ORGAN(ORG_ID),
+  CONSTRAINT ESTATE_FK2 FOREIGN KEY (ESTATE_SEC_CD) REFERENCES CODEVALUE(CV_ID)
 );
-CREATE TABLE IF NOT EXISTS OPINION (
-  ORG_ID INTEGER PRIMARY KEY, ACC_FROM TEXT, ACC_TO TEXT,
-  AUDIT_FROM TEXT, AUDIT_TO TEXT, OPINION TEXT, PRINT_01 TEXT,
-  POSITION TEXT, ADDR TEXT, NAME TEXT, JUDGE_FROM TEXT, JUDGE_TO TEXT,
-  INCM_FROM TEXT, INCM_TO TEXT, ESTATE_AMT INTEGER, IN_AMT INTEGER,
-  CM_AMT INTEGER, BALANCE_AMT INTEGER, PRINT_02 TEXT,
-  COMM_DESC TEXT, COMM_NAME01 TEXT, COMM_NAME02 TEXT,
-  COMM_NAME03 TEXT, COMM_NAME04 TEXT, COMM_NAME05 TEXT,
-  ACC_TITLE TEXT, ACC_DOCY TEXT, ACC_DOCNUM TEXT, ACC_FDATE TEXT,
-  ACC_COMM TEXT, ACC_TORGNM TEXT, ACC_BORGNM TEXT, ACC_REPNM TEXT
+CREATE TABLE OPINION (
+  ORG_ID INTEGER NOT NULL,
+  ACC_FROM CHAR(8),
+  ACC_TO CHAR(8),
+  AUDIT_FROM CHAR(8),
+  AUDIT_TO CHAR(8),
+  OPINION Varchar(100),
+  PRINT_01 CHAR(8),
+  POSITION Varchar(50),
+  ADDR Varchar(50),
+  NAME Varchar(50),
+  JUDGE_FROM CHAR(8),
+  JUDGE_TO CHAR(8),
+  INCM_FROM CHAR(8),
+  INCM_TO CHAR(8),
+  ESTATE_AMT NUMERIC(15,0),
+  IN_AMT NUMERIC(15,0),
+  CM_AMT NUMERIC(15,0),
+  BALANCE_AMT NUMERIC(15,0),
+  PRINT_02 CHAR(8),
+  COMM_DESC Varchar(50),
+  COMM_NAME01 Varchar(50),
+  COMM_NAME02 Varchar(50),
+  COMM_NAME03 Varchar(50),
+  COMM_NAME04 Varchar(50),
+  COMM_NAME05 Varchar(50),
+  ACC_TITLE Varchar(50),
+  ACC_DOCY CHAR(4),
+  ACC_DOCNUM CHAR(4),
+  ACC_FDATE CHAR(8),
+  ACC_COMM Varchar(20),
+  ACC_TORGNM Varchar(50),
+  ACC_BORGNM Varchar(50),
+  ACC_REPNM Varchar(20),
+  CONSTRAINT OPINION_PK PRIMARY KEY (ORG_ID)
 );
-CREATE TABLE IF NOT EXISTS CODESET (
-  CS_ID INTEGER PRIMARY KEY, CS_NAME TEXT, CS_ACTIVEFLAG TEXT, CS_COMMENT TEXT
+CREATE TABLE CODESET (
+  CS_ID INTEGER PRIMARY KEY,
+  CS_NAME Varchar(30),
+  CS_ACTIVEFLAG Varchar(5),
+  CS_COMMENT Varchar(255)
 );
-CREATE TABLE IF NOT EXISTS CODEVALUE (
-  CV_ID INTEGER PRIMARY KEY, CS_ID INTEGER, CV_NAME TEXT, CV_ORDER INTEGER,
-  CV_COMMENT TEXT, CV_ETC TEXT, CV_ETC2 TEXT, CV_ETC3 TEXT, CV_ETC4 TEXT,
-  CV_ETC5 TEXT, CV_ETC6 TEXT, CV_ETC7 TEXT, CV_ETC8 TEXT, CV_ETC9 TEXT, CV_ETC10 TEXT
+CREATE TABLE CODEVALUE (
+  CS_ID INTEGER NOT NULL,
+  CV_ID INTEGER NOT NULL,
+  CV_NAME VARCHAR(30) NOT NULL,
+  CV_ORDER INTEGER NOT NULL,
+  CV_COMMENT VARCHAR(255),
+  CV_ETC VARCHAR(50),
+  CV_ETC2 VARCHAR(50),
+  CV_ETC3 VARCHAR(50),
+  CV_ETC4 VARCHAR(50),
+  CV_ETC5 VARCHAR(50),
+  CV_ETC6 VARCHAR(50),
+  CV_ETC7 VARCHAR(50),
+  CV_ETC8 VARCHAR(50),
+  CV_ETC9 VARCHAR(50),
+  CV_ETC10 VARCHAR(50),
+  CONSTRAINT CODEVALUE_PK PRIMARY KEY (CV_ID),
+  CONSTRAINT CODEVALUE_FK1 FOREIGN KEY (CS_ID) REFERENCES CODESET(CS_ID)
 );
-CREATE TABLE IF NOT EXISTS ACC_REL (
-  ACC_REL_ID INTEGER PRIMARY KEY, ORG_SEC_CD INTEGER,
-  INCM_SEC_CD INTEGER, ACC_SEC_CD INTEGER, ITEM_SEC_CD INTEGER,
-  EXP_SEC_CD INTEGER, INPUT_YN TEXT, ACC_ORDER INTEGER
+CREATE TABLE ACC_REL (
+  ACC_REL_ID INTEGER PRIMARY KEY,
+  ORG_SEC_CD INTEGER NOT NULL,
+  INCM_SEC_CD INTEGER NOT NULL,
+  ACC_SEC_CD INTEGER NOT NULL,
+  ITEM_SEC_CD INTEGER NOT NULL,
+  EXP_SEC_CD INTEGER NOT NULL,
+  INPUT_YN CHAR(1) NOT NULL,
+  ACC_ORDER INTEGER NOT NULL,
+  CONSTRAINT ACC_REL_FK1 FOREIGN KEY(ORG_SEC_CD) REFERENCES CODEVALUE(CV_ID),
+  CONSTRAINT ACC_REL_FK2 FOREIGN KEY(INCM_SEC_CD) REFERENCES CODEVALUE(CV_ID),
+  CONSTRAINT ACC_REL_FK3 FOREIGN KEY(ACC_SEC_CD) REFERENCES CODEVALUE(CV_ID),
+  CONSTRAINT ACC_REL_FK4 FOREIGN KEY(ITEM_SEC_CD) REFERENCES CODEVALUE(CV_ID)
 );
-CREATE TABLE IF NOT EXISTS SUM_REPT (
-  SUM_REPT_ID INTEGER PRIMARY KEY, ORG_ID INTEGER, ACC_SEC_CD INTEGER,
-  ORG_SEC_CD INTEGER, ORG_NAME TEXT,
-  COL_01 INTEGER, COL_02 INTEGER, COL_03 INTEGER, COL_04 INTEGER,
-  COL_05 INTEGER, COL_06 INTEGER, COL_07 INTEGER, COL_08 INTEGER,
-  COL_09 INTEGER, COL_10 INTEGER, COL_11 INTEGER, COL_12 INTEGER,
-  COL_13 INTEGER, COL_14 INTEGER, COL_15 INTEGER, COL_16 INTEGER,
-  COL_17 INTEGER, COL_18 INTEGER, COL_19 INTEGER, COL_20 INTEGER,
-  COL_21 INTEGER, COL_22 INTEGER, COL_23 INTEGER, COL_24 INTEGER,
-  COL_25 INTEGER, COL_26 INTEGER, COL_27 INTEGER, COL_28 INTEGER,
-  COL_29 INTEGER, COL_30 INTEGER, COL_31 INTEGER, COL_32 INTEGER,
-  COL_33 INTEGER, STATUS TEXT
+CREATE TABLE ACC_REL2 (
+  ACC_REL_ID INTEGER NOT NULL,
+  ORG_SEC_CD INTEGER NOT NULL,
+  INCM_SEC_CD INTEGER NOT NULL,
+  ACC_SEC_CD INTEGER NOT NULL,
+  ITEM_SEC_CD INTEGER NOT NULL,
+  EXP_SEC_CD INTEGER NOT NULL,
+  INPUT_YN CHAR(1) NOT NULL,
+  ACC_ORDER INTEGER NOT NULL,
+  CONSTRAINT ACC_REL2_PK PRIMARY KEY (ACC_REL_ID),
+  CONSTRAINT ACC_REL2_FK1 FOREIGN KEY(ORG_SEC_CD) REFERENCES CODEVALUE(CV_ID),
+  CONSTRAINT ACC_REL2_FK2 FOREIGN KEY(INCM_SEC_CD) REFERENCES CODEVALUE(CV_ID),
+  CONSTRAINT ACC_REL2_FK3 FOREIGN KEY(ACC_SEC_CD) REFERENCES CODEVALUE(CV_ID),
+  CONSTRAINT ACC_REL2_FK4 FOREIGN KEY(ITEM_SEC_CD) REFERENCES CODEVALUE(CV_ID),
+  CONSTRAINT ACC_REL2_FK5 FOREIGN KEY(EXP_SEC_CD) REFERENCES CODEVALUE(CV_ID)
 );
-CREATE TABLE IF NOT EXISTS COL_ORGAN (
-  ORG_ID INTEGER PRIMARY KEY, ORG_SEC_CD INTEGER, ORG_NAME TEXT
+CREATE TABLE SUM_REPT (
+  SUM_REPT_ID INTEGER NOT NULL,
+  ORG_ID INTEGER,
+  ACC_SEC_CD INTEGER,
+  ORG_SEC_CD INTEGER,
+  ORG_NAME VARCHAR(50),
+  COL_01 NUMERIC(15,0), COL_02 NUMERIC(15,0), COL_03 NUMERIC(15,0), COL_04 NUMERIC(15,0),
+  COL_05 NUMERIC(15,0), COL_06 NUMERIC(15,0), COL_07 NUMERIC(15,0), COL_08 NUMERIC(15,0),
+  COL_09 NUMERIC(15,0), COL_10 NUMERIC(15,0), COL_11 NUMERIC(15,0), COL_12 NUMERIC(15,0),
+  COL_13 NUMERIC(15,0), COL_14 NUMERIC(15,0), COL_15 NUMERIC(15,0), COL_16 NUMERIC(15,0),
+  COL_17 NUMERIC(15,0), COL_18 NUMERIC(15,0), COL_19 NUMERIC(15,0), COL_20 NUMERIC(15,0),
+  COL_21 NUMERIC(15,0), COL_22 NUMERIC(15,0), COL_23 NUMERIC(15,0), COL_24 NUMERIC(15,0),
+  COL_25 NUMERIC(15,0), COL_26 NUMERIC(15,0), COL_27 NUMERIC(15,0), COL_28 NUMERIC(15,0),
+  COL_29 NUMERIC(15,0), COL_30 NUMERIC(15,0), COL_31 NUMERIC(15,0), COL_32 NUMERIC(15,0),
+  COL_33 NUMERIC(15,0),
+  STATUS VARCHAR(1),
+  CONSTRAINT SUM_REPT_PK PRIMARY KEY (SUM_REPT_ID),
+  CONSTRAINT SUM_REPT_FK2 FOREIGN KEY (ACC_SEC_CD) REFERENCES CODEVALUE(CV_ID)
 );
-CREATE TABLE IF NOT EXISTS ALARM (
-  YEAR TEXT, ORG_ID INTEGER, TYPE INTEGER, CHK_YN TEXT,
-  PRIMARY KEY (YEAR, ORG_ID, CHK_YN)
+CREATE TABLE COL_ORGAN (
+  ORG_ID INTEGER NOT NULL,
+  ORG_SEC_CD INTEGER NOT NULL,
+  ORG_NAME Varchar(50) NOT NULL,
+  CONSTRAINT COL_ORGAN_PK PRIMARY KEY (ORG_ID),
+  CONSTRAINT COL_ORGAN_FK1 FOREIGN KEY(ORG_SEC_CD) REFERENCES CODEVALUE(CV_ID)
 );
-CREATE TABLE IF NOT EXISTS info (name TEXT, value TEXT);
+CREATE TABLE ALARM (
+  YEAR CHAR(4),
+  ORG_ID INTEGER,
+  TYPE INTEGER,
+  CHK_YN CHAR(1),
+  CONSTRAINT ALARM_PK PRIMARY KEY (YEAR, ORG_ID, CHK_YN)
+);
+CREATE TABLE CODESETTEMP (
+  CS_ID INTEGER PRIMARY KEY,
+  CS_NAME Varchar(30),
+  CS_ACTIVEFLAG Varchar(5),
+  CS_COMMENT Varchar(255)
+);
+CREATE TABLE CODEVALUETEMP (
+  CS_ID INTEGER NOT NULL,
+  CV_ID INTEGER NOT NULL,
+  CV_NAME VARCHAR(30) NOT NULL,
+  CV_ORDER INTEGER NOT NULL,
+  CV_COMMENT VARCHAR(255),
+  CV_ETC VARCHAR(50), CV_ETC2 VARCHAR(50), CV_ETC3 VARCHAR(50),
+  CV_ETC4 VARCHAR(50), CV_ETC5 VARCHAR(50), CV_ETC6 VARCHAR(50),
+  CV_ETC7 VARCHAR(50), CV_ETC8 VARCHAR(50), CV_ETC9 VARCHAR(50),
+  CV_ETC10 VARCHAR(50),
+  CONSTRAINT CODEVALUETEMP_PK PRIMARY KEY (CV_ID),
+  CONSTRAINT CODEVALUETEMP_FK1 FOREIGN KEY (CS_ID) REFERENCES CODESETTEMP(CS_ID)
+);
+CREATE TABLE CUSTOMERTEMP (
+  TEMPINDEX integer,
+  CUST_SEC_CD integer,
+  NAME Varchar(50),
+  REG_NUM Varchar(15),
+  JOB Varchar(30),
+  SIDO integer,
+  POST Varchar(7),
+  ADDR Varchar(100),
+  ADDR_DETAIL Varchar(100),
+  TEL Varchar(20),
+  FAX Varchar(20),
+  BIGO Varchar(50),
+  CVNAMEERROR Varchar(10),
+  NAMEERROR Varchar(10),
+  REG_NUMERROR Varchar(10),
+  JOBERROR Varchar(10),
+  SIDOERROR Varchar(10),
+  POSTERROR Varchar(10),
+  MASTERCHECK Varchar(10),
+  DETAILCHECK Varchar(10)
+);
+CREATE TABLE TEST (AA INTEGER PRIMARY KEY, NAME VARCHAR(20));
+CREATE TABLE info (
+  no integer primary key,
+  name varchar(10),
+  number varchar(10)
+);
 `;
+
+type SupabaseOrgan = OrganRowShared & { [key: string]: unknown };
+
+// ORGAN pair 변환과 org_id remap은 lib/accounting/organ-pair로 이동.
+const buildOrganExport = (org: SupabaseOrgan) =>
+  buildOrganExportShared(org, { maskPasswd: false }) as unknown as {
+    organRows: Record<string, unknown>[];
+    orgIdMap: Map<number, number>;
+  };
+const remapOrgId = remapOrgIdShared;
 
 async function fetchTable(table: string, orgFilter?: { col: string; orgId: number }) {
   let query = supabase.from(table).select("*");
@@ -183,11 +418,12 @@ async function fetchTable(table: string, orgFilter?: { col: string; orgId: numbe
 function insertRows(
   db: InstanceType<Awaited<ReturnType<typeof initSqlJs>>["Database"]>,
   tableName: string,
-  rows: Record<string, unknown>[]
+  rows: Record<string, unknown>[],
+  alreadyUpper = false,
 ) {
   if (rows.length === 0) return;
   const cols = Object.keys(rows[0]);
-  const upperCols = cols.map(toUpper);
+  const upperCols = alreadyUpper ? cols : cols.map(toUpper);
   const placeholders = cols.map(() => "?").join(",");
   const sql = `INSERT INTO ${tableName} (${upperCols.join(",")}) VALUES (${placeholders})`;
   const stmt = db.prepare(sql);
@@ -196,7 +432,7 @@ function insertRows(
       const v = row[c];
       return v === null || v === undefined ? null : v;
     });
-    stmt.run(vals);
+    stmt.run(vals as never);
   }
   stmt.free();
 }
@@ -217,12 +453,12 @@ export async function GET(request: NextRequest) {
     const SQL = await initSqlJs({ wasmBinary });
     const db = new SQL.Database();
 
-    // Create schema
+    // Create full Fund_Master-compatible schema
     db.run(SQLITE_DDL);
 
     // Fetch all data from Supabase
-    const [organ, customer, customerAddr, accBook, accBookBak, accBookSend,
-      estate, opinion, codeset, codevalue, accRel, sumRept, colOrgan, alarm
+    const [organList, customer, customerAddr, accBook, accBookBak, accBookSend,
+      estate, opinion, codeset, codevalue, accRel, sumRept, colOrgan, alarm,
     ] = await Promise.all([
       fetchTable("organ", { col: "org_id", orgId: numOrgId }),
       fetchTable("customer"),
@@ -240,25 +476,68 @@ export async function GET(request: NextRequest) {
       fetchTable("alarm"),
     ]);
 
-    // Insert data into SQLite
-    insertRows(db, "ORGAN", organ);
-    insertRows(db, "CUSTOMER", customer);
-    insertRows(db, "CUSTOMER_ADDR", customerAddr);
-    insertRows(db, "ACC_BOOK", accBook);
-    insertRows(db, "ACC_BOOK_BAK", accBookBak);
-    insertRows(db, "ACCBOOKSEND", accBookSend);
-    insertRows(db, "ESTATE", estate);
-    insertRows(db, "OPINION", opinion);
+    if (organList.length === 0) {
+      db.close();
+      return NextResponse.json({ error: "organ not found" }, { status: 404 });
+    }
+    const supabaseOrgan = organList[0] as SupabaseOrgan;
+
+    // Build ORGAN export rows + org_id remap (supports 후보자+후원회 pair)
+    const { organRows, orgIdMap } = buildOrganExport(supabaseOrgan);
+
+    // OPINION 결산 동기화: 마이너스 수입 보정 후 in_amt/cm_amt/balance_amt + estate 합계
+    const accBookRows: AccBookRow[] = (accBook as Record<string, unknown>[])
+      .map((r) => ({
+        acc_book_id: Number(r.acc_book_id ?? 0),
+        org_id: Number(r.org_id ?? 0),
+        incm_sec_cd: Number(r.incm_sec_cd ?? 0),
+        acc_sec_cd: Number(r.acc_sec_cd ?? 0),
+        item_sec_cd: Number(r.item_sec_cd ?? 0),
+        exp_sec_cd: Number(r.exp_sec_cd ?? 0),
+        acc_date: String(r.acc_date ?? ""),
+        acc_amt: Number(r.acc_amt ?? 0),
+      }));
+    const settlement = computeBalances(accBookRows);
+    const estateTotal = (estate as Record<string, unknown>[])
+      .reduce(
+        (sum, e) => sum + Number(e.amt ?? 0) * Number(e.qty ?? 1),
+        0,
+      );
+
+    const settlementOverlay = {
+      in_amt: settlement.incomeTotal,
+      cm_amt: settlement.expenseTotal,
+      balance_amt: settlement.balance,
+      estate_amt: estateTotal,
+    };
+    const syncedOpinion: Record<string, unknown>[] = opinion.length > 0
+      ? opinion.map((row) => ({ ...row, ...settlementOverlay }))
+      : [{ org_id: orgIdMap.get(numOrgId) ?? 1, ...settlementOverlay }];
+
+    // Insert reference codes first (FK constraints in ACC_BOOK depend on these)
     insertRows(db, "CODESET", codeset);
     insertRows(db, "CODEVALUE", codevalue);
     insertRows(db, "ACC_REL", accRel);
-    insertRows(db, "SUM_REPT", sumRept);
-    insertRows(db, "COL_ORGAN", colOrgan);
-    insertRows(db, "ALARM", alarm);
+    insertRows(db, "ACC_REL2", accRel2Seed as Record<string, unknown>[], true);
 
-    // Add version info
-    db.run("INSERT INTO info (name, value) VALUES ('version', '2.6.1')");
-    db.run(`INSERT INTO info (name, value) VALUES ('export_date', '${new Date().toISOString().slice(0, 10).replace(/-/g, "")}')`);
+    // ORGAN with the remapped pair
+    insertRows(db, "ORGAN", organRows, true);
+
+    // Customer (no org_id) — insert as-is
+    insertRows(db, "CUSTOMER", customer);
+    insertRows(db, "CUSTOMER_ADDR", customerAddr);
+
+    // Tables with org_id — remap before insert
+    insertRows(db, "ACC_BOOK", remapOrgId(accBook, orgIdMap));
+    insertRows(db, "ACC_BOOK_BAK", remapOrgId(accBookBak, orgIdMap));
+    insertRows(db, "ACCBOOKSEND", accBookSend);
+    insertRows(db, "ESTATE", remapOrgId(estate, orgIdMap));
+    insertRows(db, "OPINION", remapOrgId(syncedOpinion, orgIdMap));
+    insertRows(db, "SUM_REPT", remapOrgId(sumRept, orgIdMap));
+    insertRows(db, "COL_ORGAN", remapOrgId(colOrgan, orgIdMap));
+    insertRows(db, "ALARM", remapOrgId(alarm, orgIdMap));
+
+    // info: 선관위 프로그램이 이 테이블을 사용하지 않으므로 빈 상태 유지
 
     // Export .db binary
     const dbBinary = db.export();
