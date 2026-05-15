@@ -18,24 +18,12 @@ import { PAGE_GUIDES } from "@/lib/page-guides";
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
-interface ScanResult {
-  date: string;
-  amount: number;
-  content: string;
-  provider: string;
-  regNum: string;
-  addr: string;
-  payMethod: string;
-  items: { name: string; quantity: number; unitPrice: number; amount: number }[];
-}
-
 interface ParsedEntry {
   id: number;
   fileName: string;
   fileBase64: string;    // 원본 파일 base64 (저장용)
   fileType: string;      // MIME type
   preview: string;       // object URL (미리보기용)
-  scanning: boolean;
   error: string | null;
   // 회계 필드
   acc_sec_cd: number;
@@ -76,7 +64,6 @@ export default function DocumentRegisterPage() {
   const [activeEntryId, setActiveEntryId] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const nextId = useRef(1);
-  const rcpNoOffset = useRef(0);
   const entriesRef = useRef<ParsedEntry[]>([]);
 
   const isExpense = tab === "expense";
@@ -109,89 +96,6 @@ export default function DocumentRegisterPage() {
     });
   }
 
-  function mapPayMethod(pm: string): string {
-    if (!pm) return "118";
-    if (pm.includes("신용카드")) return "584";
-    if (pm.includes("체크카드")) return "585";
-    if (pm.includes("카드")) return "119";
-    if (pm.includes("현금")) return "120";
-    if (pm.includes("수표")) return "583";
-    return "118";
-  }
-
-  function autoSelectItem(accSecCd: number, category: string): number {
-    if (!orgSecCd || !accSecCd) return 0;
-    const items = getItems(orgSecCd, incmSecCd, accSecCd);
-    if (items.length === 0) return 0;
-    if (isExpense) {
-      if (category.includes("선거비용외") || category.includes("비용외")) {
-        const m = items.find((i) => i.cv_name.includes("선거비용외"));
-        if (m) return m.cv_id;
-      }
-      if (category.includes("선거비용")) {
-        const m = items.find((i) => i.cv_name.includes("선거비용") && !i.cv_name.includes("선거비용외"));
-        if (m) return m.cv_id;
-      }
-    }
-    return items[0].cv_id;
-  }
-
-  /* ---- AI scan ---- */
-  async function scanFile(entry: ParsedEntry) {
-    updateEntry(entry.id, { scanning: true, error: null });
-    try {
-      const res = await fetch("/api/receipt-scan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: entry.fileBase64, mimeType: entry.fileType }),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        updateEntry(entry.id, { scanning: false, error: err.error || "분석 실패" });
-        return;
-      }
-      const data: ScanResult = await res.json();
-
-      let dateStr = data.date || "";
-      if (dateStr.length === 8 && !dateStr.includes("-")) {
-        dateStr = `${dateStr.slice(0, 4)}-${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}`;
-      }
-
-      const autoAcc = accountOptions.length > 0 ? accountOptions[0].cv_id : 0;
-      const autoItem = autoSelectItem(autoAcc, "");
-
-      // 증빙서번호 자동 채번 (ref 기반으로 병렬 스캔 시에도 중복 방지)
-      let autoRcpNo = "";
-      if (orgId) {
-        try {
-          const rcpRes = await fetch(`/api/acc-book?orgId=${orgId}&incmSecCd=${incmSecCd}&maxRcpNo=1`);
-          if (rcpRes.ok) {
-            const rcpData = await rcpRes.json();
-            const maxNo = rcpData.maxRcpNo ?? 0;
-            rcpNoOffset.current++;
-            autoRcpNo = String(maxNo + rcpNoOffset.current);
-          }
-        } catch { /* empty */ }
-      }
-
-      updateEntry(entry.id, {
-        scanning: false,
-        acc_sec_cd: autoAcc,
-        item_sec_cd: autoItem,
-        acc_date: dateStr,
-        acc_amt: data.amount || 0,
-        content: data.content || "",
-        customerName: data.provider || "",
-        providerRegNum: data.regNum || "",
-        acc_ins_type: mapPayMethod(data.payMethod || ""),
-        rcp_yn: "Y",
-        rcp_no: autoRcpNo,
-      });
-    } catch {
-      updateEntry(entry.id, { scanning: false, error: "AI 분석 중 오류가 발생했습니다." });
-    }
-  }
-
   /* ---- File handling ---- */
   const handleFiles = useCallback(async (files: FileList | File[]) => {
     const fileArr = Array.from(files).filter((f) =>
@@ -200,7 +104,6 @@ export default function DocumentRegisterPage() {
     if (fileArr.length === 0) { alert("지원 형식: JPG, PNG, PDF"); return; }
     if (entries.length + fileArr.length > 10) { alert("최대 10건까지 업로드 가능합니다."); return; }
 
-    rcpNoOffset.current = 0; // 새 배치 시작 시 오프셋 리셋
     const newEntries: ParsedEntry[] = [];
     for (const file of fileArr) {
       const base64 = await fileToBase64(file);
@@ -210,7 +113,7 @@ export default function DocumentRegisterPage() {
         fileBase64: base64,
         fileType: file.type,
         preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : "",
-        scanning: false, error: null,
+        error: null,
         acc_sec_cd: 0, item_sec_cd: 0, acc_date: "", content: "", acc_amt: 0,
         cust_id: 0, customerName: "", rcp_yn: "Y", rcp_no: "", bigo: "", providerRegNum: "",
         exp_group1_cd: "", exp_group2_cd: "", exp_group3_cd: "", acc_ins_type: "118",
@@ -218,9 +121,7 @@ export default function DocumentRegisterPage() {
     }
 
     setEntries((prev) => [...prev, ...newEntries]);
-    for (const entry of newEntries) scanFile(entry);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entries.length, orgId, accountOptions.length]);
+  }, [entries.length]);
 
   function updateEntry(id: number, patch: Partial<ParsedEntry>) {
     setEntries((prev) => prev.map((e) => {
@@ -253,7 +154,7 @@ export default function DocumentRegisterPage() {
   async function handleSave() {
     if (!orgId) return;
     const valid = entries.filter(
-      (e) => !e.scanning && e.acc_sec_cd && e.item_sec_cd && e.acc_date && e.acc_amt > 0
+      (e) => e.acc_sec_cd && e.item_sec_cd && e.acc_date && e.acc_amt > 0
     );
     if (valid.length === 0) { alert("저장 가능한 항목이 없습니다.\n계정, 과목, 일자, 금액을 확인하세요."); return; }
     if (!confirm(`${valid.length}건을 ${typeLabel} 내역으로 등록하시겠습니까?`)) return;
@@ -448,13 +349,13 @@ export default function DocumentRegisterPage() {
 
   if (codesLoading) return <div className="flex items-center justify-center h-64 text-gray-400">코드 데이터 로딩 중...</div>;
 
-  const validCount = entries.filter((e) => !e.scanning && !e.error && e.acc_sec_cd && e.item_sec_cd && e.acc_date && e.acc_amt > 0).length;
+  const validCount = entries.filter((e) => !e.error && e.acc_sec_cd && e.item_sec_cd && e.acc_date && e.acc_amt > 0).length;
 
   return (
     <div className="space-y-4">
       <PageGuide {...PAGE_GUIDES["document-register"]} />
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold">영수증/계약서 자동등록</h2>
+        <h2 className="text-2xl font-bold">영수증/계약서 등록</h2>
         <div className="flex gap-2">
           <Button size="sm" onClick={handleSave} disabled={saving || entries.length === 0}>
             {saving ? "저장 중..." : `저장 (${validCount}건)`}
@@ -478,7 +379,7 @@ export default function DocumentRegisterPage() {
             <input ref={fileRef} type="file" accept="image/*,application/pdf" multiple className="hidden"
               onChange={(e) => e.target.files && handleFiles(e.target.files)} />
             <p className="text-gray-500 text-lg mb-1">영수증 또는 계약서 이미지를 드래그하거나 클릭하여 업로드</p>
-            <p className="text-gray-400 text-sm">JPG, PNG, PDF 지원 | 최대 10건 | AI가 일자·금액·거래처·내역을 자동 추출합니다</p>
+            <p className="text-gray-400 text-sm">JPG, PNG, PDF 지원 | 최대 10건 | 일자·금액·거래처·내역을 직접 입력하세요</p>
           </div>
 
           {/* Entries */}
@@ -499,18 +400,17 @@ export default function DocumentRegisterPage() {
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-medium text-gray-600">{entry.fileName}</span>
                         <div className="flex items-center gap-2">
-                          {entry.scanning && <span className="text-sm text-blue-600 animate-pulse">AI 분석 중...</span>}
                           {entry.error && <span className="text-sm text-red-600">{entry.error}</span>}
                           <Button variant="outline" size="sm" onClick={() => removeEntry(entry.id)}>삭제</Button>
                         </div>
                       </div>
-                      {!entry.scanning && renderEntryForm(entry)}
+                      {renderEntryForm(entry)}
                     </div>
                   </div>
                 </div>
               ))}
               <div className="flex justify-between items-center bg-gray-50 rounded-lg p-3 text-sm">
-                <span>총 <b>{entries.length}</b>건 | 분석완료 <b className="text-blue-600">{entries.filter((e) => !e.scanning && !e.error).length}</b>건 | 오류 <b className="text-red-600">{entries.filter((e) => e.error).length}</b>건</span>
+                <span>총 <b>{entries.length}</b>건 | 등록가능 <b className="text-blue-600">{validCount}</b>건 | 오류 <b className="text-red-600">{entries.filter((e) => e.error).length}</b>건</span>
                 <span>합계: <b className="text-blue-700">{fmt(entries.reduce((s, e) => s + e.acc_amt, 0))}원</b></span>
               </div>
             </div>
