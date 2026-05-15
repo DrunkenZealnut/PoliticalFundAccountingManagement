@@ -55,8 +55,8 @@ CREATE TABLE organ (
   rep_name VARCHAR(50),
   acct_name VARCHAR(50),
   comm VARCHAR(50),
-  userid VARCHAR(20),
-  passwd VARCHAR(100),  -- Supabase Auth로 대체, 레거시 호환용
+  userid VARCHAR(20),    -- PFund2 ORGAN.USERID 호환 — Supabase Auth와 무관, .db export 시 사용
+  passwd VARCHAR(100),   -- PFund2 ORGAN.PASSWD 호환 — 평문 저장, RLS로 본인 organ만 접근. 단 export 시 20자 상한 적용 (PFund2 제약)
   hint1 VARCHAR(50),
   hint2 VARCHAR(50),
   org_order INTEGER,

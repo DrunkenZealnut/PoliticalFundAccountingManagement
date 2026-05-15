@@ -30,6 +30,9 @@ Thumbs.db
 # Temp
 /tmp/
 
+# Local data (DB/Excel working files, contains personal data)
+/data/
+
 # Legacy Windows program (entire folder)
 중앙선거관리위원회_정치자금회계관리2/
 .vercel

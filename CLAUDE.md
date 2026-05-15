@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-정치자금 회계관리 시스템 — a political fund accounting management web app for Korean election campaigns. Manages income/expense ledgers, customer records, donation limits, Excel/SQLite I/O, and provides an AI chatbot for election cost guidance.
+정치자금 회계관리 시스템 — a political fund accounting management web app for Korean election campaigns. Manages income/expense ledgers, customer records, donation limits, Excel/SQLite I/O, and provides a static FAQ browser based on official election commission materials.
 
 ## Commands
 
@@ -29,7 +29,6 @@ cd app && npx vitest run src/components/chat/ChatBubble.test.tsx
 ### Tech Stack
 - **Framework**: Next.js 16 (App Router) + React 19 + TypeScript 5
 - **Database**: Supabase PostgreSQL with custom `pfam` schema and RLS
-- **AI Chat**: Google Generative AI (Gemini 2.5 Flash) with keyword-based RAG
 - **State**: Zustand (auth store persisted to localStorage)
 - **UI**: shadcn/ui + Tailwind CSS v4 + Recharts
 - **Data I/O**: ExcelJS (xlsx), sql.js (SQLite WASM)
@@ -45,14 +44,14 @@ This uses Next.js 16 which has breaking changes from training data. Always read 
 ### Source Layout (`app/src/`)
 
 ```
-app/api/          → 10 API route groups (chat, codes, customers, acc-book, excel/*, system/*, address/search, receipt-scan, evidence-file)
-app/dashboard/    → 28 pages including wizard (beginner), document-register (OCR), income, expense, reports, etc.
+app/api/          → 8 API route groups (codes, customers, acc-book, excel/*, system/*, address/search, evidence-file, reimbursement)
+app/dashboard/    → 28 pages including wizard (beginner), document-register (manual entry), income, expense, reports, etc.
 app/login/        → Supabase email/password auth
-components/chat/  → ChatBubble (FAQ browser + AI chat, well-tested)
+components/chat/  → ChatBubble (static FAQ browser, well-tested)
 components/ui/    → shadcn/ui primitives (Button, Card, Dialog, Table, etc.)
-hooks/            → use-chat, use-code-values, use-donation-limit, use-sort, use-undo
+hooks/            → use-code-values, use-donation-limit, use-sort, use-undo
 lib/supabase/     → client.ts (browser), server.ts (SSR), middleware.ts (session)
-lib/chat/         → FAQ data, election cost guide, sample accounting data
+lib/chat/         → faq-data.ts (static FAQ items only)
 lib/accounting/   → Business logic (balance calculation, validation)
 lib/expense-types.ts → Shared 3-level expense type data (선거비용/선거비용외) + PAY_METHODS
 lib/wizard-mappings.ts → Wizard card definitions + code auto-mapping
@@ -81,8 +80,6 @@ POST routes use **action-based dispatch** — a single route handles multiple op
 ```
 For batch operations, internal metadata fields are prefixed with `_` (e.g., `_provider`, `_addr`) — the API processes them (customer matching/creation) then strips all `_`-prefixed keys before DB insert.
 
-The chat API (`/api/chat`) streams responses via SSE using Gemini 2.5 Flash with context from the user's org data and keyword-extracted guide sections.
-
 ### Code Values System
 
 The `useCodeValues()` hook (via `useSyncExternalStore`) provides code lookups fetched once from `/api/codes`:
@@ -102,8 +99,8 @@ Excel generation uses ExcelJS directly (not templates) to match official electio
 ### Evidence File Storage
 
 Uploaded receipt/contract images are stored in Supabase Storage (`evidence` bucket) and linked to `acc_book` entries via the `evidence_file` table:
-- `/api/receipt-scan` — Gemini 2.5 Flash Vision OCR (extracts date, amount, provider, content)
 - `/api/evidence-file` — upload to Supabase Storage + metadata to `pfam.evidence_file`
+- Receipt/contract content is entered manually by users (no OCR/AI extraction).
 - Max file size: 10MB. Schema: `scripts/007_evidence_file_table.sql`
 
 ### Expense Type Architecture
@@ -124,7 +121,6 @@ NEXT_PUBLIC_SUPABASE_URL        # Supabase project URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY   # Public anon key
 SUPABASE_SERVICE_ROLE_KEY       # Server-only, bypasses RLS (required for API routes)
 EPOST_API_KEY                   # 우정사업본부 address search API
-GEMINI_API_KEY                  # Gemini API (used in /api/chat, /api/receipt-scan)
 ```
 
 ### Reference Documents

@@ -1,218 +1,384 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { createSupabaseBrowser } from "@/lib/supabase/client";
+import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/stores/auth";
-import { Button } from "@/components/ui/button";
+import { createSupabaseBrowser } from "@/lib/supabase/client";
+import { SUPPORTER_SEC_CDS } from "@/lib/accounting/organ-pair";
+import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { HelpTooltip } from "@/components/help-tooltip";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { PageGuide } from "@/components/page-guide";
-import { PAGE_GUIDES } from "@/lib/page-guides";
-import { AddressSearchDialog } from "@/components/address-search-dialog";
+import { Button } from "@/components/ui/button";
 
-interface Organ {
+interface OrganRow {
   org_id: number;
   org_sec_cd: number;
   org_name: string;
-  reg_num: string;
-  reg_date: string | null;
-  post: string | null;
-  addr: string | null;
-  addr_detail: string | null;
-  tel: string | null;
-  fax: string | null;
-  rep_name: string | null;
-  acct_name: string | null;
-  comm: string | null;
+  userid: string | null;
+  passwd: string | null;
   hint1: string | null;
   hint2: string | null;
-  pre_acc_from: string | null;
-  pre_acc_to: string | null;
-  acc_from: string | null;
-  acc_to: string | null;
 }
 
-const ORG_TYPES = [
-  { value: 50, label: "중앙당" }, { value: 51, label: "정책연구소" },
-  { value: 52, label: "시도당" }, { value: 53, label: "정당선거사무소" },
-  { value: 54, label: "국회의원" }, { value: 90, label: "(예비)후보자" },
-  { value: 106, label: "경선후보자" },
-  { value: 91, label: "대통령선거후보자후원회" }, { value: 92, label: "국회의원후원회" },
-  { value: 107, label: "대통령선거경선후보자후원회" }, { value: 108, label: "당대표경선후보자후원회" },
-  { value: 109, label: "(예비)후보자후원회" },
-  { value: 587, label: "중앙당후원회" }, { value: 588, label: "중앙당창당준비위원회후원회" },
-];
+interface FormState {
+  userid: string;
+  passwd: string;
+  hint1: string;
+  hint2: string;
+  useSeparateCandidate: boolean;
+  candidateUserid: string;
+  candidatePasswd: string;
+}
 
-export default function OrganPage() {
-  const { orgId } = useAuth();
-  const [organ, setOrgan] = useState<Organ | null>(null);
-  const [loading, setLoading] = useState(!!orgId);
-  const [addrDialogOpen, setAddrDialogOpen] = useState(false);
+const SESSION_KEY = "organ-credentials-candidate";
 
-  const [form, setForm] = useState({
-    org_sec_cd: 90, org_name: "", reg_num: "", reg_date: "", acct_name: "", rep_name: "",
-    comm: "", post: "", addr: "", addr_detail: "", tel: "", fax: "",
-    hint1: "", hint2: "", acc_from: "", acc_to: "", pre_acc_from: "", pre_acc_to: "",
+function validateUserid(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return "필수 입력입니다";
+  if (trimmed.length > 20) return "최대 20자까지 입력 가능합니다";
+  if (!/^[A-Za-z0-9_]+$/.test(trimmed)) {
+    return "영문, 숫자, 언더스코어(_)만 사용 가능합니다";
+  }
+  return null;
+}
+
+function validatePasswd(value: string): string | null {
+  if (!value) return "필수 입력입니다";
+  if (value.length > 20) return "최대 20자까지 입력 가능합니다 (선관위 프로그램 제약)";
+  return null;
+}
+
+function validateHint(value: string): string | null {
+  if (value.length > 50) return "최대 50자까지 입력 가능합니다";
+  return null;
+}
+
+function PasswordField({
+  id,
+  label,
+  value,
+  onChange,
+  error,
+  required,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  error: string | null;
+  required?: boolean;
+}) {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="space-y-1">
+      <Label htmlFor={id}>
+        {label}
+        {required && <span className="text-red-500 ml-1">*</span>}
+      </Label>
+      <div className="flex gap-2">
+        <Input
+          id={id}
+          type={show ? "text" : "password"}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          maxLength={20}
+          className="flex-1"
+          aria-invalid={error != null}
+        />
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => setShow((v) => !v)}
+          aria-label={show ? "비밀번호 숨기기" : "비밀번호 보이기"}
+        >
+          {show ? "숨김" : "표시"}
+        </Button>
+      </div>
+      {error && <p className="text-xs text-red-600">{error}</p>}
+    </div>
+  );
+}
+
+export default function OrganInfoPage() {
+  const { orgId, orgSecCd, orgName } = useAuth();
+  // 초기값 true — 마운트 시 곧바로 fetch 시작. setLoading(true)를 effect에서 동기 호출하지 않도록 함.
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [organ, setOrgan] = useState<OrganRow | null>(null);
+  const [form, setForm] = useState<FormState>({
+    userid: "",
+    passwd: "",
+    hint1: "",
+    hint2: "",
+    useSeparateCandidate: false,
+    candidateUserid: "",
+    candidatePasswd: "",
   });
+  const [errors, setErrors] = useState<Partial<Record<keyof FormState, string | null>>>({});
+  const [savedMessage, setSavedMessage] = useState<string | null>(null);
 
-  function applyOrgan(o: Organ) {
-    setOrgan(o);
-    setForm({
-      org_sec_cd: o.org_sec_cd, org_name: o.org_name, reg_num: o.reg_num, reg_date: o.reg_date || "",
-      acct_name: o.acct_name || "", rep_name: o.rep_name || "", comm: o.comm || "",
-      post: o.post || "", addr: o.addr || "", addr_detail: o.addr_detail || "",
-      tel: o.tel || "", fax: o.fax || "", hint1: o.hint1 || "", hint2: o.hint2 || "",
-      acc_from: o.acc_from || "", acc_to: o.acc_to || "",
-      pre_acc_from: o.pre_acc_from || "", pre_acc_to: o.pre_acc_to || "",
-    });
-  }
+  const isSupporter = orgSecCd != null && SUPPORTER_SEC_CDS.has(orgSecCd);
 
-  function load() {
-    if (!orgId) return;
+  // load는 await 이후 setState만 호출 — useEffect 동기 setState 회피 (react-hooks/set-state-in-effect)
+  const load = useCallback(async () => {
+    if (!orgId) {
+      setLoading(false);
+      return;
+    }
     const supabase = createSupabaseBrowser();
-    supabase.from("organ").select("*").eq("org_id", orgId).single()
-      .then(({ data }) => { if (data) applyOrgan(data as Organ); setLoading(false); });
-  }
-
-  useEffect(() => {
-    if (!orgId) return;
-    const supabase = createSupabaseBrowser();
-    supabase.from("organ").select("*").eq("org_id", orgId).single()
-      .then(({ data }) => { if (data) applyOrgan(data as Organ); setLoading(false); });
+    const { data, error } = await supabase
+      .from("organ")
+      .select("org_id, org_sec_cd, org_name, userid, passwd, hint1, hint2")
+      .eq("org_id", orgId)
+      .single();
+    if (error || !data) {
+      setLoading(false);
+      return;
+    }
+    const row = data as OrganRow;
+    setOrgan(row);
+    setForm((prev) => ({
+      ...prev,
+      userid: row.userid ?? "",
+      passwd: row.passwd ?? "",
+      hint1: row.hint1 ?? "",
+      hint2: row.hint2 ?? "",
+    }));
+    // 후보자 자격증명은 sessionStorage에서 복원 (DB에 저장 안 함)
+    if (typeof window !== "undefined") {
+      try {
+        const raw = sessionStorage.getItem(`${SESSION_KEY}-${orgId}`);
+        if (raw) {
+          const parsed = JSON.parse(raw) as { userid?: string; passwd?: string };
+          if (parsed.userid || parsed.passwd) {
+            setForm((prev) => ({
+              ...prev,
+              useSeparateCandidate: true,
+              candidateUserid: parsed.userid ?? "",
+              candidatePasswd: parsed.passwd ?? "",
+            }));
+          }
+        }
+      } catch {
+        // sessionStorage 접근 실패는 무시
+      }
+    }
+    setLoading(false);
   }, [orgId]);
 
-  async function handleSave() {
-    const supabase = createSupabaseBrowser();
-    if (!orgId || !organ) return;
-    const { error } = await supabase.from("organ").update(form).eq("org_id", orgId);
-    if (error) { alert(`수정 실패: ${error.message}`); return; }
-    alert("저장되었습니다. 수정 내용 반영을 위해 로그아웃 후 재로그인하세요.");
-    load();
+  useEffect(() => {
+    // microtask로 미루어 effect 동기 setState 회피 (react-hooks/set-state-in-effect)
+    Promise.resolve().then(() => {
+      void load();
+    });
+  }, [load]);
+
+  function validateAll(): boolean {
+    const e: Partial<Record<keyof FormState, string | null>> = {
+      userid: validateUserid(form.userid),
+      passwd: validatePasswd(form.passwd),
+      hint1: validateHint(form.hint1),
+      hint2: validateHint(form.hint2),
+    };
+    if (isSupporter && form.useSeparateCandidate) {
+      e.candidateUserid = validateUserid(form.candidateUserid);
+      e.candidatePasswd = validatePasswd(form.candidatePasswd);
+    }
+    setErrors(e);
+    return Object.values(e).every((v) => v == null);
   }
 
-  if (loading) return <div className="text-center py-8 text-gray-400">로딩 중...</div>;
+  async function handleSave() {
+    setSavedMessage(null);
+    if (!orgId) return;
+    if (!validateAll()) return;
+    setSaving(true);
+    const supabase = createSupabaseBrowser();
+    const { error } = await supabase
+      .from("organ")
+      .update({
+        userid: form.userid.trim(),
+        passwd: form.passwd,
+        hint1: form.hint1.trim() || null,
+        hint2: form.hint2.trim() || null,
+      })
+      .eq("org_id", orgId);
+    setSaving(false);
+    if (error) {
+      setSavedMessage(`저장 실패: ${error.message}`);
+      return;
+    }
+
+    // 후보자 자격증명은 sessionStorage에 저장 (DB에는 저장하지 않음)
+    if (typeof window !== "undefined") {
+      const key = `${SESSION_KEY}-${orgId}`;
+      if (isSupporter && form.useSeparateCandidate && form.candidateUserid && form.candidatePasswd) {
+        sessionStorage.setItem(
+          key,
+          JSON.stringify({
+            userid: form.candidateUserid.trim(),
+            passwd: form.candidatePasswd,
+          }),
+        );
+      } else {
+        sessionStorage.removeItem(key);
+      }
+    }
+
+    setSavedMessage("저장되었습니다.");
+    await load();
+  }
+
+  if (!orgId) {
+    return (
+      <div className="p-6">
+        <p className="text-sm text-gray-600">기관을 먼저 선택해주세요.</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6">
-      <PageGuide {...PAGE_GUIDES.organ} />
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold">사용기관 관리</h2>
-        <HelpTooltip id="btn.save"><Button onClick={handleSave}>저장</Button></HelpTooltip>
-      </div>
+    <div className="space-y-4 max-w-3xl">
+      <h1 className="text-xl font-bold">사용기관관리</h1>
 
-      <Card>
-        <CardHeader><CardTitle>기관 정보</CardTitle></CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <HelpTooltip id="organ.type"><Label>사용기관 구분</Label></HelpTooltip>
-              <select
-                className="w-full mt-0.5 border rounded px-3 py-2 text-sm bg-gray-50 text-gray-700"
-                value={form.org_sec_cd}
-                onChange={(e) => setForm({ ...form, org_sec_cd: Number(e.target.value) })}
-                disabled
-                title="사용기관 구분은 신규등록 시에만 설정 가능합니다"
-              >
-                {ORG_TYPES.map((t) => (
-                  <option key={t.value} value={t.value}>{t.label}</option>
-                ))}
-              </select>
-              <p className="text-xs text-gray-400 mt-0.5">신규등록 시에만 변경 가능</p>
-            </div>
-            <div>
-              <Label>기관명</Label>
-              <Input value={form.org_name} onChange={(e) => setForm({ ...form, org_name: e.target.value })} />
-            </div>
-            <div>
-              <Label>생년월일/사업자번호</Label>
-              <Input value={form.reg_num} onChange={(e) => setForm({ ...form, reg_num: e.target.value })} />
-            </div>
-            <div>
-              <Label>대표자명</Label>
-              <Input value={form.rep_name} onChange={(e) => setForm({ ...form, rep_name: e.target.value })} />
-            </div>
-            <div>
-              <Label>회계책임자</Label>
-              <Input value={form.acct_name} onChange={(e) => setForm({ ...form, acct_name: e.target.value })} />
-            </div>
-            <div>
-              <Label>관할위원회명</Label>
-              <Input value={form.comm} onChange={(e) => setForm({ ...form, comm: e.target.value })} />
-            </div>
-            <div>
-              <Label>우편번호</Label>
-              <div className="flex gap-1 mt-1">
-                <Input value={form.post} onChange={(e) => setForm({ ...form, post: e.target.value })} className="flex-1" />
-                <Button type="button" variant="outline" size="sm" onClick={() => setAddrDialogOpen(true)} className="shrink-0 text-xs">주소검색</Button>
-              </div>
-            </div>
-            <div className="md:col-span-2">
-              <Label>주소</Label>
-              <Input value={form.addr} onChange={(e) => setForm({ ...form, addr: e.target.value })} placeholder="주소검색으로 입력 또는 직접 입력" />
-            </div>
-            <div>
-              <Label>상세주소</Label>
-              <Input value={form.addr_detail} onChange={(e) => setForm({ ...form, addr_detail: e.target.value })} placeholder="상세주소 직접 입력" />
-            </div>
-            <div>
-              <Label>전화번호</Label>
-              <Input value={form.tel} onChange={(e) => setForm({ ...form, tel: e.target.value })} />
-            </div>
-            <div>
-              <Label>팩스</Label>
-              <Input value={form.fax} onChange={(e) => setForm({ ...form, fax: e.target.value })} />
-            </div>
-          </div>
-        </CardContent>
+      <Card className="p-4 space-y-2">
+        <h2 className="text-sm font-semibold text-gray-500">기관 식별 정보</h2>
+        {loading ? (
+          <p className="text-sm text-gray-500">불러오는 중...</p>
+        ) : organ ? (
+          <dl className="grid grid-cols-[120px_1fr] gap-y-1 text-sm">
+            <dt className="text-gray-500">기관 ID</dt>
+            <dd>{organ.org_id}</dd>
+            <dt className="text-gray-500">기관 종류 코드</dt>
+            <dd>{organ.org_sec_cd}</dd>
+            <dt className="text-gray-500">기관명</dt>
+            <dd className="font-medium">{organ.org_name || orgName}</dd>
+          </dl>
+        ) : (
+          <p className="text-sm text-red-600">기관 정보를 찾을 수 없습니다.</p>
+        )}
       </Card>
 
-      <Card>
-        <CardHeader><CardTitle>회계기간</CardTitle></CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <HelpTooltip id="organ.pre-period"><Label>이전 회계기간</Label></HelpTooltip>
-              <div className="flex gap-2 mt-1">
-                <Input value={form.pre_acc_from} onChange={(e) => setForm({ ...form, pre_acc_from: e.target.value })} placeholder="시작 YYYYMMDD" />
-                <span className="self-center">~</span>
-                <Input value={form.pre_acc_to} onChange={(e) => setForm({ ...form, pre_acc_to: e.target.value })} placeholder="종료 YYYYMMDD" />
-              </div>
-            </div>
-            <div>
-              <HelpTooltip id="organ.acc-period"><Label>당해 회계기간</Label></HelpTooltip>
-              <div className="flex gap-2 mt-1">
-                <Input value={form.acc_from} onChange={(e) => setForm({ ...form, acc_from: e.target.value })} placeholder="시작 YYYYMMDD" />
-                <span className="self-center">~</span>
-                <Input value={form.acc_to} onChange={(e) => setForm({ ...form, acc_to: e.target.value })} placeholder="종료 YYYYMMDD" />
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <Card className="p-4 space-y-4">
+        <div>
+          <h2 className="text-sm font-semibold text-gray-700">선관위 프로그램 로그인 정보</h2>
+          <p className="mt-1 text-xs text-gray-500 leading-relaxed">
+            이 정보는 다운로드한 <strong>.db 파일</strong>을 윈도우 선관위 정치자금 회계관리
+            프로그램에서 <strong>[자료 복구]</strong> 후 재로그인할 때 사용됩니다. 비밀번호는
+            평문으로 저장되며, 본인 기관 외에는 접근할 수 없습니다 (RLS).
+          </p>
+        </div>
 
-      <Card>
-        <CardHeader><CardTitle>비밀번호 힌트</CardTitle></CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <HelpTooltip id="organ.hint"><Label>비밀번호확인질문</Label></HelpTooltip>
-              <Input value={form.hint1} onChange={(e) => setForm({ ...form, hint1: e.target.value })} placeholder="예: 나의 고향은?" />
-            </div>
-            <div>
-              <Label>비밀번호확인답변</Label>
-              <Input value={form.hint2} onChange={(e) => setForm({ ...form, hint2: e.target.value })} placeholder="예: 서울" />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+        <div className="space-y-1">
+          <Label htmlFor="userid">
+            사용자 ID<span className="text-red-500 ml-1">*</span>
+          </Label>
+          <Input
+            id="userid"
+            value={form.userid}
+            onChange={(e) => setForm((f) => ({ ...f, userid: e.target.value }))}
+            maxLength={20}
+            placeholder="영문/숫자/_ 최대 20자"
+            aria-invalid={errors.userid != null}
+          />
+          {errors.userid && <p className="text-xs text-red-600">{errors.userid}</p>}
+        </div>
 
-      <AddressSearchDialog
-        open={addrDialogOpen}
-        onClose={() => setAddrDialogOpen(false)}
-        onSelect={({ post, addr }) => setForm({ ...form, post, addr })}
-      />
+        <PasswordField
+          id="passwd"
+          label="비밀번호"
+          value={form.passwd}
+          onChange={(v) => setForm((f) => ({ ...f, passwd: v }))}
+          error={errors.passwd ?? null}
+          required
+        />
+
+        <div className="space-y-1">
+          <Label htmlFor="hint1">비밀번호 힌트 1</Label>
+          <Input
+            id="hint1"
+            value={form.hint1}
+            onChange={(e) => setForm((f) => ({ ...f, hint1: e.target.value }))}
+            maxLength={50}
+          />
+          {errors.hint1 && <p className="text-xs text-red-600">{errors.hint1}</p>}
+        </div>
+
+        <div className="space-y-1">
+          <Label htmlFor="hint2">비밀번호 힌트 2</Label>
+          <Input
+            id="hint2"
+            value={form.hint2}
+            onChange={(e) => setForm((f) => ({ ...f, hint2: e.target.value }))}
+            maxLength={50}
+          />
+          {errors.hint2 && <p className="text-xs text-red-600">{errors.hint2}</p>}
+        </div>
+
+        {isSupporter && (
+          <div className="border-t pt-4 space-y-3">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={form.useSeparateCandidate}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, useSeparateCandidate: e.target.checked }))
+                }
+              />
+              <span>
+                후보자 계정 자격증명을 별도로 지정 (브라우저 세션에만 저장)
+              </span>
+            </label>
+            {form.useSeparateCandidate && (
+              <div className="space-y-3 pl-6">
+                <div className="space-y-1">
+                  <Label htmlFor="candUserid">후보자 사용자 ID</Label>
+                  <Input
+                    id="candUserid"
+                    value={form.candidateUserid}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, candidateUserid: e.target.value }))
+                    }
+                    maxLength={20}
+                    aria-invalid={errors.candidateUserid != null}
+                  />
+                  {errors.candidateUserid && (
+                    <p className="text-xs text-red-600">{errors.candidateUserid}</p>
+                  )}
+                </div>
+                <PasswordField
+                  id="candPasswd"
+                  label="후보자 비밀번호"
+                  value={form.candidatePasswd}
+                  onChange={(v) => setForm((f) => ({ ...f, candidatePasswd: v }))}
+                  error={errors.candidatePasswd ?? null}
+                />
+                <p className="text-xs text-gray-500">
+                  이 값은 데이터베이스에 저장되지 않고 브라우저 세션에만 남습니다. 탭을 닫으면
+                  사라지며 다음 export 시 다시 입력해야 합니다.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="flex items-center gap-2 pt-2">
+          <Button onClick={handleSave} disabled={saving || loading}>
+            {saving ? "저장 중..." : "저장"}
+          </Button>
+          <Button variant="outline" onClick={() => load()} disabled={saving || loading}>
+            취소(되돌리기)
+          </Button>
+          {savedMessage && (
+            <span
+              className={`text-sm ${
+                savedMessage.startsWith("저장 실패") ? "text-red-600" : "text-green-700"
+              }`}
+            >
+              {savedMessage}
+            </span>
+          )}
+        </div>
+      </Card>
     </div>
   );
 }

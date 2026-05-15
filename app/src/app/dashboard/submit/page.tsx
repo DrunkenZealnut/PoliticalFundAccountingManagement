@@ -1,13 +1,74 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useReducer, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
 import { useAuth } from "@/stores/auth";
 import { Button } from "@/components/ui/button";
 
+const ORGAN_CRED_SESSION_KEY = "organ-credentials-candidate";
+
+type ConflictPolicy = "overwrite" | "skip" | "merge";
+
+interface ImportDryRunSummary {
+  rowCounts: Record<string, number>;
+  organCandidates: Array<{
+    source: string;
+    exportOrgId: number;
+    org_sec_cd: number;
+    org_name: string;
+    reg_num: string;
+  }>;
+  conflictPolicy: ConflictPolicy;
+}
+
+type ImportOutcome =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "preview"; summary: ImportDryRunSummary }
+  | { kind: "result"; totalImported: number; warnings: string[] }
+  | { kind: "error"; message: string };
+
+interface ImportState {
+  open: boolean;
+  file: File | null;
+  policy: ConflictPolicy;
+  outcome: ImportOutcome;
+}
+
+type ImportAction =
+  | { type: "open" }
+  | { type: "close" }
+  | { type: "setFile"; file: File | null }
+  | { type: "setPolicy"; policy: ConflictPolicy }
+  | { type: "setOutcome"; outcome: ImportOutcome };
+
+function importReducer(state: ImportState, action: ImportAction): ImportState {
+  switch (action.type) {
+    case "open":
+      return { ...state, open: true };
+    case "close":
+      return { open: false, file: null, policy: "overwrite", outcome: { kind: "idle" } };
+    case "setFile":
+      return { ...state, file: action.file, outcome: { kind: "idle" } };
+    case "setPolicy":
+      return { ...state, policy: action.policy };
+    case "setOutcome":
+      return { ...state, outcome: action.outcome };
+  }
+}
+
+const INITIAL_IMPORT_STATE: ImportState = {
+  open: false,
+  file: null,
+  policy: "overwrite",
+  outcome: { kind: "idle" },
+};
+
 export default function SubmitPage() {
   const supabase = createSupabaseBrowser();
-  const { orgId, orgType, orgName, orgSecCd } = useAuth();
+  const router = useRouter();
+  const { orgId, orgType, orgName, orgSecCd, accFrom } = useAuth();
   const [generating, setGenerating] = useState(false);
   const [stats, setStats] = useState<{
     income: number;
@@ -15,6 +76,59 @@ export default function SubmitPage() {
     customers: number;
     estates: number;
   } | null>(null);
+
+  // 회계연도 — 기본값은 organ.acc_from의 앞 4자리, 없으면 현재 연도
+  const defaultYear = (accFrom && accFrom.length >= 4)
+    ? accFrom.slice(0, 4)
+    : String(new Date().getFullYear());
+  const [exportYear, setExportYear] = useState<string>(defaultYear);
+  const [exportYearMode, setExportYearMode] = useState<"all" | "year">("year");
+
+  const [imp, dispatch] = useReducer(importReducer, INITIAL_IMPORT_STATE);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  async function runImport(dryRun: boolean) {
+    if (!imp.file || !orgId) return;
+    if (!dryRun && !confirm(`충돌 정책 '${imp.policy}'로 가져오기를 실행합니다. 계속하시겠습니까?`)) return;
+
+    dispatch({ type: "setOutcome", outcome: { kind: "loading" } });
+    try {
+      const fd = new FormData();
+      fd.append("file", imp.file);
+      fd.append("orgId", String(orgId));
+      fd.append("conflictPolicy", imp.policy);
+      if (dryRun) fd.append("dryRun", "true");
+      const data = await fetch("/api/system/import-sqlite", { method: "POST", body: fd })
+        .then((r) => r.json());
+
+      if (!data?.ok) {
+        const msg = data?.error?.message ?? data?.error ?? (dryRun ? "미리보기 실패" : "가져오기 실패");
+        const code = data?.error?.code ? ` [${data.error.code}]` : "";
+        dispatch({ type: "setOutcome", outcome: { kind: "error", message: msg + code } });
+      } else if (dryRun) {
+        dispatch({ type: "setOutcome", outcome: { kind: "preview", summary: data.summary as ImportDryRunSummary } });
+      } else {
+        dispatch({
+          type: "setOutcome",
+          outcome: {
+            kind: "result",
+            totalImported: data.summary?.totalImported ?? 0,
+            warnings: data.warnings ?? [],
+          },
+        });
+      }
+    } catch (e) {
+      dispatch({
+        type: "setOutcome",
+        outcome: { kind: "error", message: e instanceof Error ? e.message : "네트워크 오류" },
+      });
+    }
+  }
+
+  function closeImportModal() {
+    dispatch({ type: "close" });
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
 
   const handlePreview = useCallback(async () => {
     if (!orgId) return;
@@ -174,13 +288,62 @@ export default function SubmitPage() {
     setGenerating(true);
 
     try {
-      const res = await fetch(
-        `/api/system/export-sqlite?orgId=${orgId}&orgName=${encodeURIComponent(orgName)}`
-      );
+      // 페어 자격증명 (후보자 별도 지정) — sessionStorage에서 읽기
+      let candUserid: string | null = null;
+      let candPasswd: string | null = null;
+      if (typeof window !== "undefined") {
+        try {
+          const raw = sessionStorage.getItem(`${ORGAN_CRED_SESSION_KEY}-${orgId}`);
+          if (raw) {
+            const parsed = JSON.parse(raw) as { userid?: string; passwd?: string };
+            candUserid = parsed.userid ?? null;
+            candPasswd = parsed.passwd ?? null;
+          }
+        } catch {
+          // sessionStorage 파싱 실패는 무시
+        }
+      }
+
+      const params = new URLSearchParams({
+        orgId: String(orgId),
+        orgName,
+      });
+      if (candUserid && candPasswd) {
+        params.set("candUserid", candUserid);
+        params.set("candPasswd", candPasswd);
+      }
+      if (exportYearMode === "year" && /^(19|20)\d{2}$/.test(exportYear)) {
+        params.set("year", exportYear);
+      }
+
+      const res = await fetch(`/api/system/export-sqlite?${params.toString()}`);
 
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "서버 오류");
+        const errBody = (await res.json().catch(() => null)) as
+          | { error?: { code?: string; message?: string; details?: Record<string, unknown> } | string }
+          | null;
+        // PARITY-007: 자격증명 누락 → 등록 페이지로 안내
+        if (
+          errBody?.error &&
+          typeof errBody.error === "object" &&
+          errBody.error.code === "PARITY-007"
+        ) {
+          const detailMsg =
+            (errBody.error.details?.message_detail as string | undefined) ||
+            errBody.error.message ||
+            "선관위 프로그램 로그인 정보가 등록되지 않았습니다";
+          const actionUrl =
+            (errBody.error.details?.actionUrl as string | undefined) || "/dashboard/organ";
+          if (confirm(`${detailMsg}\n\n사용기관관리 페이지로 이동하시겠습니까?`)) {
+            router.push(actionUrl);
+          }
+          return;
+        }
+        const message =
+          (typeof errBody?.error === "object"
+            ? errBody.error.message
+            : (errBody?.error as string)) || "서버 오류";
+        throw new Error(message);
       }
 
       const blob = await res.blob();
@@ -258,7 +421,44 @@ export default function SubmitPage() {
           </div>
         )}
 
-        <div className="flex gap-2">
+        {orgType !== "party" && (
+          <div className="rounded border p-3 text-sm space-y-2">
+            <p className="font-semibold">회계기간 선택</p>
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="exportYearMode"
+                checked={exportYearMode === "year"}
+                onChange={() => setExportYearMode("year")}
+              />
+              <span>회계연도</span>
+              <input
+                type="text"
+                value={exportYear}
+                onChange={(e) => setExportYear(e.target.value)}
+                onFocus={() => setExportYearMode("year")}
+                maxLength={4}
+                className="w-20 px-2 py-1 border rounded"
+                placeholder="YYYY"
+                aria-label="회계연도"
+              />
+              <span className="text-xs text-gray-500">
+                ACC_BOOK / ACC_BOOK_BAK이 해당 연도(YYYY-01-01 ~ YYYY-12-31)로만 필터됩니다
+              </span>
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="exportYearMode"
+                checked={exportYearMode === "all"}
+                onChange={() => setExportYearMode("all")}
+              />
+              <span>전체 기간 (모든 acc_book)</span>
+            </label>
+          </div>
+        )}
+
+        <div className="flex gap-2 flex-wrap">
           <Button variant="outline" onClick={handlePreview}>
             미리보기 (데이터 통계)
           </Button>
@@ -270,7 +470,149 @@ export default function SubmitPage() {
               ? "생성 중..."
               : `제출파일 생성 (${orgType === "party" ? ".txt" : ".db"})`}
           </Button>
+          {orgType !== "party" && (
+            <Button
+              variant="outline"
+              onClick={() => dispatch({ type: "open" })}
+              disabled={isCentralParty}
+            >
+              PFund2 .db 가져오기
+            </Button>
+          )}
         </div>
+
+        {imp.open && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-lg w-full max-w-2xl max-h-[90vh] overflow-auto">
+              <div className="px-5 py-4 border-b flex items-center justify-between">
+                <h3 className="font-semibold text-lg">PFund2 .db 파일 가져오기</h3>
+                <button
+                  onClick={closeImportModal}
+                  className="text-gray-400 hover:text-gray-700 text-xl leading-none"
+                  aria-label="닫기"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="p-5 space-y-4 text-sm">
+                <div className="space-y-2">
+                  <label className="block font-medium">.db 파일 선택</label>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".db"
+                    onChange={(e) =>
+                      dispatch({ type: "setFile", file: e.target.files?.[0] ?? null })
+                    }
+                    className="text-xs"
+                  />
+                  {imp.file && (
+                    <p className="text-xs text-gray-500">
+                      {imp.file.name} ({Math.round(imp.file.size / 1024)}KB)
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block font-medium">충돌 처리 방식</label>
+                  <div className="space-y-1">
+                    {(
+                      [
+                        ["overwrite", "덮어쓰기 (overwrite)", "기존 데이터 모두 삭제 후 가져옴 (전통적 동작)"],
+                        ["merge", "병합 (merge)", "기존 데이터 보존 + 새 데이터 추가/갱신"],
+                        ["skip", "건너뛰기 (skip)", "기존 데이터 보존, 충돌 행은 무시"],
+                      ] as const
+                    ).map(([value, title, desc]) => (
+                      <label key={value} className="flex items-start gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="conflict-policy"
+                          value={value}
+                          checked={imp.policy === value}
+                          onChange={() => dispatch({ type: "setPolicy", policy: value })}
+                          className="mt-1"
+                        />
+                        <div>
+                          <span className="font-medium">{title}</span>
+                          <p className="text-xs text-gray-500">{desc}</p>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {imp.outcome.kind === "error" && (
+                  <div className="bg-red-50 border border-red-200 rounded p-3 text-red-800 text-xs whitespace-pre-wrap">
+                    {imp.outcome.message}
+                  </div>
+                )}
+
+                {imp.outcome.kind === "preview" && (
+                  <div className="bg-blue-50 border border-blue-200 rounded p-3 space-y-2">
+                    <h4 className="font-medium">미리보기 결과 (정책: {imp.outcome.summary.conflictPolicy})</h4>
+                    <div className="text-xs grid grid-cols-2 gap-x-4 gap-y-1">
+                      {Object.entries(imp.outcome.summary.rowCounts).map(([k, v]) => (
+                        <div key={k}>
+                          <span className="text-gray-600">{k}:</span> <b>{v}</b>건
+                        </div>
+                      ))}
+                    </div>
+                    {imp.outcome.summary.organCandidates.length > 0 && (
+                      <div className="text-xs">
+                        <p className="font-medium mt-2">ORGAN 후보:</p>
+                        <ul className="ml-4 list-disc">
+                          {imp.outcome.summary.organCandidates.map((c, i) => (
+                            <li key={i}>
+                              [{c.source}] ORG_ID={c.exportOrgId} (SEC={c.org_sec_cd}) — {c.org_name}
+                              {c.reg_num && ` / ${c.reg_num}`}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {imp.outcome.kind === "result" && (
+                  <div className="bg-green-50 border border-green-200 rounded p-3 space-y-1 text-xs">
+                    <p className="font-medium text-green-800">
+                      ✓ 가져오기 완료: 총 {imp.outcome.totalImported}건 import
+                    </p>
+                    {imp.outcome.warnings.length > 0 && (
+                      <ul className="ml-4 list-disc text-amber-700">
+                        {imp.outcome.warnings.map((w, i) => (
+                          <li key={i}>{w}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="px-5 py-4 border-t flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  onClick={closeImportModal}
+                  disabled={imp.outcome.kind === "loading"}
+                >
+                  닫기
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => runImport(true)}
+                  disabled={!imp.file || imp.outcome.kind === "loading"}
+                >
+                  {imp.outcome.kind === "loading" ? "..." : "미리보기"}
+                </Button>
+                <Button
+                  onClick={() => runImport(false)}
+                  disabled={!imp.file || imp.outcome.kind === "loading"}
+                >
+                  {imp.outcome.kind === "loading" ? "..." : "가져오기 실행"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {stats && (
           <div className="bg-gray-50 rounded p-4 text-sm space-y-2">

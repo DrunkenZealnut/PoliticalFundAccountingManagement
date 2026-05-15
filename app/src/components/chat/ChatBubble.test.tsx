@@ -2,16 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, act, cleanup } from "@testing-library/react";
 import { ChatBubble } from "./ChatBubble";
 
-// Mock next/navigation
-vi.mock("next/navigation", () => ({
-  usePathname: () => "/dashboard",
-}));
-
-// Mock auth store
-vi.mock("@/stores/auth", () => ({
-  useAuth: () => ({ orgId: 1, orgName: "테스트기관", orgType: "party" }),
-}));
-
 vi.mock("@/lib/chat/faq-data", () => {
   const FAQ_DATA = [
     {
@@ -43,41 +33,21 @@ vi.mock("@/lib/chat/faq-data", () => {
   };
 });
 
-// Mock useChat hook
-const mockSendMessage = vi.fn();
-const mockClearMessages = vi.fn();
-const mockAddMessages = vi.fn();
-let mockMessages: Array<{ role: string; content: string; source?: string; sources?: unknown[] }> = [];
-
-vi.mock("@/hooks/use-chat", () => ({
-  useChat: () => ({
-    messages: mockMessages,
-    isLoading: false,
-    error: null,
-    sendMessage: mockSendMessage,
-    clearMessages: mockClearMessages,
-    addMessages: mockAddMessages,
-  }),
-}));
-
-// Mock ReactMarkdown
-vi.mock("react-markdown", () => ({
-  default: ({ children }: { children: string }) => <div>{children}</div>,
-}));
-
-vi.mock("remark-gfm", () => ({
-  default: {},
-}));
-
 function openChat() {
-  const bubble = screen.getByTitle("회계 상담 채팅");
+  const bubble = screen.getByTitle("자주 묻는 질문");
   fireEvent.click(bubble);
+}
+
+function clickFaqItemByText(text: string) {
+  // FAQ 항목 버튼을 data-testid로 안정적으로 찾음 (메시지 버블의 텍스트와 충돌 방지)
+  const allFaqButtons = screen.getAllByTestId(/^faq-item-/);
+  const faqButton = allFaqButtons.find((el) => el.textContent === text);
+  if (!faqButton) throw new Error(`FAQ button with text "${text}" not found`);
+  fireEvent.click(faqButton);
 }
 
 describe("ChatBubble", () => {
   beforeEach(() => {
-    mockMessages = [];
-    vi.clearAllMocks();
     vi.useFakeTimers();
   });
 
@@ -88,13 +58,13 @@ describe("ChatBubble", () => {
 
   it("renders the chat bubble button", () => {
     render(<ChatBubble />);
-    expect(screen.getByTitle("회계 상담 채팅")).toBeInTheDocument();
+    expect(screen.getByTitle("자주 묻는 질문")).toBeInTheDocument();
   });
 
   it("opens the chat panel when clicked", () => {
     render(<ChatBubble />);
     openChat();
-    expect(screen.getByText("정치자금 회계 상담")).toBeInTheDocument();
+    expect(screen.getByText("정치자금 회계 FAQ")).toBeInTheDocument();
   });
 
   it("shows FAQ categories when no messages exist", () => {
@@ -103,6 +73,13 @@ describe("ChatBubble", () => {
     expect(screen.getByText("자주 묻는 질문")).toBeInTheDocument();
     expect(screen.getByText("정치자금 개요")).toBeInTheDocument();
     expect(screen.getByText("수입 회계처리")).toBeInTheDocument();
+  });
+
+  it("does not render a free-text input (AI chat removed)", () => {
+    render(<ChatBubble />);
+    openChat();
+    expect(screen.queryByPlaceholderText("질문을 입력하세요...")).not.toBeInTheDocument();
+    expect(screen.queryByText("전송")).not.toBeInTheDocument();
   });
 
   it("navigates to FAQ items when clicking a chapter without subsections", () => {
@@ -129,63 +106,43 @@ describe("ChatBubble", () => {
     expect(screen.getByText("수입 회계처리")).toBeInTheDocument();
   });
 
-  it("calls addMessages with FAQ source when clicking a FAQ item", () => {
+  it("renders question and answer as messages when clicking a FAQ item", () => {
     render(<ChatBubble />);
     openChat();
     fireEvent.click(screen.getByText("정치자금 개요"));
-    fireEvent.click(screen.getByText("정치자금이란 무엇인가요?"));
-    expect(mockAddMessages).toHaveBeenCalledWith([
-      { role: "user", content: "정치자금이란 무엇인가요?", source: "faq" },
-      { role: "assistant", content: "정치자금이란 당비, 후원금 등입니다.", source: "faq" },
-    ]);
+    clickFaqItemByText("정치자금이란 무엇인가요?");
+
+    // 메시지 영역에 질문/답변이 추가됨 (msg-0, msg-1 컨테이너)
+    expect(document.getElementById("msg-0")).toBeInTheDocument();
+    expect(document.getElementById("msg-1")).toBeInTheDocument();
+    expect(document.getElementById("msg-1")?.textContent).toContain(
+      "정치자금이란 당비, 후원금 등입니다."
+    );
   });
 
   describe("duplicate FAQ prevention", () => {
-    function clickFaqButton(text: string) {
-      // Use data-testid to reliably target FAQ buttons, avoiding ambiguity
-      // when the same text appears in both FAQ buttons and message bubbles.
-      const allFaqButtons = screen.getAllByTestId(/^faq-item-/);
-      const faqButton = allFaqButtons.find((el) => el.textContent === text);
-      if (!faqButton) throw new Error(`FAQ button with text "${text}" not found`);
-      fireEvent.click(faqButton);
-    }
-
-    it("scrolls to existing FAQ message instead of adding duplicate", () => {
-      mockMessages = [
-        { role: "user", content: "정치자금이란 무엇인가요?", source: "faq" },
-        { role: "assistant", content: "정치자금이란 당비, 후원금 등입니다.", source: "faq" },
-      ];
+    it("does not add a duplicate when the same FAQ item is clicked again", () => {
       render(<ChatBubble />);
       openChat();
       fireEvent.click(screen.getByText("정치자금 개요"));
-      clickFaqButton("정치자금이란 무엇인가요?");
-      expect(mockAddMessages).not.toHaveBeenCalled();
-    });
 
-    it("does not treat manual messages as FAQ duplicates", () => {
-      mockMessages = [
-        { role: "user", content: "정치자금이란 무엇인가요?" },
-        { role: "assistant", content: "AI가 생성한 다른 답변입니다." },
-      ];
-      render(<ChatBubble />);
-      openChat();
-      fireEvent.click(screen.getByText("정치자금 개요"));
-      clickFaqButton("정치자금이란 무엇인가요?");
-      expect(mockAddMessages).toHaveBeenCalledWith([
-        { role: "user", content: "정치자금이란 무엇인가요?", source: "faq" },
-        { role: "assistant", content: "정치자금이란 당비, 후원금 등입니다.", source: "faq" },
-      ]);
+      // 1st click → user + assistant 2개 메시지 추가
+      clickFaqItemByText("정치자금이란 무엇인가요?");
+      expect(document.getElementById("msg-0")).toBeInTheDocument();
+      expect(document.getElementById("msg-1")).toBeInTheDocument();
+      expect(document.getElementById("msg-2")).toBeNull();
+
+      // 2nd click → 추가 없음, highlight만
+      clickFaqItemByText("정치자금이란 무엇인가요?");
+      expect(document.getElementById("msg-2")).toBeNull();
     });
 
     it("highlights both the question and answer for duplicates", () => {
-      mockMessages = [
-        { role: "user", content: "정치자금이란 무엇인가요?", source: "faq" },
-        { role: "assistant", content: "정치자금이란 당비, 후원금 등입니다.", source: "faq" },
-      ];
       render(<ChatBubble />);
       openChat();
       fireEvent.click(screen.getByText("정치자금 개요"));
-      clickFaqButton("정치자금이란 무엇인가요?");
+      clickFaqItemByText("정치자금이란 무엇인가요?");
+      clickFaqItemByText("정치자금이란 무엇인가요?");
 
       const msg0 = document.getElementById("msg-0");
       const msg1 = document.getElementById("msg-1");
@@ -194,14 +151,11 @@ describe("ChatBubble", () => {
     });
 
     it("removes highlight after 1.5 seconds", () => {
-      mockMessages = [
-        { role: "user", content: "정치자금이란 무엇인가요?", source: "faq" },
-        { role: "assistant", content: "정치자금이란 당비, 후원금 등입니다.", source: "faq" },
-      ];
       render(<ChatBubble />);
       openChat();
       fireEvent.click(screen.getByText("정치자금 개요"));
-      clickFaqButton("정치자금이란 무엇인가요?");
+      clickFaqItemByText("정치자금이란 무엇인가요?");
+      clickFaqItemByText("정치자금이란 무엇인가요?");
 
       const msg0 = document.getElementById("msg-0");
       expect(msg0?.className).toContain("ring-yellow-400");
@@ -216,114 +170,71 @@ describe("ChatBubble", () => {
 
   describe("FAQ collapse toggle", () => {
     it("shows collapse toggle when messages exist", () => {
-      mockMessages = [
-        { role: "user", content: "테스트", source: "faq" },
-        { role: "assistant", content: "답변", source: "faq" },
-      ];
       render(<ChatBubble />);
       openChat();
-      expect(screen.getByText(/자주 묻는 질문/)).toBeInTheDocument();
+      fireEvent.click(screen.getByText("정치자금 개요"));
+      clickFaqItemByText("정치자금이란 무엇인가요?");
+
+      // 카테고리 화면으로 돌아간 뒤 collapse 토글이 나타남
+      fireEvent.click(screen.getByText("← 뒤로"));
       expect(screen.getByText(/접기/)).toBeInTheDocument();
     });
 
     it("does not show collapse toggle when no messages", () => {
       render(<ChatBubble />);
       openChat();
-      // The "자주 묻는 질문" heading should exist but not as a toggle button
-      const toggleBtn = screen.queryByText(/접기/);
-      expect(toggleBtn).not.toBeInTheDocument();
+      expect(screen.queryByText(/접기/)).not.toBeInTheDocument();
     });
 
     it("hides FAQ content when collapsed", () => {
-      mockMessages = [
-        { role: "user", content: "테스트", source: "faq" },
-        { role: "assistant", content: "답변", source: "faq" },
-      ];
       render(<ChatBubble />);
       openChat();
+      fireEvent.click(screen.getByText("정치자금 개요"));
+      clickFaqItemByText("정치자금이란 무엇인가요?");
+      fireEvent.click(screen.getByText("← 뒤로"));
 
-      // FAQ categories should be visible initially
+      // FAQ 카테고리가 보임
       expect(screen.getByText("정치자금 개요")).toBeInTheDocument();
 
-      // Click collapse toggle
+      // Collapse
       fireEvent.click(screen.getByText(/접기/));
 
-      // FAQ categories should be hidden
+      // 카테고리 사라짐
       expect(screen.queryByText("정치자금 개요")).not.toBeInTheDocument();
-      // Toggle should show "펼치기"
       expect(screen.getByText(/펼치기/)).toBeInTheDocument();
     });
 
     it("shows FAQ content when expanded", () => {
-      mockMessages = [
-        { role: "user", content: "테스트", source: "faq" },
-        { role: "assistant", content: "답변", source: "faq" },
-      ];
       render(<ChatBubble />);
       openChat();
+      fireEvent.click(screen.getByText("정치자금 개요"));
+      clickFaqItemByText("정치자금이란 무엇인가요?");
+      fireEvent.click(screen.getByText("← 뒤로"));
 
-      // Collapse
       fireEvent.click(screen.getByText(/접기/));
       expect(screen.queryByText("정치자금 개요")).not.toBeInTheDocument();
 
-      // Expand
       fireEvent.click(screen.getByText(/펼치기/));
       expect(screen.getByText("정치자금 개요")).toBeInTheDocument();
     });
   });
 
   describe("handleClearMessages state reset", () => {
-    it("resets faqCollapsed state on clear", () => {
-      mockMessages = [
-        { role: "user", content: "테스트", source: "faq" },
-        { role: "assistant", content: "답변", source: "faq" },
-      ];
-      const { rerender } = render(<ChatBubble />);
+    it("resets messages and view state on clear", () => {
+      render(<ChatBubble />);
       openChat();
+      fireEvent.click(screen.getByText("정치자금 개요"));
+      clickFaqItemByText("정치자금이란 무엇인가요?");
 
-      // Collapse FAQ
-      fireEvent.click(screen.getByText(/접기/));
-      expect(screen.queryByText("정치자금 개요")).not.toBeInTheDocument();
+      expect(document.getElementById("msg-0")).toBeInTheDocument();
 
-      // Clear messages
-      fireEvent.click(screen.getByText("대화 초기화"));
-      expect(mockClearMessages).toHaveBeenCalled();
+      // 초기화
+      fireEvent.click(screen.getByText("초기화"));
 
-      // Simulate messages being cleared
-      mockMessages = [];
-      rerender(<ChatBubble />);
-
-      // FAQ should be visible again (not collapsed)
+      // 메시지 사라지고 카테고리 화면으로 복귀
+      expect(document.getElementById("msg-0")).toBeNull();
       expect(screen.getByText("정치자금 개요")).toBeInTheDocument();
-    });
-  });
-
-  describe("chat input", () => {
-    it("sends message on Enter", () => {
-      render(<ChatBubble />);
-      openChat();
-      const input = screen.getByPlaceholderText("질문을 입력하세요...");
-      fireEvent.change(input, { target: { value: "테스트 질문" } });
-      fireEvent.keyDown(input, { key: "Enter" });
-      expect(mockSendMessage).toHaveBeenCalledWith("테스트 질문");
-    });
-
-    it("does not send empty messages", () => {
-      render(<ChatBubble />);
-      openChat();
-      const input = screen.getByPlaceholderText("질문을 입력하세요...");
-      fireEvent.change(input, { target: { value: "   " } });
-      fireEvent.keyDown(input, { key: "Enter" });
-      expect(mockSendMessage).not.toHaveBeenCalled();
-    });
-
-    it("sends message on button click", () => {
-      render(<ChatBubble />);
-      openChat();
-      const input = screen.getByPlaceholderText("질문을 입력하세요...");
-      fireEvent.change(input, { target: { value: "테스트 질문" } });
-      fireEvent.click(screen.getByText("전송"));
-      expect(mockSendMessage).toHaveBeenCalledWith("테스트 질문");
+      expect(screen.getByText("수입 회계처리")).toBeInTheDocument();
     });
   });
 });

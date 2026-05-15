@@ -2,12 +2,18 @@
 
 import { useState, useRef } from "react";
 import { useAuth } from "@/stores/auth";
+import { useCodeValues } from "@/hooks/use-code-values";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageGuide } from "@/components/page-guide";
 import { PAGE_GUIDES } from "@/lib/page-guides";
+import {
+  resolveAccountCodes,
+  tryResolveAccountCodes,
+  CodeMappingError,
+} from "@/lib/accounting/code-mapping";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -61,7 +67,8 @@ function cellStr(v: unknown): string {
 /* ------------------------------------------------------------------ */
 
 export default function BatchImportPage() {
-  const { orgId, orgType } = useAuth();
+  const { orgId, orgType, orgSecCd } = useAuth();
+  const { codeValues, accRels, loading: codesLoading } = useCodeValues();
 
   const [tab, setTab] = useState("income");
   const [file, setFile] = useState<File | null>(null);
@@ -137,8 +144,18 @@ export default function BatchImportPage() {
 
   /* ---- Validation ---- */
   function handleValidate() {
+    if (codesLoading) {
+      alert("코드 데이터를 불러오는 중입니다. 잠시 후 다시 시도하세요.");
+      return;
+    }
+    if (orgSecCd == null) {
+      alert("로그인 정보의 조직구분(orgSecCd)이 없어 매핑 검증을 진행할 수 없습니다.");
+      return;
+    }
+
     const reqErrs: ErrorRow[] = [];
     const fmtErrs: ErrorRow[] = [];
+    const incmSecCd = isExpense ? 2 : 1;
 
     for (const row of parsed) {
       // 필수 입력 오류
@@ -168,6 +185,20 @@ export default function BatchImportPage() {
         fmtMsgs.push("증빙서첨부는 Y 또는 N");
       }
 
+      // 계정/과목 코드 매핑 검증 (필수 누락이 없을 때만 의미 있음)
+      if (row.account && row.subject) {
+        const codes = tryResolveAccountCodes(
+          row.account,
+          row.subject,
+          { orgSecCd, incmSecCd },
+          codeValues,
+          accRels,
+        );
+        if (codes == null) {
+          fmtMsgs.push(`계정/과목 매핑 실패: '${row.account}/${row.subject}'`);
+        }
+      }
+
       if (fmtMsgs.length > 0) {
         fmtErrs.push({ ...row, errorType: "format", error: fmtMsgs.join(", ") });
       }
@@ -191,37 +222,60 @@ export default function BatchImportPage() {
       alert("먼저 [저장 전 자료확인]을 실행하세요.");
       return;
     }
+    if (orgSecCd == null) {
+      alert("조직구분(orgSecCd)이 없어 저장할 수 없습니다.");
+      return;
+    }
     if (!confirm(`${parsed.length}건을 일괄 등록하시겠습니까?`)) return;
 
     setSaving(true);
     const incmSecCd = isExpense ? 2 : 1;
 
-    const rows = parsed.map((row) => {
-      const dateStr = row.date.replace(/[.\-\/]/g, "").slice(0, 8);
-      return {
-        org_id: orgId,
-        incm_sec_cd: incmSecCd,
-        acc_sec_cd: 0,
-        item_sec_cd: 0,
-        exp_sec_cd: 0,
-        acc_date: dateStr,
-        content: row.content,
-        acc_amt: row.amount,
-        rcp_yn: row.receiptYn === "Y" ? "Y" : "N",
-        rcp_no: row.receiptYn === "Y" ? (row.receiptNo || null) : null,
-        bigo: row.receiptYn === "N" ? (row.receiptNo || null) : (row.bigo || null),
-        _provider: row.provider,
-        _regNum: row.regNum,
-        _custType: row.custType,
-        _account: row.account,
-        _subject: row.subject,
-        _addr: row.addr,
-        _addrDetail: row.addrDetail,
-        _job: row.job,
-        _tel: row.tel,
-        _postCode: row.postCode,
-      };
-    });
+    let rows;
+    try {
+      rows = parsed.map((row) => {
+        const dateStr = row.date.replace(/[.\-\/]/g, "").slice(0, 8);
+        // 계정/과목 한글명 → SQLite CV_ID 변환 (실패 시 throw)
+        const codes = resolveAccountCodes(
+          row.account,
+          row.subject,
+          { orgSecCd, incmSecCd },
+          codeValues,
+          accRels,
+        );
+        return {
+          org_id: orgId,
+          incm_sec_cd: incmSecCd,
+          acc_sec_cd: codes.acc_sec_cd,
+          item_sec_cd: codes.item_sec_cd,
+          exp_sec_cd: codes.exp_sec_cd,
+          acc_date: dateStr,
+          content: row.content,
+          acc_amt: row.amount,
+          rcp_yn: row.receiptYn === "Y" ? "Y" : "N",
+          rcp_no: row.receiptYn === "Y" ? (row.receiptNo || null) : null,
+          bigo: row.receiptYn === "N" ? (row.receiptNo || null) : (row.bigo || null),
+          _provider: row.provider,
+          _regNum: row.regNum,
+          _custType: row.custType,
+          _account: row.account,
+          _subject: row.subject,
+          _addr: row.addr,
+          _addrDetail: row.addrDetail,
+          _job: row.job,
+          _tel: row.tel,
+          _postCode: row.postCode,
+        };
+      });
+    } catch (e) {
+      setSaving(false);
+      if (e instanceof CodeMappingError) {
+        alert(`계정/과목 매핑 실패: 행 정보 - 계정=${e.account}, 과목=${e.subject}. 검증을 다시 실행해 오류 행을 확인하세요.`);
+      } else {
+        alert("저장 준비 중 알 수 없는 오류가 발생했습니다.");
+      }
+      return;
+    }
 
     try {
       const res = await fetch("/api/acc-book", {

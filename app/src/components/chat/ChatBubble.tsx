@@ -1,18 +1,17 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { usePathname } from "next/navigation";
-import { useAuth } from "@/stores/auth";
-import { useChat } from "@/hooks/use-chat";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { FAQ_DATA, getChapterItemCount, type FaqItem, type FaqChapter } from "@/lib/chat/faq-data";
+import { FAQ_DATA, getChapterItemCount, type FaqItem } from "@/lib/chat/faq-data";
+
+type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+  source: "faq";
+};
 
 export function ChatBubble() {
   const [isOpen, setIsOpen] = useState(false);
-  const [input, setInput] = useState("");
-  const pathname = usePathname();
-  const { orgId, orgName, orgType } = useAuth();
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // FAQ 탐색 상태
@@ -29,27 +28,18 @@ export function ChatBubble() {
     };
   }, []);
 
-  const { messages, isLoading, error, sendMessage, clearMessages, addMessages } = useChat({
-    currentPage: pathname,
-    orgType: orgType || undefined,
-    orgId: orgId || undefined,
-    orgName: orgName || undefined,
-  });
-
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  function handleSend() {
-    if (!input.trim()) return;
-    sendMessage(input);
-    setInput("");
+  function addMessages(msgs: ChatMessage[]) {
+    setMessages((prev) => [...prev, ...msgs]);
   }
 
   function handleFaqItem(item: FaqItem) {
-    // 이미 같은 FAQ 질문이 있으면 해당 위치로 스크롤 (FAQ 메시지만 매칭)
+    // 이미 같은 FAQ 질문이 있으면 해당 위치로 스크롤
     const existingIndex = messages.findIndex(
-      (msg) => msg.role === "user" && msg.source === "faq" && msg.content === item.q
+      (msg) => msg.role === "user" && msg.content === item.q
     );
     if (existingIndex !== -1) {
       const el = document.getElementById(`msg-${existingIndex}`);
@@ -69,7 +59,7 @@ export function ChatBubble() {
 
 
   function handleClearMessages() {
-    clearMessages();
+    setMessages([]);
     setFaqView("categories");
     setSelectedChapter(null);
     setSelectedSubsection(null);
@@ -123,7 +113,7 @@ export function ChatBubble() {
       <button
         onClick={() => setIsOpen(!isOpen)}
         className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-blue-600 text-white shadow-lg hover:bg-blue-700 transition-all flex items-center justify-center text-2xl"
-        title="회계 상담 채팅"
+        title="자주 묻는 질문"
       >
         {isOpen ? "✕" : "💬"}
       </button>
@@ -134,11 +124,11 @@ export function ChatBubble() {
           {/* Header */}
           <div className="bg-blue-600 text-white px-4 py-3 flex items-center justify-between shrink-0">
             <div>
-              <h3 className="font-semibold text-base">정치자금 회계 상담</h3>
-              <p className="text-sm text-blue-200">선관위 공식 자료 기반 AI 답변</p>
+              <h3 className="font-semibold text-base">정치자금 회계 FAQ</h3>
+              <p className="text-sm text-blue-200">선관위 공식 자료 기반 자주 묻는 질문</p>
             </div>
             <button onClick={handleClearMessages} className="text-sm text-blue-200 hover:text-white">
-              대화 초기화
+              초기화
             </button>
           </div>
 
@@ -148,7 +138,7 @@ export function ChatBubble() {
             <div className="space-y-4">
               {messages.length === 0 && (
                 <p className="text-base text-gray-500 text-center">
-                  정치자금 회계처리에 대해 질문해 보세요.
+                  카테고리를 선택해 자주 묻는 질문 정답을 확인하세요.
                 </p>
               )}
 
@@ -252,67 +242,26 @@ export function ChatBubble() {
               const isHighlighted = highlightIndex !== null && (i === highlightIndex || i === highlightIndex + 1);
               const msgClassName = `flex ${alignment} ${isHighlighted ? "ring-2 ring-yellow-400 rounded-lg transition-all duration-300" : ""}`;
               return (
-              <div key={i} id={`msg-${i}`} className={msgClassName}>
-                <div
-                  className={`max-w-[85%] rounded-lg px-4 py-3 text-base ${
-                    msg.role === "user"
-                      ? "bg-blue-600 text-white"
-                      : "bg-gray-100 text-gray-900"
-                  }`}
-                >
-                  {msg.role === "assistant" ? (
-                    <div className="prose prose-base max-w-none [&_p]:my-1.5 [&_li]:my-0.5 [&_ul]:my-1.5 [&_h3]:text-base [&_h4]:text-sm">
-                      {isLoading && i === messages.length - 1 ? (
-                        <p className="whitespace-pre-wrap">{msg.content || "⏳ 답변 생성 중..."}</p>
-                      ) : (
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {msg.content}
-                        </ReactMarkdown>
-                      )}
-                    </div>
-                  ) : (
-                    <p>{msg.content}</p>
-                  )}
-
+                <div key={i} id={`msg-${i}`} className={msgClassName}>
+                  <div
+                    className={`max-w-[85%] rounded-lg px-4 py-3 text-base whitespace-pre-wrap leading-relaxed ${
+                      msg.role === "user"
+                        ? "bg-blue-600 text-white"
+                        : "bg-gray-100 text-gray-900"
+                    }`}
+                  >
+                    {msg.content}
+                  </div>
                 </div>
-              </div>
               );
             })}
-
-            {error && (
-              <div className="text-sm text-red-500 text-center bg-red-50 rounded p-2">
-                {error}
-              </div>
-            )}
 
             <div ref={messagesEndRef} />
           </div>
 
           {/* Disclaimer */}
           <div className="px-4 py-1.5 bg-yellow-50 text-xs text-yellow-700 text-center shrink-0">
-            AI 참고용 답변입니다. 중요 사항은 선관위에 확인하세요.
-          </div>
-
-          {/* Input */}
-          <div className="p-3 border-t shrink-0">
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-                placeholder="질문을 입력하세요..."
-                className="flex-1 text-base border rounded-lg px-3 py-2.5 focus:outline-none focus:border-blue-400"
-                disabled={isLoading}
-              />
-              <button
-                onClick={handleSend}
-                disabled={isLoading || !input.trim()}
-                className="px-4 py-2.5 bg-blue-600 text-white text-base rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-              >
-                {isLoading ? "..." : "전송"}
-              </button>
-            </div>
+            FAQ는 참고용입니다. 중요 사항은 선관위에 확인하세요.
           </div>
         </div>
       )}
