@@ -11,7 +11,7 @@
 
 | Feature | Archived On | 비고 |
 |---|---|---|
-| chatbot-faq-integration | 2026-05-15 | AI 챗봇 FAQ 응답 — 정적 FAQ 브라우저(`components/chat/ChatBubble.tsx` + `lib/chat/faq-data.ts`)로 대체. 코드는 보존. |
+| chatbot-faq-integration | 2026-05-15 | AI 챗봇 FAQ 응답 — 정적 FAQ 브라우저(`components/chat/ChatBubble.tsx` + `lib/chat/faq-data.ts`)로 대체. 코드는 보존. AI 응답 렌더에 쓰이던 `react-markdown`, `remark-gfm` 의존성도 함께 삭제. |
 | rag-chat | 2026-05-15 | Pinecone + Gemini RAG 챗봇 — 완전 제거. `@google/generative-ai`, `@pinecone-database/pinecone` 의존성 삭제. |
 | smart-auto-register | 2026-05-15 | AI 기반 자동 회계 등록 — 완전 제거. |
 | receipt-auto-register | 2026-05-15 | Gemini Vision 영수증 OCR — 완전 제거. `document-register` 페이지는 수동 입력 폼만 유지. (design 문서 부재) |

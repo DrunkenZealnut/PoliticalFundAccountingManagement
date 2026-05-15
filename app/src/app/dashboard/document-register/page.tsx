@@ -24,7 +24,6 @@ interface ParsedEntry {
   fileBase64: string;    // 원본 파일 base64 (저장용)
   fileType: string;      // MIME type
   preview: string;       // object URL (미리보기용)
-  error: string | null;
   // 회계 필드
   acc_sec_cd: number;
   item_sec_cd: number;
@@ -113,7 +112,6 @@ export default function DocumentRegisterPage() {
         fileBase64: base64,
         fileType: file.type,
         preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : "",
-        error: null,
         acc_sec_cd: 0, item_sec_cd: 0, acc_date: "", content: "", acc_amt: 0,
         cust_id: 0, customerName: "", rcp_yn: "Y", rcp_no: "", bigo: "", providerRegNum: "",
         exp_group1_cd: "", exp_group2_cd: "", exp_group3_cd: "", acc_ins_type: "118",
@@ -124,13 +122,7 @@ export default function DocumentRegisterPage() {
   }, [entries.length]);
 
   function updateEntry(id: number, patch: Partial<ParsedEntry>) {
-    setEntries((prev) => prev.map((e) => {
-      if (e.id !== id) return e;
-      // 사용자가 필드를 수정하면 error 플래그 해제
-      const clearError = patch.acc_sec_cd !== undefined || patch.item_sec_cd !== undefined
-        || patch.acc_date !== undefined || patch.acc_amt !== undefined || patch.content !== undefined;
-      return { ...e, ...patch, ...(clearError && e.error ? { error: null } : {}) };
-    }));
+    setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
   }
 
   function removeEntry(id: number) {
@@ -349,7 +341,7 @@ export default function DocumentRegisterPage() {
 
   if (codesLoading) return <div className="flex items-center justify-center h-64 text-gray-400">코드 데이터 로딩 중...</div>;
 
-  const validCount = entries.filter((e) => !e.error && e.acc_sec_cd && e.item_sec_cd && e.acc_date && e.acc_amt > 0).length;
+  const validCount = entries.filter((e) => e.acc_sec_cd && e.item_sec_cd && e.acc_date && e.acc_amt > 0).length;
 
   return (
     <div className="space-y-4">
@@ -386,7 +378,7 @@ export default function DocumentRegisterPage() {
           {entries.length > 0 && (
             <div className="space-y-3">
               {entries.map((entry) => (
-                <div key={entry.id} className={`bg-white rounded-lg border p-4 ${entry.error ? "border-red-300 bg-red-50" : ""}`}>
+                <div key={entry.id} className="bg-white rounded-lg border p-4">
                   <div className="flex gap-4">
                     <div className="shrink-0 w-24 h-24 bg-gray-100 rounded flex items-center justify-center overflow-hidden">
                       {entry.preview ? (
@@ -400,7 +392,6 @@ export default function DocumentRegisterPage() {
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-medium text-gray-600">{entry.fileName}</span>
                         <div className="flex items-center gap-2">
-                          {entry.error && <span className="text-sm text-red-600">{entry.error}</span>}
                           <Button variant="outline" size="sm" onClick={() => removeEntry(entry.id)}>삭제</Button>
                         </div>
                       </div>
@@ -410,7 +401,7 @@ export default function DocumentRegisterPage() {
                 </div>
               ))}
               <div className="flex justify-between items-center bg-gray-50 rounded-lg p-3 text-sm">
-                <span>총 <b>{entries.length}</b>건 | 등록가능 <b className="text-blue-600">{validCount}</b>건 | 오류 <b className="text-red-600">{entries.filter((e) => e.error).length}</b>건</span>
+                <span>총 <b>{entries.length}</b>건 | 등록가능 <b className="text-blue-600">{validCount}</b>건</span>
                 <span>합계: <b className="text-blue-700">{fmt(entries.reduce((s, e) => s + e.acc_amt, 0))}원</b></span>
               </div>
             </div>
