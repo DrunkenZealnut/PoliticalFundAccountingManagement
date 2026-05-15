@@ -128,6 +128,26 @@ export interface BuildOrganExportOptions {
   candidateCredentials?: CandidateCredentials;
 }
 
+/**
+ * 후원회 정식명에서 후보자명 유도.
+ * - "동대문구라선거구구의회의원후보자오준석후원회" → "오준석후보"
+ * - "...대통령선거후보자홍길동후원회" → "홍길동후보"
+ * - 매칭 실패 시 null
+ *
+ * acct_name/rep_name이 모두 비어있는 사용자 환경에서 PFund2 호환 후보자 행
+ * ORG_NAME을 비워서 export하면 PFund2 [자료 복구] 시 "기관명 [ ]" 경고 발생.
+ * 본 함수가 supabase organ.org_name에서 후보자명을 자동 유도하여 fallback 제공.
+ */
+export function deriveCandidateNameFromSupporter(
+  orgName: string | null | undefined,
+): string | null {
+  if (!orgName) return null;
+  const m = orgName.match(/후보자(.+?)후원회/);
+  if (!m) return null;
+  const inner = m[1].trim();
+  return inner.length > 0 ? `${inner}후보` : null;
+}
+
 export function buildOrganExport(
   supabaseOrgan: SupabaseOrgan,
   options: BuildOrganExportOptions = {},
@@ -137,8 +157,14 @@ export function buildOrganExport(
   const orgIdMap = new Map<number, number>();
 
   if (SUPPORTER_SEC_CDS.has(supabaseOrgan.org_sec_cd)) {
+    // PFund2 호환: 후보자 행(ORG_ID=1) ORG_NAME은 비어서는 안 됨.
+    // 우선순위: acct_name(trim) → rep_name(trim) → 후원회명에서 유도 → "후보자"
+    // (`||`은 빈 문자열만 falsy 처리하므로 공백 1자 같은 케이스 차단 위해 trim 필요)
     const candidateName =
-      supabaseOrgan.acct_name || supabaseOrgan.rep_name || "후보자";
+      supabaseOrgan.acct_name?.trim() ||
+      supabaseOrgan.rep_name?.trim() ||
+      deriveCandidateNameFromSupporter(supabaseOrgan.org_name) ||
+      "후보자";
 
     // FR-05/FR-06: 후보자 자격증명이 명시되면 사용, 아니면 후원회 자격증명으로 fallback.
     // maskPasswd=true(기본)인 호출 경로에서는 PASSWD가 null로 마스킹 — 보안 우선.

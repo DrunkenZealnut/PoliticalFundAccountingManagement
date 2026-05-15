@@ -13,6 +13,12 @@ interface OrganRow {
   org_id: number;
   org_sec_cd: number;
   org_name: string;
+  reg_num: string | null;
+  rep_name: string | null;
+  acct_name: string | null;
+  comm: string | null;
+  acc_from: string | null;
+  acc_to: string | null;
   userid: string | null;
   passwd: string | null;
   hint1: string | null;
@@ -20,6 +26,15 @@ interface OrganRow {
 }
 
 interface FormState {
+  // 기관 식별/PFund2 호환 필드 (Fix-2 추가)
+  org_name: string;
+  reg_num: string;
+  rep_name: string;
+  acct_name: string;
+  comm: string;
+  acc_from: string;
+  acc_to: string;
+  // 자격증명
   userid: string;
   passwd: string;
   hint1: string;
@@ -49,6 +64,35 @@ function validatePasswd(value: string): string | null {
 
 function validateHint(value: string): string | null {
   if (value.length > 50) return "최대 50자까지 입력 가능합니다";
+  return null;
+}
+
+function validateOrgName(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return "기관명은 필수입니다";
+  if (trimmed.length > 100) return "최대 100자까지 입력 가능합니다";
+  return null;
+}
+
+function validateRegNum(value: string): string | null {
+  if (!value) return null; // optional
+  if (value.length > 13) return "최대 13자까지 입력 가능합니다";
+  return null;
+}
+
+function validatePersonName(value: string): string | null {
+  if (value.length > 50) return "최대 50자까지 입력 가능합니다";
+  return null;
+}
+
+function validateComm(value: string): string | null {
+  if (value.length > 50) return "최대 50자까지 입력 가능합니다";
+  return null;
+}
+
+function validateAccDate(value: string): string | null {
+  if (!value) return null; // optional
+  if (!/^\d{8}$/.test(value)) return "YYYYMMDD 8자리 숫자로 입력해주세요";
   return null;
 }
 
@@ -99,12 +143,19 @@ function PasswordField({
 }
 
 export default function OrganInfoPage() {
-  const { orgId, orgSecCd, orgName } = useAuth();
+  const { orgId, orgSecCd } = useAuth();
   // 초기값 true — 마운트 시 곧바로 fetch 시작. setLoading(true)를 effect에서 동기 호출하지 않도록 함.
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [organ, setOrgan] = useState<OrganRow | null>(null);
   const [form, setForm] = useState<FormState>({
+    org_name: "",
+    reg_num: "",
+    rep_name: "",
+    acct_name: "",
+    comm: "",
+    acc_from: "",
+    acc_to: "",
     userid: "",
     passwd: "",
     hint1: "",
@@ -127,7 +178,9 @@ export default function OrganInfoPage() {
     const supabase = createSupabaseBrowser();
     const { data, error } = await supabase
       .from("organ")
-      .select("org_id, org_sec_cd, org_name, userid, passwd, hint1, hint2")
+      .select(
+        "org_id, org_sec_cd, org_name, reg_num, rep_name, acct_name, comm, acc_from, acc_to, userid, passwd, hint1, hint2",
+      )
       .eq("org_id", orgId)
       .single();
     if (error || !data) {
@@ -138,6 +191,13 @@ export default function OrganInfoPage() {
     setOrgan(row);
     setForm((prev) => ({
       ...prev,
+      org_name: row.org_name ?? "",
+      reg_num: row.reg_num ?? "",
+      rep_name: row.rep_name ?? "",
+      acct_name: row.acct_name ?? "",
+      comm: row.comm ?? "",
+      acc_from: row.acc_from ?? "",
+      acc_to: row.acc_to ?? "",
       userid: row.userid ?? "",
       passwd: row.passwd ?? "",
       hint1: row.hint1 ?? "",
@@ -174,6 +234,13 @@ export default function OrganInfoPage() {
 
   function validateAll(): boolean {
     const e: Partial<Record<keyof FormState, string | null>> = {
+      org_name: validateOrgName(form.org_name),
+      reg_num: validateRegNum(form.reg_num),
+      rep_name: validatePersonName(form.rep_name),
+      acct_name: validatePersonName(form.acct_name),
+      comm: validateComm(form.comm),
+      acc_from: validateAccDate(form.acc_from),
+      acc_to: validateAccDate(form.acc_to),
       userid: validateUserid(form.userid),
       passwd: validatePasswd(form.passwd),
       hint1: validateHint(form.hint1),
@@ -196,6 +263,13 @@ export default function OrganInfoPage() {
     const { error } = await supabase
       .from("organ")
       .update({
+        org_name: form.org_name.trim(),
+        reg_num: form.reg_num.trim() || null,
+        rep_name: form.rep_name.trim() || null,
+        acct_name: form.acct_name.trim() || null,
+        comm: form.comm.trim() || null,
+        acc_from: form.acc_from.trim() || null,
+        acc_to: form.acc_to.trim() || null,
         userid: form.userid.trim(),
         passwd: form.passwd,
         hint1: form.hint1.trim() || null,
@@ -240,21 +314,131 @@ export default function OrganInfoPage() {
     <div className="space-y-4 max-w-3xl">
       <h1 className="text-xl font-bold">사용기관관리</h1>
 
-      <Card className="p-4 space-y-2">
-        <h2 className="text-sm font-semibold text-gray-500">기관 식별 정보</h2>
+      <Card className="p-4 space-y-4">
+        <div>
+          <h2 className="text-sm font-semibold text-gray-700">기관 식별 정보</h2>
+          <p className="mt-1 text-xs text-gray-500 leading-relaxed">
+            여기에 입력한 값은 PFund2 호환 <strong>.db 파일</strong>의 <code>ORGAN</code> 테이블에
+            그대로 들어갑니다. PFund2에서 [자료 복구] 시 기관명 일치 검증을 통과하려면 정식명을
+            정확히 입력해주세요 (예: <em>동대문구라선거구구의회의원후보자오준석후원회</em>).
+          </p>
+        </div>
+
         {loading ? (
           <p className="text-sm text-gray-500">불러오는 중...</p>
-        ) : organ ? (
-          <dl className="grid grid-cols-[120px_1fr] gap-y-1 text-sm">
-            <dt className="text-gray-500">기관 ID</dt>
-            <dd>{organ.org_id}</dd>
-            <dt className="text-gray-500">기관 종류 코드</dt>
-            <dd>{organ.org_sec_cd}</dd>
-            <dt className="text-gray-500">기관명</dt>
-            <dd className="font-medium">{organ.org_name || orgName}</dd>
-          </dl>
-        ) : (
+        ) : !organ ? (
           <p className="text-sm text-red-600">기관 정보를 찾을 수 없습니다.</p>
+        ) : (
+          <>
+            <dl className="grid grid-cols-[120px_1fr] gap-y-1 text-sm">
+              <dt className="text-gray-500">기관 ID</dt>
+              <dd>{organ.org_id}</dd>
+              <dt className="text-gray-500">기관 종류 코드</dt>
+              <dd>{organ.org_sec_cd}</dd>
+            </dl>
+
+            <div className="space-y-1">
+              <Label htmlFor="org_name">
+                기관 정식명<span className="text-red-500 ml-1">*</span>
+              </Label>
+              <Input
+                id="org_name"
+                value={form.org_name}
+                onChange={(e) => setForm((f) => ({ ...f, org_name: e.target.value }))}
+                maxLength={100}
+                aria-invalid={errors.org_name != null}
+              />
+              {errors.org_name && <p className="text-xs text-red-600">{errors.org_name}</p>}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="reg_num">등록번호 (선거구/사업자)</Label>
+                <Input
+                  id="reg_num"
+                  value={form.reg_num}
+                  onChange={(e) => setForm((f) => ({ ...f, reg_num: e.target.value }))}
+                  maxLength={13}
+                  placeholder="예: 2348261566"
+                  aria-invalid={errors.reg_num != null}
+                />
+                {errors.reg_num && <p className="text-xs text-red-600">{errors.reg_num}</p>}
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="comm">관할 선관위</Label>
+                <Input
+                  id="comm"
+                  value={form.comm}
+                  onChange={(e) => setForm((f) => ({ ...f, comm: e.target.value }))}
+                  maxLength={50}
+                  placeholder="예: 동대문구선거관리위원회"
+                  aria-invalid={errors.comm != null}
+                />
+                {errors.comm && <p className="text-xs text-red-600">{errors.comm}</p>}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="rep_name">대표자명</Label>
+                <Input
+                  id="rep_name"
+                  value={form.rep_name}
+                  onChange={(e) => setForm((f) => ({ ...f, rep_name: e.target.value }))}
+                  maxLength={50}
+                  placeholder="후원회 단위면 후보자 본명 권장"
+                  aria-invalid={errors.rep_name != null}
+                />
+                {errors.rep_name && <p className="text-xs text-red-600">{errors.rep_name}</p>}
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="acct_name">회계책임자명</Label>
+                <Input
+                  id="acct_name"
+                  value={form.acct_name}
+                  onChange={(e) => setForm((f) => ({ ...f, acct_name: e.target.value }))}
+                  maxLength={50}
+                  aria-invalid={errors.acct_name != null}
+                />
+                {errors.acct_name && <p className="text-xs text-red-600">{errors.acct_name}</p>}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="acc_from">회계기간 시작 (YYYYMMDD)</Label>
+                <Input
+                  id="acc_from"
+                  value={form.acc_from}
+                  onChange={(e) => setForm((f) => ({ ...f, acc_from: e.target.value }))}
+                  maxLength={8}
+                  placeholder="예: 20260101"
+                  aria-invalid={errors.acc_from != null}
+                />
+                {errors.acc_from && <p className="text-xs text-red-600">{errors.acc_from}</p>}
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="acc_to">회계기간 종료 (YYYYMMDD)</Label>
+                <Input
+                  id="acc_to"
+                  value={form.acc_to}
+                  onChange={(e) => setForm((f) => ({ ...f, acc_to: e.target.value }))}
+                  maxLength={8}
+                  placeholder="예: 20261231"
+                  aria-invalid={errors.acc_to != null}
+                />
+                {errors.acc_to && <p className="text-xs text-red-600">{errors.acc_to}</p>}
+              </div>
+            </div>
+
+            {isSupporter && (!form.rep_name.trim() && !form.acct_name.trim()) && (
+              <div className="rounded bg-yellow-50 border border-yellow-200 p-2 text-xs text-yellow-800">
+                ⚠️ 후원회 단위 기관입니다. <strong>대표자명</strong>이 비어 있으면 PFund2의
+                후보자 행이 자동 유도되며 (예: 기관명에서 추출), 정확하지 않을 수 있습니다.
+                후보자 본명을 직접 입력하는 것을 권장합니다.
+              </div>
+            )}
+          </>
         )}
       </Card>
 
