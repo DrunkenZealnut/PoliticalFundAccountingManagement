@@ -5,6 +5,7 @@ import Link from "next/link";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
 import { useAuth } from "@/stores/auth";
 import { Button } from "@/components/ui/button";
+import { SUBMISSION_FORMS } from "@/lib/accounting/submission-forms";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -1097,13 +1098,27 @@ export default function FormsPage() {
             <div className="divide-y">
               {group.forms.map((form) => {
                 const isSelected = selectedForm === form.id;
+                const catalogEntry = SUBMISSION_FORMS.find((s) => s.id === form.id);
+                const parityBadge = catalogEntry?.parityChecked ? (
+                  <span className="text-[10px] font-medium text-green-700 bg-green-100 px-1.5 py-0.5 rounded">
+                    선관위 검증
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-medium text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
+                    검증 대기
+                  </span>
+                );
+
                 if (form.type === "link") {
                   return (
                     <div
                       key={form.id}
                       className="flex items-center justify-between px-4 py-3 hover:bg-gray-50"
                     >
-                      <span className="text-sm">{form.label}</span>
+                      <span className="text-sm flex items-center gap-2">
+                        {form.label}
+                        {parityBadge}
+                      </span>
                       <Link href={form.href || "#"}>
                         <Button variant="outline" size="sm">
                           이동
@@ -1120,7 +1135,10 @@ export default function FormsPage() {
                     }`}
                     onClick={() => setSelectedForm(isSelected ? null : form.id)}
                   >
-                    <span className="text-sm">{form.label}</span>
+                    <span className="text-sm flex items-center gap-2">
+                      {form.label}
+                      {parityBadge}
+                    </span>
                     <Button
                       size="sm"
                       onClick={(e) => {
