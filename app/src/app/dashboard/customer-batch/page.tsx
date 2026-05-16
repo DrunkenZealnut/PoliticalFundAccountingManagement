@@ -68,16 +68,19 @@ export default function CustomerBatchPage() {
       const cells = row.values as (string | number | null)[];
       if (!cells || cells.length < 3) return;
 
+      // 헤더 (1행): A=구분*, B=성명(명칭)*, C=생년월일/사업자번호, D=직업(업종),
+      // E=우편번호, F=주소, G=상세주소, H=전화번호, I=비고
+      // (이전 매핑은 E~H를 tel/post/addr/addrDetail로 잘못 잡고 있어 파싱 결과가 어긋남)
       rows.push({
         rowNum,
         custSecCd: String(cells[1] || "개인"),
         name: String(cells[2] || ""),
         regNum: String(cells[3] || ""),
         job: String(cells[4] || ""),
-        tel: String(cells[5] || ""),
-        post: String(cells[6] || ""),
-        addr: String(cells[7] || ""),
-        addrDetail: String(cells[8] || ""),
+        post: String(cells[5] || ""),
+        addr: String(cells[6] || ""),
+        addrDetail: String(cells[7] || ""),
+        tel: String(cells[8] || ""),
         bigo: String(cells[9] || ""),
       });
     });
@@ -343,8 +346,11 @@ export default function CustomerBatchPage() {
                 <th className="px-2 py-2 text-left">성명(명칭)</th>
                 <th className="px-2 py-2 text-left">생년월일/사업자번호</th>
                 <th className="px-2 py-2 text-left">직업</th>
-                <th className="px-2 py-2 text-left">전화번호</th>
+                <th className="px-2 py-2 text-left">우편번호</th>
                 <th className="px-2 py-2 text-left">주소</th>
+                <th className="px-2 py-2 text-left">상세주소</th>
+                <th className="px-2 py-2 text-left">전화번호</th>
+                <th className="px-2 py-2 text-left">비고</th>
               </tr>
             </thead>
             <tbody>
@@ -355,11 +361,11 @@ export default function CustomerBatchPage() {
                   <td className="px-2 py-1 font-medium">{r.name}</td>
                   <td className="px-2 py-1">{r.regNum}</td>
                   <td className="px-2 py-1">{r.job}</td>
+                  <td className="px-2 py-1">{r.post}</td>
+                  <td className="px-2 py-1">{r.addr}</td>
+                  <td className="px-2 py-1">{r.addrDetail}</td>
                   <td className="px-2 py-1">{r.tel}</td>
-                  <td className="px-2 py-1">
-                    {r.addr}
-                    {r.addrDetail ? ` ${r.addrDetail}` : ""}
-                  </td>
+                  <td className="px-2 py-1">{r.bigo}</td>
                 </tr>
               ))}
             </tbody>
