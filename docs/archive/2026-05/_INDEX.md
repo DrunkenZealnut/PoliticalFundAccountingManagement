@@ -41,3 +41,32 @@ PDCA 사이클 완료 후 아카이브된 기능 목록.
 - [Do Guide](official-program-parity/official-program-parity.do.md)
 - [Analysis](official-program-parity/official-program-parity.analysis.md)
 - [Report](official-program-parity/official-program-parity.report.md)
+
+### db-export-login-id (PFund2 로그인/페어 organ/Fund_Data_N 호환)
+
+- **기간**: 2026-05-15 ~ 2026-05-16 (2일)
+- **브랜치**: `feat/official-program-parity`
+- **Match Rate**: 94% (Good) — Plan/Design/Do/Check 본 사이클
+- **후속 PR**: 8개 (#22~#32) — 실 PFund2 환경 실증으로 발견된 호환성 결함 fix
+- **총 PR**: 12개 (#21~#32)
+- **테스트**: 270 → 295건 (+25건, 회귀 방지)
+- **목적**: 우리 export `.db`가 PFund2 [자료 복구] + 직접 교체 + 재로그인 + 데이터 표시까지 전 과정 호환되도록 보장
+- **핵심 산출물**:
+  - 마이그레이션: `010_add_candidate_columns.sql` (organ에 candidate_* 14개)
+  - 신규 모듈: `pfund2-constants.ts` (익명 customer -999, 4가지 mode, 파일명 헬퍼)
+  - 신규 UI: `/dashboard/organ` (자격증명 + 14개 후보자 정보 입력)
+  - 신규 에러: `PARITY-007 ORGAN_CREDENTIALS_MISSING`
+  - export-sqlite 4가지 mode: full / master / data1 / data2 (각각 Fund_Master/Fund_Data_N.db 호환)
+  - export-sqlite 회계연도 필터(`year=YYYY`)
+  - import-sqlite 페어 ORGAN 분리 매핑 (후보자→candidate_*)
+  - ALARM/COL_ORGAN PK 충돌 해소 + ACCBOOKSEND 격리
+  - PFund2 표준 익명 customer (CUST_ID=-999) 자동 보장
+- **부가 fix**: customer-batch 컬럼 매핑(E~H 어긋남), customer 페이지 일괄등록 후 표시, submit 미리보기 카운트
+- **실증 검증**: 실 PFund2 v5 환경에서 customer 38건 + 거래 56건 정상 표시 확인 ✅
+- **잔여 갭 (별도 PDCA로 분기 가능)**: export-sqlite Integration 테스트, OrganInfoPage Component 테스트(RTL), PFund2 풀세트 ZIP 다운로드
+
+문서:
+- [Plan](db-export-login-id/db-export-login-id.plan.md)
+- [Design](db-export-login-id/db-export-login-id.design.md)
+- [Analysis](db-export-login-id/db-export-login-id.analysis.md)
+- [Report](db-export-login-id/db-export-login-id.report.md)
