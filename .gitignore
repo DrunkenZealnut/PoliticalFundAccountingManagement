@@ -50,3 +50,6 @@ Thumbs.db
 * 2.png
 * 2.pdf
 * 2/
+
+# Process logs
+nohup.out
