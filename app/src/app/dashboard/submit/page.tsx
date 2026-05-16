@@ -73,7 +73,8 @@ export default function SubmitPage() {
   const [stats, setStats] = useState<{
     income: number;
     expense: number;
-    customers: number;
+    customers: number;        // 거래(acc_book)에 등장한 cust_id 수
+    customersTotal: number;   // 전체 customer 마스터 수 (export .db에 들어가는 실제 수)
     estates: number;
   } | null>(null);
 
@@ -133,7 +134,7 @@ export default function SubmitPage() {
   const handlePreview = useCallback(async () => {
     if (!orgId) return;
 
-    const [incRes, expRes, custRes, estRes] = await Promise.all([
+    const [incRes, expRes, custRes, custTotalRes, estRes] = await Promise.all([
       supabase
         .from("acc_book")
         .select("*", { count: "exact", head: true })
@@ -152,6 +153,10 @@ export default function SubmitPage() {
           const custIds = [...new Set((res.data || []).map((r: { cust_id: number }) => r.cust_id).filter(Boolean))];
           return { count: custIds.length };
         }),
+      // 전체 customer 마스터 (export .db에 실제로 들어가는 수)
+      supabase
+        .from("customer")
+        .select("*", { count: "exact", head: true }),
       supabase
         .from("estate")
         .select("*", { count: "exact", head: true })
@@ -162,6 +167,7 @@ export default function SubmitPage() {
       income: incRes.count || 0,
       expense: expRes.count || 0,
       customers: custRes.count || 0,
+      customersTotal: custTotalRes.count || 0,
       estates: estRes.count || 0,
     });
   }, [orgId, supabase]);
@@ -655,9 +661,12 @@ export default function SubmitPage() {
               </div>
               <div className="bg-white rounded border p-3 text-center">
                 <div className="text-2xl font-bold text-gray-600">
-                  {stats.customers}
+                  {stats.customersTotal}
                 </div>
-                <div className="text-gray-500">수입지출처</div>
+                <div className="text-gray-500">수입지출처 (전체)</div>
+                <div className="text-[11px] text-gray-400 mt-1">
+                  거래 등장: {stats.customers}건
+                </div>
               </div>
               <div className="bg-white rounded border p-3 text-center">
                 <div className="text-2xl font-bold text-green-600">
