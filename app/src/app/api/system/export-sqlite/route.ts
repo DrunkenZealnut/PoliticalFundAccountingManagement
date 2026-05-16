@@ -629,6 +629,11 @@ export async function GET(request: NextRequest) {
     insertRows(db, "CUSTOMER", customer);
     insertRows(db, "CUSTOMER_ADDR", customerAddr);
 
+    // PFund2 표준: 익명 customer (CUST_ID=-999, NAME='익명')는 reserved.
+    // 익명 후원금/지출 처리 시 PFund2가 이 행을 참조하므로 export 시 항상 보장.
+    // supabase에 이미 -999가 있으면 IGNORE (PK 충돌).
+    db.run("INSERT OR IGNORE INTO CUSTOMER (CUST_ID, CUST_SEC_CD, NAME) VALUES (-999, 63, '익명')");
+
     // ACC_BOOK: mode별 거래 필터
     //   master → 0건 (이미 isMasterMode가 fetch 단에서 [] 반환)
     //   data1 → export ORG_ID=1 거래만
