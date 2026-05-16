@@ -5,6 +5,10 @@ import { useRouter } from "next/navigation";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
 import { useAuth } from "@/stores/auth";
 import { Button } from "@/components/ui/button";
+import {
+  pfund2DownloadFilename,
+  type Pfund2ExportMode,
+} from "@/lib/accounting/pfund2-constants";
 
 const ORGAN_CRED_SESSION_KEY = "organ-credentials-candidate";
 
@@ -293,9 +297,7 @@ export default function SubmitPage() {
   // mode="master" → PFund2 Fund_Master.db 호환 (거래 비움, ORGAN 페어+CODE+CUSTOMER)
   // mode="data1"  → PFund2 Fund_Data_1.db 호환 (후보자 ORGAN 단행 + 그 organ 거래)
   // mode="data2"  → PFund2 Fund_Data_2.db 호환 (후원회 ORGAN 단행 + 그 organ 거래)
-  async function handleGenerateDb(
-    mode: "full" | "master" | "data1" | "data2" = "full",
-  ) {
+  async function handleGenerateDb(mode: Pfund2ExportMode = "full") {
     if (!orgId || !orgName) return;
     setGenerating(true);
 
@@ -366,17 +368,12 @@ export default function SubmitPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      // mode별 다운로드 파일명 (PFund2 표준)
-      const downloadName =
-        mode === "master"
-          ? "Fund_Master.db"
-          : mode === "data1"
-            ? "Fund_Data_1.db"
-            : mode === "data2"
-              ? "Fund_Data_2.db"
-              : exportYearMode === "year" && /^(19|20)\d{2}$/.test(exportYear)
-                ? `${orgName}(자체분-${exportYear}).db`
-                : `${orgName}(자체분).db`;
+      // mode별 다운로드 파일명 (PFund2 표준) — pfund2-constants 헬퍼 사용
+      const yearForName =
+        exportYearMode === "year" && /^(19|20)\d{2}$/.test(exportYear)
+          ? exportYear
+          : undefined;
+      const downloadName = pfund2DownloadFilename(mode, orgName, yearForName);
       a.download = downloadName;
       a.click();
       URL.revokeObjectURL(url);

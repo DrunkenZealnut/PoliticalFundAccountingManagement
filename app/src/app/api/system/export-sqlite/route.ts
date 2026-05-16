@@ -12,6 +12,11 @@ import {
 } from "@/lib/accounting/organ-pair";
 import { computeBalances, type AccBookRow } from "@/lib/accounting/settlement-calc";
 import { ParityError, ParityErrors } from "@/lib/accounting/parity-errors";
+import {
+  PFUND2_ENSURE_ANONYMOUS_CUSTOMER_SQL,
+  pfund2DownloadFilename,
+  type Pfund2ExportMode,
+} from "@/lib/accounting/pfund2-constants";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -466,7 +471,7 @@ export async function GET(request: NextRequest) {
   //   data1             → Fund_Data_1.db 호환 (후보자 ORGAN 단행 + 그 organ 거래만)
   //   data2             → Fund_Data_2.db 호환 (후원회 ORGAN 단행 + 그 organ 거래만)
   const modeParam = request.nextUrl.searchParams.get("mode");
-  const mode: "full" | "master" | "data1" | "data2" =
+  const mode: Pfund2ExportMode =
     modeParam === "master" || modeParam === "data1" || modeParam === "data2"
       ? modeParam
       : "full";
@@ -629,10 +634,8 @@ export async function GET(request: NextRequest) {
     insertRows(db, "CUSTOMER", customer);
     insertRows(db, "CUSTOMER_ADDR", customerAddr);
 
-    // PFund2 표준: 익명 customer (CUST_ID=-999, NAME='익명')는 reserved.
-    // 익명 후원금/지출 처리 시 PFund2가 이 행을 참조하므로 export 시 항상 보장.
-    // supabase에 이미 -999가 있으면 IGNORE (PK 충돌).
-    db.run("INSERT OR IGNORE INTO CUSTOMER (CUST_ID, CUST_SEC_CD, NAME) VALUES (-999, 63, '익명')");
+    // PFund2 표준 익명 customer (CUST_ID=-999) 보장. 상세는 pfund2-constants.ts
+    db.run(PFUND2_ENSURE_ANONYMOUS_CUSTOMER_SQL);
 
     // ACC_BOOK: mode별 거래 필터
     //   master → 0건 (이미 isMasterMode가 fetch 단에서 [] 반환)
@@ -701,21 +704,9 @@ export async function GET(request: NextRequest) {
     const dbBinary = db.export();
     db.close();
 
-    // mode별 파일명:
-    //   master → Fund_Master.db (PFund2 마스터 호환)
-    //   data1  → Fund_Data_1.db (PFund2 후보자 데이터 호환)
-    //   data2  → Fund_Data_2.db (PFund2 후원회 데이터 호환)
-    //   full   → {orgName}(자체분[-YYYY]).db (선관위 제출용 통합본)
+    // mode별 파일명 — pfund2-constants.ts의 pfund2DownloadFilename 사용
     const filename = encodeURIComponent(
-      isMasterMode
-        ? "Fund_Master.db"
-        : isData1Mode
-          ? "Fund_Data_1.db"
-          : isData2Mode
-            ? "Fund_Data_2.db"
-            : yearFilter
-              ? `${orgName}(자체분-${yearFilter.year}).db`
-              : `${orgName}(자체분).db`,
+      pfund2DownloadFilename(mode, orgName, yearFilter?.year),
     );
 
     return new NextResponse(dbBinary.buffer as ArrayBuffer, {
