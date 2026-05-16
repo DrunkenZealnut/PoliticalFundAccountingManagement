@@ -283,7 +283,9 @@ export default function SubmitPage() {
   }
 
   // 후보자/후원회/국회의원: .db (SQLite) 파일 생성
-  async function handleGenerateDb() {
+  // mode="full"  → 거래 포함 통합본 (자체분(-YYYY).db)
+  // mode="master" → PFund2 Fund_Master.db 호환 (거래 비움, ORGAN+CODE+CUSTOMER만)
+  async function handleGenerateDb(mode: "full" | "master" = "full") {
     if (!orgId || !orgName) return;
     setGenerating(true);
 
@@ -312,7 +314,9 @@ export default function SubmitPage() {
         params.set("candUserid", candUserid);
         params.set("candPasswd", candPasswd);
       }
-      if (exportYearMode === "year" && /^(19|20)\d{2}$/.test(exportYear)) {
+      if (mode === "master") {
+        params.set("mode", "master");
+      } else if (exportYearMode === "year" && /^(19|20)\d{2}$/.test(exportYear)) {
         params.set("year", exportYear);
       }
 
@@ -350,12 +354,21 @@ export default function SubmitPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${orgName}(자체분).db`;
+      // 파일명: master 모드면 Fund_Master.db, 그 외엔 자체분(-YYYY).db
+      const downloadName =
+        mode === "master"
+          ? "Fund_Master.db"
+          : exportYearMode === "year" && /^(19|20)\d{2}$/.test(exportYear)
+            ? `${orgName}(자체분-${exportYear}).db`
+            : `${orgName}(자체분).db`;
+      a.download = downloadName;
       a.click();
       URL.revokeObjectURL(url);
 
       alert(
-        `제출파일이 생성되었습니다.\n\n파일: ${orgName}(자체분).db\n선관위 제출용 SQLite 형식`
+        mode === "master"
+          ? `사용기관 마스터 파일이 생성되었습니다.\n\n파일: Fund_Master.db\nPFund2 Data 폴더에 복사하여 사용`
+          : `제출파일이 생성되었습니다.\n\n파일: ${downloadName}\n선관위 제출용 SQLite 형식`,
       );
     } catch (e) {
       alert(
@@ -470,6 +483,16 @@ export default function SubmitPage() {
               ? "생성 중..."
               : `제출파일 생성 (${orgType === "party" ? ".txt" : ".db"})`}
           </Button>
+          {orgType !== "party" && (
+            <Button
+              variant="secondary"
+              onClick={() => handleGenerateDb("master")}
+              disabled={generating || isCentralParty}
+              title="PFund2 Data 폴더에 복사할 마스터 .db (거래 비움, ORGAN/CODE/CUSTOMER만)"
+            >
+              {generating ? "생성 중..." : "Fund_Master.db 생성"}
+            </Button>
+          )}
           {orgType !== "party" && (
             <Button
               variant="outline"

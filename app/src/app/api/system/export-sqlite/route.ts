@@ -460,6 +460,10 @@ export async function GET(request: NextRequest) {
   const candUseridParam = request.nextUrl.searchParams.get("candUserid");
   const candPasswdParam = request.nextUrl.searchParams.get("candPasswd");
   const yearParam = request.nextUrl.searchParams.get("year");
+  // mode=master면 거래 테이블(ACC_BOOK 등)을 비워서 PFund2 Fund_Master.db 형태로 export.
+  // 미지정 또는 mode=full이면 기존 통합본.
+  const modeParam = request.nextUrl.searchParams.get("mode");
+  const isMasterMode = modeParam === "master";
 
   if (!orgId) {
     return NextResponse.json({ error: "orgId required" }, { status: 400 });
@@ -476,6 +480,8 @@ export async function GET(request: NextRequest) {
     }
     yearFilter = { col: "acc_date", year: yearParam };
   }
+  // master 모드면 yearFilter 무시 (어차피 거래 비움)
+  if (isMasterMode) yearFilter = undefined;
 
   const numOrgId = Number(orgId);
 
@@ -540,20 +546,19 @@ export async function GET(request: NextRequest) {
       fetchTable("organ", { col: "org_id", orgId: numOrgId }),
       fetchTable("customer"),
       fetchTable("customer_addr"),
-      // year 지정 시 acc_date 기준으로 회계연도 1년만 추출 (PFund2 호환 유지)
-      fetchTable("acc_book", { col: "org_id", orgId: numOrgId }, yearFilter),
-      fetchTable("acc_book_bak", { col: "org_id", orgId: numOrgId }, yearFilter),
-      fetchTable("accbooksend"),
-      fetchTable("estate", { col: "org_id", orgId: numOrgId }),
-      fetchTable("opinion", { col: "org_id", orgId: numOrgId }),
+      // master 모드: 거래 테이블 빈 배열. full/year 모드: 정상 fetch.
+      isMasterMode ? Promise.resolve([]) : fetchTable("acc_book", { col: "org_id", orgId: numOrgId }, yearFilter),
+      isMasterMode ? Promise.resolve([]) : fetchTable("acc_book_bak", { col: "org_id", orgId: numOrgId }, yearFilter),
+      isMasterMode ? Promise.resolve([]) : fetchTable("accbooksend"),
+      isMasterMode ? Promise.resolve([]) : fetchTable("estate", { col: "org_id", orgId: numOrgId }),
+      isMasterMode ? Promise.resolve([]) : fetchTable("opinion", { col: "org_id", orgId: numOrgId }),
       fetchTable("codeset"),
       fetchTable("codevalue"),
       fetchTable("acc_rel"),
-      // 아래 3개 테이블: org_id PK/구성요소를 포함 → 다른 organ 데이터까지 가져오면
-      // remap 후 PK 충돌 가능. org_id 필터로 1차 차단 후 insert 단에서 2차 dedup.
-      fetchTable("sum_rept", { col: "org_id", orgId: numOrgId }),
-      fetchTable("col_organ", { col: "org_id", orgId: numOrgId }),
-      fetchTable("alarm", { col: "org_id", orgId: numOrgId }),
+      // sum_rept/col_organ/alarm: master 모드면 비움 (PFund2 Fund_Master.db에도 비어 있음)
+      isMasterMode ? Promise.resolve([]) : fetchTable("sum_rept", { col: "org_id", orgId: numOrgId }),
+      isMasterMode ? Promise.resolve([]) : fetchTable("col_organ", { col: "org_id", orgId: numOrgId }),
+      isMasterMode ? Promise.resolve([]) : fetchTable("alarm", { col: "org_id", orgId: numOrgId }),
     ]);
 
     if (organList.length === 0) {
@@ -656,8 +661,14 @@ export async function GET(request: NextRequest) {
     const dbBinary = db.export();
     db.close();
 
-    const suffix = yearFilter ? `자체분-${yearFilter.year}` : "자체분";
-    const filename = encodeURIComponent(`${orgName}(${suffix}).db`);
+    // mode=master면 PFund2 Fund_Master.db 호환 파일명, 그 외엔 자체분(-YYYY).db
+    const filename = encodeURIComponent(
+      isMasterMode
+        ? "Fund_Master.db"
+        : yearFilter
+          ? `${orgName}(자체분-${yearFilter.year}).db`
+          : `${orgName}(자체분).db`,
+    );
 
     return new NextResponse(dbBinary.buffer as ArrayBuffer, {
       headers: {
