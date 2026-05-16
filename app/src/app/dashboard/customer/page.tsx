@@ -37,6 +37,9 @@ export default function CustomerPage() {
   const [loading, setLoading] = useState(true);
   const [addrDialogOpen, setAddrDialogOpen] = useState(false);
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
+  // 거래(acc_book) 사용 중인 customer만 보기 vs 전체 customer (일괄등록 직후 확인 등)
+  // 디폴트: 전체. 사용자가 본 기관 거래에 등장한 것만 보고 싶으면 토글 ON.
+  const [showOnlyUsed, setShowOnlyUsed] = useState(false);
 
   const [checked, setChecked] = useState<Set<number>>(new Set());
 
@@ -56,7 +59,9 @@ export default function CustomerPage() {
 
   function loadCustomers() {
     setLoading(true);
-    const url = orgId ? `/api/customers?orgId=${orgId}` : "/api/customers";
+    // showOnlyUsed=true && orgId 있음 → 본 organ 거래 등장 customer만
+    // 그 외 → 전체 customer (일괄등록 직후 결과 확인 가능)
+    const url = showOnlyUsed && orgId ? `/api/customers?orgId=${orgId}` : "/api/customers";
     fetch(url)
       .then((r) => r.json())
       .then((data) => { setCustomers(Array.isArray(data) ? data : []); setLoading(false); })
@@ -64,7 +69,7 @@ export default function CustomerPage() {
   }
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- initial data fetch
-  useEffect(() => { loadCustomers(); }, [orgId]);
+  useEffect(() => { loadCustomers(); }, [orgId, showOnlyUsed]);
 
   function resetForm() {
     setSelected(null);
@@ -261,7 +266,18 @@ export default function CustomerPage() {
     <div className="space-y-6">
       <PageGuide {...PAGE_GUIDES.customer} />
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold">수입지출처 관리</h2>
+        <div className="flex items-center gap-4">
+          <h2 className="text-2xl font-bold">수입지출처 관리</h2>
+          <label className="flex items-center gap-1.5 text-sm text-gray-600">
+            <input
+              type="checkbox"
+              checked={showOnlyUsed}
+              onChange={(e) => setShowOnlyUsed(e.target.checked)}
+            />
+            <span>이 기관 거래에 등장한 거래처만 보기</span>
+            <span className="text-xs text-gray-400">(기본: 전체)</span>
+          </label>
+        </div>
         <div className="flex gap-2">
           <HelpTooltip id="btn.new">
             <Button variant="outline" onClick={resetForm}>신규입력</Button>
