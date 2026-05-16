@@ -460,10 +460,19 @@ export async function GET(request: NextRequest) {
   const candUseridParam = request.nextUrl.searchParams.get("candUserid");
   const candPasswdParam = request.nextUrl.searchParams.get("candPasswd");
   const yearParam = request.nextUrl.searchParams.get("year");
-  // mode=master면 거래 테이블(ACC_BOOK 등)을 비워서 PFund2 Fund_Master.db 형태로 export.
-  // 미지정 또는 mode=full이면 기존 통합본.
+  // mode 옵션 (PFund2 운영 .db 구조와 1:1 대응):
+  //   full   (default)  → 우리 통합본 (ORGAN 페어 + 모든 거래 + reference)
+  //   master            → Fund_Master.db 호환 (ORGAN 페어 + reference + CUSTOMER, 거래 0)
+  //   data1             → Fund_Data_1.db 호환 (후보자 ORGAN 단행 + 그 organ 거래만)
+  //   data2             → Fund_Data_2.db 호환 (후원회 ORGAN 단행 + 그 organ 거래만)
   const modeParam = request.nextUrl.searchParams.get("mode");
-  const isMasterMode = modeParam === "master";
+  const mode: "full" | "master" | "data1" | "data2" =
+    modeParam === "master" || modeParam === "data1" || modeParam === "data2"
+      ? modeParam
+      : "full";
+  const isMasterMode = mode === "master";
+  const isData1Mode = mode === "data1";
+  const isData2Mode = mode === "data2";
 
   if (!orgId) {
     return NextResponse.json({ error: "orgId required" }, { status: 400 });
@@ -480,7 +489,7 @@ export async function GET(request: NextRequest) {
     }
     yearFilter = { col: "acc_date", year: yearParam };
   }
-  // master 모드면 yearFilter 무시 (어차피 거래 비움)
+  // master 모드면 yearFilter 무시 (어차피 거래 비움). data1/data2는 year 필터 적용.
   if (isMasterMode) yearFilter = undefined;
 
   const numOrgId = Number(orgId);
@@ -605,20 +614,46 @@ export async function GET(request: NextRequest) {
     insertRows(db, "ACC_REL", accRel);
     insertRows(db, "ACC_REL2", accRel2Seed as Record<string, unknown>[], true);
 
-    // ORGAN with the remapped pair
-    insertRows(db, "ORGAN", organRows, true);
+    // ORGAN: mode별 행 필터
+    //   master/full → 페어 그대로
+    //   data1 → ORG_ID=1 (후보자) 단행
+    //   data2 → ORG_ID=2 (후원회) 단행
+    const filteredOrganRows = isData1Mode
+      ? organRows.filter((r) => Number(r.ORG_ID) === 1)
+      : isData2Mode
+        ? organRows.filter((r) => Number(r.ORG_ID) === 2)
+        : organRows;
+    insertRows(db, "ORGAN", filteredOrganRows, true);
 
     // Customer (no org_id) — insert as-is
     insertRows(db, "CUSTOMER", customer);
     insertRows(db, "CUSTOMER_ADDR", customerAddr);
 
-    // Tables with org_id — remap before insert
-    insertRows(db, "ACC_BOOK", remapOrgId(accBook, orgIdMap));
-    insertRows(db, "ACC_BOOK_BAK", remapOrgId(accBookBak, orgIdMap));
+    // ACC_BOOK: mode별 거래 필터
+    //   master → 0건 (이미 isMasterMode가 fetch 단에서 [] 반환)
+    //   data1 → export ORG_ID=1 거래만
+    //   data2 → export ORG_ID=2 거래만
+    //   full → 전체
+    const remappedAccBook = remapOrgId(accBook, orgIdMap);
+    const remappedAccBookBak = remapOrgId(accBookBak, orgIdMap);
+    const filterByExportOrgId = (rows: Record<string, unknown>[], target: number) =>
+      rows.filter((r) => Number(r.org_id) === target);
+    const finalAccBook = isData1Mode
+      ? filterByExportOrgId(remappedAccBook, 1)
+      : isData2Mode
+        ? filterByExportOrgId(remappedAccBook, 2)
+        : remappedAccBook;
+    const finalAccBookBak = isData1Mode
+      ? filterByExportOrgId(remappedAccBookBak, 1)
+      : isData2Mode
+        ? filterByExportOrgId(remappedAccBookBak, 2)
+        : remappedAccBookBak;
+    insertRows(db, "ACC_BOOK", finalAccBook);
+    insertRows(db, "ACC_BOOK_BAK", finalAccBookBak);
 
-    // ACCBOOKSEND: 이 organ의 ACC_BOOK_ID에 속하는 행만 — 다른 organ 행 차단
+    // ACCBOOKSEND: 실제 export된 ACC_BOOK 행의 acc_book_id에 속하는 것만
     const myAccBookIds = new Set(
-      (accBook as Record<string, unknown>[]).map((r) => Number(r.acc_book_id ?? -1)),
+      finalAccBook.map((r) => Number(r.acc_book_id ?? -1)),
     );
     const filteredAccBookSend = (accBookSend as Record<string, unknown>[]).filter((r) =>
       myAccBookIds.has(Number(r.acc_book_id ?? -1)),
@@ -661,13 +696,21 @@ export async function GET(request: NextRequest) {
     const dbBinary = db.export();
     db.close();
 
-    // mode=master면 PFund2 Fund_Master.db 호환 파일명, 그 외엔 자체분(-YYYY).db
+    // mode별 파일명:
+    //   master → Fund_Master.db (PFund2 마스터 호환)
+    //   data1  → Fund_Data_1.db (PFund2 후보자 데이터 호환)
+    //   data2  → Fund_Data_2.db (PFund2 후원회 데이터 호환)
+    //   full   → {orgName}(자체분[-YYYY]).db (선관위 제출용 통합본)
     const filename = encodeURIComponent(
       isMasterMode
         ? "Fund_Master.db"
-        : yearFilter
-          ? `${orgName}(자체분-${yearFilter.year}).db`
-          : `${orgName}(자체분).db`,
+        : isData1Mode
+          ? "Fund_Data_1.db"
+          : isData2Mode
+            ? "Fund_Data_2.db"
+            : yearFilter
+              ? `${orgName}(자체분-${yearFilter.year}).db`
+              : `${orgName}(자체분).db`,
     );
 
     return new NextResponse(dbBinary.buffer as ArrayBuffer, {

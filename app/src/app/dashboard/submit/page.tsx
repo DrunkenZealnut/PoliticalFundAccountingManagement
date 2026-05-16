@@ -289,9 +289,13 @@ export default function SubmitPage() {
   }
 
   // 후보자/후원회/국회의원: .db (SQLite) 파일 생성
-  // mode="full"  → 거래 포함 통합본 (자체분(-YYYY).db)
-  // mode="master" → PFund2 Fund_Master.db 호환 (거래 비움, ORGAN+CODE+CUSTOMER만)
-  async function handleGenerateDb(mode: "full" | "master" = "full") {
+  // mode="full"   → 거래 포함 통합본 (자체분(-YYYY).db)
+  // mode="master" → PFund2 Fund_Master.db 호환 (거래 비움, ORGAN 페어+CODE+CUSTOMER)
+  // mode="data1"  → PFund2 Fund_Data_1.db 호환 (후보자 ORGAN 단행 + 그 organ 거래)
+  // mode="data2"  → PFund2 Fund_Data_2.db 호환 (후원회 ORGAN 단행 + 그 organ 거래)
+  async function handleGenerateDb(
+    mode: "full" | "master" | "data1" | "data2" = "full",
+  ) {
     if (!orgId || !orgName) return;
     setGenerating(true);
 
@@ -320,9 +324,11 @@ export default function SubmitPage() {
         params.set("candUserid", candUserid);
         params.set("candPasswd", candPasswd);
       }
-      if (mode === "master") {
-        params.set("mode", "master");
-      } else if (exportYearMode === "year" && /^(19|20)\d{2}$/.test(exportYear)) {
+      if (mode !== "full") {
+        params.set("mode", mode);
+      }
+      // year 필터는 full/data1/data2에서만 의미 있음 (master는 거래 비움)
+      if (mode !== "master" && exportYearMode === "year" && /^(19|20)\d{2}$/.test(exportYear)) {
         params.set("year", exportYear);
       }
 
@@ -360,21 +366,30 @@ export default function SubmitPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      // 파일명: master 모드면 Fund_Master.db, 그 외엔 자체분(-YYYY).db
+      // mode별 다운로드 파일명 (PFund2 표준)
       const downloadName =
         mode === "master"
           ? "Fund_Master.db"
-          : exportYearMode === "year" && /^(19|20)\d{2}$/.test(exportYear)
-            ? `${orgName}(자체분-${exportYear}).db`
-            : `${orgName}(자체분).db`;
+          : mode === "data1"
+            ? "Fund_Data_1.db"
+            : mode === "data2"
+              ? "Fund_Data_2.db"
+              : exportYearMode === "year" && /^(19|20)\d{2}$/.test(exportYear)
+                ? `${orgName}(자체분-${exportYear}).db`
+                : `${orgName}(자체분).db`;
       a.download = downloadName;
       a.click();
       URL.revokeObjectURL(url);
 
+      const pfund2Tip = `\n\nPFund2 Data 폴더에 복사:\nC:\\Program Files (x86)\\중앙선거관리위원회_정치자금회계관리5\\Data\\${downloadName}`;
       alert(
         mode === "master"
-          ? `사용기관 마스터 파일이 생성되었습니다.\n\n파일: Fund_Master.db\nPFund2 Data 폴더에 복사하여 사용`
-          : `제출파일이 생성되었습니다.\n\n파일: ${downloadName}\n선관위 제출용 SQLite 형식`,
+          ? `Fund_Master.db 생성 완료.${pfund2Tip}`
+          : mode === "data1"
+            ? `Fund_Data_1.db 생성 완료 (후보자 데이터).${pfund2Tip}`
+            : mode === "data2"
+              ? `Fund_Data_2.db 생성 완료 (후원회 데이터).${pfund2Tip}`
+              : `제출파일이 생성되었습니다.\n\n파일: ${downloadName}\n선관위 제출용 SQLite 형식`,
       );
     } catch (e) {
       alert(
@@ -494,9 +509,29 @@ export default function SubmitPage() {
               variant="secondary"
               onClick={() => handleGenerateDb("master")}
               disabled={generating || isCentralParty}
-              title="PFund2 Data 폴더에 복사할 마스터 .db (거래 비움, ORGAN/CODE/CUSTOMER만)"
+              title="PFund2 Data 폴더의 Fund_Master.db에 덮어쓸 마스터 (ORGAN 페어 + CODE + CUSTOMER)"
             >
-              {generating ? "생성 중..." : "Fund_Master.db 생성"}
+              {generating ? "생성 중..." : "Fund_Master.db"}
+            </Button>
+          )}
+          {orgType !== "party" && (
+            <Button
+              variant="secondary"
+              onClick={() => handleGenerateDb("data1")}
+              disabled={generating || isCentralParty}
+              title="PFund2 Data 폴더의 Fund_Data_1.db (후보자 단독 + 그 organ 거래)"
+            >
+              {generating ? "..." : "Fund_Data_1.db"}
+            </Button>
+          )}
+          {orgType !== "party" && (
+            <Button
+              variant="secondary"
+              onClick={() => handleGenerateDb("data2")}
+              disabled={generating || isCentralParty}
+              title="PFund2 Data 폴더의 Fund_Data_2.db (후원회 단독 + 그 organ 거래)"
+            >
+              {generating ? "..." : "Fund_Data_2.db"}
             </Button>
           )}
           {orgType !== "party" && (
