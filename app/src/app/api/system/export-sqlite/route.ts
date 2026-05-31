@@ -639,18 +639,33 @@ export async function GET(request: NextRequest) {
         : organRows;
     insertRows(db, "ORGAN", filteredOrganRows, true);
 
-    // Customer — org_id는 PFund2 CUSTOMER DDL에 없으므로 제외 후 insert (011 마이그레이션 대응).
-    // data1/data2 모드의 org별 customer 필터는 후속 과제(현재는 전체 포함, FK 무결성엔 무해).
+    // Customer — data1/data2 모드면 해당 export org 거래처만 (org_id 종속 테이블과 동일 필터).
+    //   remapOrgId로 supabase org_id → export ORG_ID(1/2) 변환 후 targetExportOrgId와 비교.
+    //   익명(org_id NULL)·타 org 거래처는 자연히 제외(PFund2 -999는 ENSURE_ANONYMOUS로 별도 보장).
+    // org_id는 PFund2 CUSTOMER DDL에 없으므로 insert 전 제거 (011 마이그레이션 대응).
+    const remappedCustomer = remapOrgId(customer, orgIdMap);
+    const exportCustomer =
+      targetExportOrgId === null
+        ? remappedCustomer
+        : remappedCustomer.filter((c) => Number(c.org_id) === targetExportOrgId);
+    const exportCustIds = new Set(exportCustomer.map((c) => Number(c.cust_id)));
     insertRows(
       db,
       "CUSTOMER",
-      customer.map((c) => {
+      exportCustomer.map((c) => {
         const rest = { ...c };
         delete rest.org_id;
         return rest;
       }),
     );
-    insertRows(db, "CUSTOMER_ADDR", customerAddr);
+    // CUSTOMER_ADDR: export된 거래처의 주소만 (CUSTOMER_ADDR_FK1 무결성). org_id 컬럼 없음.
+    insertRows(
+      db,
+      "CUSTOMER_ADDR",
+      (customerAddr as Record<string, unknown>[]).filter((a) =>
+        exportCustIds.has(Number(a.cust_id)),
+      ),
+    );
 
     // PFund2 표준 익명 customer (CUST_ID=-999) 보장. 상세는 pfund2-constants.ts
     db.run(PFUND2_ENSURE_ANONYMOUS_CUSTOMER_SQL);
