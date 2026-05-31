@@ -9,6 +9,11 @@ import {
 } from "@/lib/accounting/organ-pair";
 import { ParityError, ParityErrors } from "@/lib/accounting/parity-errors";
 import { computeBalances } from "@/lib/accounting/settlement-calc";
+import {
+  parseConflictPolicy,
+  bulkInsert,
+  bulkUpsert,
+} from "@/lib/accounting/import-helpers";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -158,83 +163,6 @@ function readSqliteTable(
   }
 }
 
-/**
- * Insert rows in chunks via Supabase, counting successes/failures.
- */
-async function bulkInsert(
-  table: string,
-  rows: Record<string, unknown>[]
-): Promise<{ imported: number; skipped: number }> {
-  if (rows.length === 0) return { imported: 0, skipped: 0 };
-
-  let imported = 0;
-  let skipped = 0;
-  const CHUNK = 100;
-
-  for (let i = 0; i < rows.length; i += CHUNK) {
-    const chunk = rows.slice(i, i + CHUNK);
-    const { error } = await supabase.from(table).insert(chunk);
-
-    if (error) {
-      // Batch failed — try one-by-one for partial success
-      for (const row of chunk) {
-        const { error: rowErr } = await supabase.from(table).insert(row);
-        if (rowErr) skipped++;
-        else imported++;
-      }
-    } else {
-      imported += chunk.length;
-    }
-  }
-
-  return { imported, skipped };
-}
-
-/**
- * Upsert rows (for tables with natural PKs that aren't GENERATED ALWAYS).
- */
-async function bulkUpsert(
-  table: string,
-  rows: Record<string, unknown>[],
-  onConflict: string
-): Promise<{ imported: number; skipped: number }> {
-  if (rows.length === 0) return { imported: 0, skipped: 0 };
-
-  let imported = 0;
-  let skipped = 0;
-  const CHUNK = 100;
-
-  for (let i = 0; i < rows.length; i += CHUNK) {
-    const chunk = rows.slice(i, i + CHUNK);
-    const { error } = await supabase.from(table).upsert(chunk, { onConflict });
-
-    if (error) {
-      for (const row of chunk) {
-        const { error: rowErr } = await supabase.from(table).upsert(row, { onConflict });
-        if (rowErr) skipped++;
-        else imported++;
-      }
-    } else {
-      imported += chunk.length;
-    }
-  }
-
-  return { imported, skipped };
-}
-
-type ConflictPolicy = "overwrite" | "skip" | "merge";
-
-const VALID_POLICIES: ReadonlySet<ConflictPolicy> = new Set(["overwrite", "skip", "merge"]);
-
-function parseConflictPolicy(raw: string | null): ConflictPolicy {
-  if (!raw) return "overwrite";
-  if (VALID_POLICIES.has(raw as ConflictPolicy)) return raw as ConflictPolicy;
-  throw ParityErrors.conflictPolicyRequired({
-    provided: raw,
-    allowed: Array.from(VALID_POLICIES),
-  });
-}
-
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
@@ -370,7 +298,7 @@ export async function POST(request: NextRequest) {
     // CODESET
     if (existingTables.has("CODESET")) {
       const rows = readSqliteTable(db, "CODESET");
-      const r = await bulkUpsert("codeset", rows, "cs_id");
+      const r = await bulkUpsert(supabase, "codeset", rows, "cs_id");
       report.CODESET = r;
       totalImported += r.imported;
     }
@@ -378,7 +306,7 @@ export async function POST(request: NextRequest) {
     // CODEVALUE
     if (existingTables.has("CODEVALUE")) {
       const rows = readSqliteTable(db, "CODEVALUE");
-      const r = await bulkUpsert("codevalue", rows, "cv_id");
+      const r = await bulkUpsert(supabase, "codevalue", rows, "cv_id");
       report.CODEVALUE = r;
       totalImported += r.imported;
     }
@@ -397,7 +325,7 @@ export async function POST(request: NextRequest) {
         return true;
       });
       const deduplicated = rows.length - uniqueRows.length;
-      const r = await bulkInsert("acc_rel", uniqueRows);
+      const r = await bulkInsert(supabase, "acc_rel", uniqueRows);
       report.ACC_REL = { imported: r.imported, skipped: r.skipped };
       if (deduplicated > 0) {
         report.ACC_REL_DEDUP = { imported: 0, skipped: 0, error: `${deduplicated}건 중복 제거됨` };
@@ -515,7 +443,7 @@ export async function POST(request: NextRequest) {
           return { ...r, cust_id: newCustId };
         })
         .filter(Boolean) as Record<string, unknown>[];
-      const r = await bulkInsert("customer_addr", remapped);
+      const r = await bulkInsert(supabase, "customer_addr", remapped);
       report.CUSTOMER_ADDR = { imported: r.imported, skipped: r.skipped + (rows.length - remapped.length) };
       totalImported += r.imported;
     }
@@ -589,7 +517,7 @@ export async function POST(request: NextRequest) {
         if (newAbId) row.acc_book_id = newAbId;
         return row;
       });
-      const r = await bulkInsert("acc_book_bak", remapped);
+      const r = await bulkInsert(supabase, "acc_book_bak", remapped);
       report.ACC_BOOK_BAK = r;
       totalImported += r.imported;
     }
@@ -606,7 +534,7 @@ export async function POST(request: NextRequest) {
           return { ...r, acc_book_id: newId };
         })
         .filter(Boolean) as Record<string, unknown>[];
-      const r = await bulkInsert("accbooksend", remapped);
+      const r = await bulkInsert(supabase, "accbooksend", remapped);
       report.ACCBOOKSEND = r;
       totalImported += r.imported;
     }
@@ -617,7 +545,7 @@ export async function POST(request: NextRequest) {
     if (existingTables.has("ESTATE")) {
       const rows = readSqliteTable(db, "ESTATE", ["estate_id"]);
       const remapped = rows.map((r) => ({ ...r, org_id: numOrgId }));
-      const r = await bulkInsert("estate", remapped);
+      const r = await bulkInsert(supabase, "estate", remapped);
       report.ESTATE = r;
       totalImported += r.imported;
     }
@@ -628,7 +556,7 @@ export async function POST(request: NextRequest) {
     if (existingTables.has("OPINION")) {
       const rows = readSqliteTable(db, "OPINION");
       const remapped = rows.map((r) => ({ ...r, org_id: numOrgId }));
-      const r = await bulkUpsert("opinion", remapped, "org_id");
+      const r = await bulkUpsert(supabase, "opinion", remapped, "org_id");
       report.OPINION = r;
       totalImported += r.imported;
     }
@@ -644,7 +572,7 @@ export async function POST(request: NextRequest) {
       if (existingTables.has(sqliteName) && !report[sqliteName]) {
         const rows = readSqliteTable(db, sqliteName);
         if (rows.length > 0) {
-          const r = await bulkUpsert(pgName, rows, pk);
+          const r = await bulkUpsert(supabase, pgName, rows, pk);
           report[sqliteName] = r;
           totalImported += r.imported;
         } else {
