@@ -121,6 +121,7 @@ export type Database = {
           bigo: string | null;
           reg_date: string | null;
           cust_order: number | null;
+          org_id: number | null;
         };
         Insert: {
           cust_id?: number;
@@ -137,6 +138,7 @@ export type Database = {
           bigo?: string | null;
           reg_date?: string | null;
           cust_order?: number | null;
+          org_id?: number | null;
         };
         Update: {
           cust_id?: number;
@@ -153,6 +155,7 @@ export type Database = {
           bigo?: string | null;
           reg_date?: string | null;
           cust_order?: number | null;
+          org_id?: number | null;
         };
       };
       acc_book: {

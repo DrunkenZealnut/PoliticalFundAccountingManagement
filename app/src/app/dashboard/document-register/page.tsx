@@ -181,7 +181,7 @@ export default function DocumentRegisterPage() {
               method: "POST", headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ action: "insert", data: {
                 cust_sec_cd: DEFAULT_CUST_SEC_CD, name: e.customerName.trim(),
-                reg_num: e.providerRegNum || DEFAULT_REG_NUM,
+                reg_num: e.providerRegNum || DEFAULT_REG_NUM, org_id: orgId,
               }}),
             });
             if (r.ok) { const d = await r.json(); custId = d.cust_id; custCache.set(custKey, custId); }

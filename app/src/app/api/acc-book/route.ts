@@ -216,12 +216,13 @@ export async function POST(request: NextRequest) {
       const custType = row._custType as string | undefined;
 
       if (provider && provider !== "익명" && provider.trim() !== "") {
-        // Try find existing
-        const { data: existing } = await supabase
+        // 거래처 매칭/생성을 org 범위로 격리 (011): 같은 이름이라도 org가 다르면 별개 거래처.
+        let existingQuery = supabase
           .from("customer")
           .select("cust_id")
-          .eq("name", provider)
-          .limit(1);
+          .eq("name", provider);
+        if (orgId != null) existingQuery = existingQuery.eq("org_id", orgId);
+        const { data: existing } = await existingQuery.limit(1);
 
         if (existing && existing.length > 0) {
           custId = (existing[0] as { cust_id: number }).cust_id;
@@ -234,6 +235,7 @@ export async function POST(request: NextRequest) {
               cust_sec_cd: csc,
               name: provider,
               reg_num: rn,
+              org_id: orgId ?? null,
               addr: row._addr as string || null,
               job: row._job as string || null,
               tel: row._tel as string || null,

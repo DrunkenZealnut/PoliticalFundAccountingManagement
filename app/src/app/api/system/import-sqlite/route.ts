@@ -410,8 +410,10 @@ export async function POST(request: NextRequest) {
 
       for (const row of rawRows) {
         const oldCustId = row.cust_id as number;
-        const insertRow = { ...row };
+        const insertRow: Record<string, unknown> = { ...row };
         delete insertRow.cust_id; // strip identity column
+        // 복구 대상 org로 귀속 (011). 익명은 NULL 공용 유지.
+        insertRow.org_id = insertRow.name === "익명" ? null : numOrgId;
 
         const { data, error } = await supabase
           .from("customer")

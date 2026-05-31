@@ -478,6 +478,9 @@ export async function GET(request: NextRequest) {
   const isMasterMode = mode === "master";
   const isData1Mode = mode === "data1";
   const isData2Mode = mode === "data2";
+  // data1=후보자(ORG_ID=1), data2=후원회(ORG_ID=2), full/master=필터 없음.
+  // ESTATE/OPINION/SUM_REPT/COL_ORGAN/ALARM 등 org_id 종속 테이블 일괄 필터에 사용.
+  const targetExportOrgId: number | null = isData1Mode ? 1 : isData2Mode ? 2 : null;
 
   if (!orgId) {
     return NextResponse.json({ error: "orgId required" }, { status: 400 });
@@ -609,9 +612,15 @@ export async function GET(request: NextRequest) {
       balance_amt: settlement.balance,
       estate_amt: estateTotal,
     };
+    // OPINION fallback ORG_ID 우선순위:
+    //   1) data1/data2 모드면 그 export ORG_ID로 강제 (ORGAN 필터 결과와 일치 보장)
+    //   2) 그 외(full/master)는 supabase org_id → export ORG_ID 매핑
+    //   3) 매핑 실패 시 1 (최소 후보자 행)
+    const fallbackOpinionOrgId =
+      targetExportOrgId ?? orgIdMap.get(numOrgId) ?? 1;
     const syncedOpinion: Record<string, unknown>[] = opinion.length > 0
       ? opinion.map((row) => ({ ...row, ...settlementOverlay }))
-      : [{ org_id: orgIdMap.get(numOrgId) ?? 1, ...settlementOverlay }];
+      : [{ org_id: fallbackOpinionOrgId, ...settlementOverlay }];
 
     // Insert reference codes first (FK constraints in ACC_BOOK depend on these)
     insertRows(db, "CODESET", codeset);
@@ -630,32 +639,38 @@ export async function GET(request: NextRequest) {
         : organRows;
     insertRows(db, "ORGAN", filteredOrganRows, true);
 
-    // Customer (no org_id) — insert as-is
-    insertRows(db, "CUSTOMER", customer);
+    // Customer — org_id는 PFund2 CUSTOMER DDL에 없으므로 제외 후 insert (011 마이그레이션 대응).
+    // data1/data2 모드의 org별 customer 필터는 후속 과제(현재는 전체 포함, FK 무결성엔 무해).
+    insertRows(
+      db,
+      "CUSTOMER",
+      customer.map((c) => {
+        const rest = { ...c };
+        delete rest.org_id;
+        return rest;
+      }),
+    );
     insertRows(db, "CUSTOMER_ADDR", customerAddr);
 
     // PFund2 표준 익명 customer (CUST_ID=-999) 보장. 상세는 pfund2-constants.ts
     db.run(PFUND2_ENSURE_ANONYMOUS_CUSTOMER_SQL);
+
+    // org_id 종속 테이블 공용 필터:
+    //   data1 → ORG_ID=1만, data2 → ORG_ID=2만, full/master → 통과
+    // ESTATE는 ORGAN(ORG_ID) FK 보유. OPINION/SUM_REPT/COL_ORGAN/ALARM도 ORG_ID가
+    // ORGAN과 매핑되어야 PFund2가 무결성 가정으로 정상 동작.
+    const filterByExportOrgId = <T extends Record<string, unknown>>(rows: T[]): T[] =>
+      targetExportOrgId === null
+        ? rows
+        : rows.filter((r) => Number(r.org_id) === targetExportOrgId);
 
     // ACC_BOOK: mode별 거래 필터
     //   master → 0건 (이미 isMasterMode가 fetch 단에서 [] 반환)
     //   data1 → export ORG_ID=1 거래만
     //   data2 → export ORG_ID=2 거래만
     //   full → 전체
-    const remappedAccBook = remapOrgId(accBook, orgIdMap);
-    const remappedAccBookBak = remapOrgId(accBookBak, orgIdMap);
-    const filterByExportOrgId = (rows: Record<string, unknown>[], target: number) =>
-      rows.filter((r) => Number(r.org_id) === target);
-    const finalAccBook = isData1Mode
-      ? filterByExportOrgId(remappedAccBook, 1)
-      : isData2Mode
-        ? filterByExportOrgId(remappedAccBook, 2)
-        : remappedAccBook;
-    const finalAccBookBak = isData1Mode
-      ? filterByExportOrgId(remappedAccBookBak, 1)
-      : isData2Mode
-        ? filterByExportOrgId(remappedAccBookBak, 2)
-        : remappedAccBookBak;
+    const finalAccBook = filterByExportOrgId(remapOrgId(accBook, orgIdMap));
+    const finalAccBookBak = filterByExportOrgId(remapOrgId(accBookBak, orgIdMap));
     insertRows(db, "ACC_BOOK", finalAccBook);
     insertRows(db, "ACC_BOOK_BAK", finalAccBookBak);
 
@@ -668,14 +683,16 @@ export async function GET(request: NextRequest) {
     );
     insertRows(db, "ACCBOOKSEND", filteredAccBookSend);
 
-    insertRows(db, "ESTATE", remapOrgId(estate, orgIdMap));
-    insertRows(db, "OPINION", remapOrgId(syncedOpinion, orgIdMap));
+    // ESTATE/OPINION: ORGAN(ORG_ID) FK·PK 매핑 일관성 위해 data1/data2면 필터.
+    insertRows(db, "ESTATE", filterByExportOrgId(remapOrgId(estate, orgIdMap)));
+    insertRows(db, "OPINION", filterByExportOrgId(remapOrgId(syncedOpinion, orgIdMap)));
 
-    // SUM_REPT: PK = SUM_REPT_ID. fetch 단에서 org_id 필터 적용했으므로 그대로.
-    insertRows(db, "SUM_REPT", remapOrgId(sumRept, orgIdMap));
+    // SUM_REPT: PK = SUM_REPT_ID. fetch 단에서 org_id 필터 적용했지만,
+    // data1/data2 모드에서는 ORGAN과 ORG_ID 매핑 정합 유지를 위해 추가 필터.
+    insertRows(db, "SUM_REPT", filterByExportOrgId(remapOrgId(sumRept, orgIdMap)));
 
     // COL_ORGAN: PK = ORG_ID. remap 후 동일 ORG_ID 행이 여러 개면 PK 충돌 → dedup.
-    const colOrganRemapped = remapOrgId(colOrgan, orgIdMap);
+    const colOrganRemapped = filterByExportOrgId(remapOrgId(colOrgan, orgIdMap));
     const seenColOrganIds = new Set<number>();
     const dedupedColOrgan = colOrganRemapped.filter((r) => {
       const oid = Number((r as Record<string, unknown>).org_id ?? -1);
@@ -687,7 +704,7 @@ export async function GET(request: NextRequest) {
 
     // ALARM: PK = (YEAR, ORG_ID, CHK_YN). 사용자 환경에서 중복 행이 발견됨.
     // remap 후 (YEAR, ORG_ID, CHK_YN) 조합 dedup으로 PK 충돌 완전 차단.
-    const alarmRemapped = remapOrgId(alarm, orgIdMap);
+    const alarmRemapped = filterByExportOrgId(remapOrgId(alarm, orgIdMap));
     const seenAlarmKey = new Set<string>();
     const dedupedAlarm = alarmRemapped.filter((r) => {
       const row = r as Record<string, unknown>;
