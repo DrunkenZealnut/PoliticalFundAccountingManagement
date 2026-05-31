@@ -836,8 +836,8 @@ export default function ReportsPage() {
         return;
       }
 
-      // Fetch all customers via server API (bypasses RLS)
-      const custRes = await fetch("/api/customers");
+      // Fetch this org's customers via server API (org_id 격리, bypasses RLS)
+      const custRes = await fetch(`/api/customers?orgId=${orgId}`);
       if (!custRes.ok) throw new Error("수입지출처 데이터를 불러오지 못했습니다.");
       const custArr: Customer[] = await custRes.json();
       const custMap = new Map<number, Customer>();

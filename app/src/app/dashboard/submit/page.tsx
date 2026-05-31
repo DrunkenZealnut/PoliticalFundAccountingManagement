@@ -157,10 +157,11 @@ export default function SubmitPage() {
           const custIds = [...new Set((res.data || []).map((r: { cust_id: number }) => r.cust_id).filter(Boolean))];
           return { count: custIds.length };
         }),
-      // 전체 customer 마스터 (export .db에 실제로 들어가는 수)
+      // 본 기관 customer 마스터 (org_id 격리 — export .db에 들어가는 수)
       supabase
         .from("customer")
-        .select("*", { count: "exact", head: true }),
+        .select("*", { count: "exact", head: true })
+        .eq("org_id", orgId),
       supabase
         .from("estate")
         .select("*", { count: "exact", head: true })
