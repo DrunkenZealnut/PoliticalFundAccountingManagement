@@ -38,8 +38,11 @@ export default function CustomerPage() {
   const [addrDialogOpen, setAddrDialogOpen] = useState(false);
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
   // 거래(acc_book) 사용 중인 customer만 보기 vs 전체 customer (일괄등록 직후 확인 등)
-  // 디폴트: 전체. 사용자가 본 기관 거래에 등장한 것만 보고 싶으면 토글 ON.
-  const [showOnlyUsed, setShowOnlyUsed] = useState(false);
+  // 디폴트: 본 기관 거래처만 (조직 간 거래처 노출 방지 — 임시 UI 격리).
+  // customer 테이블에 org_id가 없어 "본 기관"은 acc_book 사용 기준으로 추론하므로,
+  // 미사용/신규/일괄등록 직후 거래처는 토글 OFF(전체 보기)로 확인. 근본 격리는 별도 설계
+  // 참고: docs/02-design/customer-org-isolation.design.md
+  const [showOnlyUsed, setShowOnlyUsed] = useState(true);
 
   const [checked, setChecked] = useState<Set<number>>(new Set());
 
@@ -275,7 +278,7 @@ export default function CustomerPage() {
               onChange={(e) => setShowOnlyUsed(e.target.checked)}
             />
             <span>이 기관 거래에 등장한 거래처만 보기</span>
-            <span className="text-xs text-gray-400">(기본: 전체)</span>
+            <span className="text-xs text-gray-400">(끄면 전 조직 거래처 표시 · 일괄등록 직후 확인용)</span>
           </label>
         </div>
         <div className="flex gap-2">
