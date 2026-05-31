@@ -53,3 +53,4 @@ Thumbs.db
 
 # Process logs
 nohup.out
+.env*.local
