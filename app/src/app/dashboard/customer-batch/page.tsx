@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
+import { useAuth } from "@/stores/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,6 +37,7 @@ const CUST_TYPE_MAP: Record<string, number> = {
 
 export default function CustomerBatchPage() {
   const supabase = createSupabaseBrowser();
+  const { orgId } = useAuth();
 
   const [file, setFile] = useState<File | null>(null);
   const [parsed, setParsed] = useState<ParsedCustomer[]>([]);
@@ -117,6 +119,10 @@ export default function CustomerBatchPage() {
       alert("먼저 [저장 전 자료확인]을 실행하세요.");
       return;
     }
+    if (!orgId) {
+      alert("사용기관을 먼저 선택하세요.");
+      return;
+    }
 
     setSaving(true);
     let success = 0;
@@ -129,12 +135,13 @@ export default function CustomerBatchPage() {
       const { data: dup } = await supabase
         .from("customer")
         .select("cust_id")
+        .eq("org_id", orgId)
         .eq("cust_sec_cd", custSecCd)
         .eq("name", row.name)
         .eq("reg_num", row.regNum || "")
         .limit(1);
 
-      if (dup && dup.length > 0) continue; // 중복은 건너뜀
+      if (dup && dup.length > 0) continue; // 본 기관 내 중복은 건너뜀
 
       const { error } = await supabase.from("customer").insert({
         cust_sec_cd: custSecCd,
@@ -146,6 +153,7 @@ export default function CustomerBatchPage() {
         addr: row.addr || null,
         addr_detail: row.addrDetail || null,
         bigo: row.bigo || null,
+        org_id: orgId,
       });
 
       if (!error) success++;
@@ -167,6 +175,7 @@ export default function CustomerBatchPage() {
     ) {
       return;
     }
+    if (!orgId) { alert("사용기관을 먼저 선택하세요."); return; }
 
     let deleted = 0;
     for (const row of parsed) {
@@ -176,6 +185,7 @@ export default function CustomerBatchPage() {
       const { data: existing } = await supabase
         .from("customer")
         .select("cust_id")
+        .eq("org_id", orgId)
         .eq("cust_sec_cd", custSecCd)
         .eq("name", row.name)
         .limit(1);

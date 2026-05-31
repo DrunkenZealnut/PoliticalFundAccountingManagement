@@ -13,22 +13,12 @@ export async function GET(request: NextRequest) {
   const search = request.nextUrl.searchParams.get("search");
 
   if (orgId) {
-    // 해당 기관에서 사용 중인 cust_id 목록 조회
-    const { data: usedCustIds } = await supabase
-      .from("acc_book")
-      .select("cust_id")
-      .eq("org_id", Number(orgId));
-
-    const custIds = [...new Set((usedCustIds || []).map((r: { cust_id: number }) => r.cust_id).filter(Boolean))];
-
-    if (custIds.length === 0) {
-      return NextResponse.json([]);
-    }
-
+    // org_id 기준 직접 격리 (011 마이그레이션). 본 기관 소속 거래처만 반환.
+    // 미사용/신규 거래처도 org_id가 본 기관이면 포함됨 (acc_book 우회 제거).
     let query = supabase
       .from("customer")
       .select("*")
-      .in("cust_id", custIds);
+      .eq("org_id", Number(orgId));
 
     if (search) {
       query = query.ilike("name", `%${search}%`);

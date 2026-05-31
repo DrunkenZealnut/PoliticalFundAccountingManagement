@@ -37,12 +37,8 @@ export default function CustomerPage() {
   const [loading, setLoading] = useState(true);
   const [addrDialogOpen, setAddrDialogOpen] = useState(false);
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
-  // 거래(acc_book) 사용 중인 customer만 보기 vs 전체 customer (일괄등록 직후 확인 등)
-  // 디폴트: 본 기관 거래처만 (조직 간 거래처 노출 방지 — 임시 UI 격리).
-  // customer 테이블에 org_id가 없어 "본 기관"은 acc_book 사용 기준으로 추론하므로,
-  // 미사용/신규/일괄등록 직후 거래처는 토글 OFF(전체 보기)로 확인. 근본 격리는 별도 설계
+  // org_id 기준 조직별 격리 (011 마이그레이션). 본 기관 소속 거래처만 표시.
   // 참고: docs/02-design/customer-org-isolation.design.md
-  const [showOnlyUsed, setShowOnlyUsed] = useState(true);
 
   const [checked, setChecked] = useState<Set<number>>(new Set());
 
@@ -62,17 +58,16 @@ export default function CustomerPage() {
 
   function loadCustomers() {
     setLoading(true);
-    // showOnlyUsed=true && orgId 있음 → 본 organ 거래 등장 customer만
-    // 그 외 → 전체 customer (일괄등록 직후 결과 확인 가능)
-    const url = showOnlyUsed && orgId ? `/api/customers?orgId=${orgId}` : "/api/customers";
-    fetch(url)
+    // org_id 기준 직접 격리: 본 기관 소속 거래처만 조회 (미사용/신규 포함).
+    if (!orgId) { setCustomers([]); setLoading(false); return; }
+    fetch(`/api/customers?orgId=${orgId}`)
       .then((r) => r.json())
       .then((data) => { setCustomers(Array.isArray(data) ? data : []); setLoading(false); })
       .catch(() => setLoading(false));
   }
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- initial data fetch
-  useEffect(() => { loadCustomers(); }, [orgId, showOnlyUsed]);
+  useEffect(() => { loadCustomers(); }, [orgId]);
 
   function resetForm() {
     setSelected(null);
@@ -160,7 +155,7 @@ export default function CustomerPage() {
       const res = await fetch("/api/customers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "insert", data: form }),
+        body: JSON.stringify({ action: "insert", data: { ...form, org_id: orgId } }),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -271,15 +266,6 @@ export default function CustomerPage() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <h2 className="text-2xl font-bold">수입지출처 관리</h2>
-          <label className="flex items-center gap-1.5 text-sm text-gray-600">
-            <input
-              type="checkbox"
-              checked={showOnlyUsed}
-              onChange={(e) => setShowOnlyUsed(e.target.checked)}
-            />
-            <span>이 기관 거래에 등장한 거래처만 보기</span>
-            <span className="text-xs text-gray-400">(끄면 전 조직 거래처 표시 · 일괄등록 직후 확인용)</span>
-          </label>
         </div>
         <div className="flex gap-2">
           <HelpTooltip id="btn.new">
