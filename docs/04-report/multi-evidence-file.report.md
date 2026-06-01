@@ -134,7 +134,7 @@
 - Design: `docs/02-design/features/multi-evidence-file.design.md`
 - Analysis: `docs/03-analysis/multi-evidence-file.analysis.md`
 
-```
+```text
 app/src/
 ├── lib/evidence/storage-path.ts            (신규) + storage-path.test.ts (신규)
 ├── app/api/evidence-file/route.ts          (수정) + route.test.ts (신규)

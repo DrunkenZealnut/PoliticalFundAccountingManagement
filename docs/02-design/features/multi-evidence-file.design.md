@@ -89,7 +89,7 @@ DB.evidence_file.storage_path  ──(createSignedUrl)──▶  임시 다운�
 
 ### 3.1 GET (수정) — 목록 + signed URL
 
-```
+```http
 GET /api/evidence-file?accBookId=1024&orgId=7
 → 200 [{ file_id, acc_book_id, org_id, file_name, file_type,
          storage_path, file_size, created_at, signed_url }]
@@ -101,7 +101,7 @@ GET /api/evidence-file?accBookId=1024&orgId=7
 ### 3.2 POST (수정) — 계층 경로 생성
 
 - `storagePath` 생성부만 변경:
-  ```
+  ```ts
   const dir = accBookId ? `${orgId}/acc/${accBookId}` : `${orgId}/unlinked`;
   const storagePath = `${dir}/${Date.now()}_${seq}_${safeName}${ext}`;
   ```
@@ -110,9 +110,8 @@ GET /api/evidence-file?accBookId=1024&orgId=7
 
 ### 3.3 DELETE (신규)
 
-```
+```http
 DELETE /api/evidence-file?fileId=55&orgId=7
-또는 body { fileId, orgId }
 ```
 처리 순서(best-effort, 고아 최소화):
 1. `evidence_file`에서 `file_id=fileId AND org_id=orgId` 단건 조회 → 없으면 404

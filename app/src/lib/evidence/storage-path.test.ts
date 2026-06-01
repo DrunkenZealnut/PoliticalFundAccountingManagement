@@ -26,6 +26,11 @@ describe("sanitizeFileName", () => {
     expect(safeName.length).toBe(100);
     expect(ext).toBe(".png");
   });
+
+  it("확장자에 섞인 경로 구분자·특수문자를 제거한다", () => {
+    expect(sanitizeFileName("a.jp/g").ext).toBe(".jpg");
+    expect(sanitizeFileName("x.pdf?v=1").ext).toBe(".pdfv1");
+  });
 });
 
 describe("buildEvidenceStoragePath", () => {
@@ -70,6 +75,12 @@ describe("buildEvidenceStoragePath", () => {
   it("모든 경로는 orgId prefix로 시작해 조직 격리를 보장한다", () => {
     const path = buildEvidenceStoragePath({ orgId: 42, accBookId: 9, fileName: "f.pdf", timestamp: 1 });
     expect(path.startsWith("42/")).toBe(true);
+  });
+
+  it("악의적 파일명도 경로 세그먼트를 추가로 주입하지 못한다", () => {
+    const path = buildEvidenceStoragePath({ orgId: 7, accBookId: 1, fileName: "a.b/c", timestamp: 1 });
+    // {org}/acc/{id}/{file} — 정확히 4 세그먼트 ('/' 주입 없음)
+    expect(path.split("/")).toHaveLength(4);
   });
 });
 

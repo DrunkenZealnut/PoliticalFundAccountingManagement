@@ -43,6 +43,7 @@
 없음 — Phase 1 범위 설계 항목 전부 구현.
 
 ### 🟡 Added (설계 미명시, 합리적 확장)
+
 | 항목 | 위치 | 평가 |
 |------|------|------|
 | `reloadToken` prop (현재 expense 페이지 미전달) | `evidence-file-manager.tsx` | 무해. income 재사용 대비 확장점 |
@@ -50,6 +51,7 @@
 | GET `orgId` 단독 조회 시 signed_url 생략 | `route.ts:53,65` | §4.3 배지용 메타 조회 의도와 정합한 최적화 |
 
 ### 🔵 Changed (사소, 영향 없음)
+
 | 항목 | 설계 | 구현 |
 |------|------|------|
 | signed URL API | `createSignedUrl` 반복 암시 | `createSignedUrls` 일괄 (효율적) |

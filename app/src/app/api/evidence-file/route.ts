@@ -19,6 +19,11 @@ const SIGNED_URL_TTL = EVIDENCE_SIGNED_URL_TTL;
 
 export const maxDuration = 60;
 
+/** 허용 증빙파일 MIME (UI accept="image/*,application/pdf"와 일치) */
+function isAllowedEvidenceMime(fileType: string): boolean {
+  return fileType.startsWith("image/") || fileType === "application/pdf";
+}
+
 /** 버킷 존재 확인 및 자동 생성 */
 async function ensureBucket() {
   const { data } = await supabase.storage.getBucket(BUCKET);
@@ -38,13 +43,13 @@ export async function GET(request: NextRequest) {
   const accBookId = request.nextUrl.searchParams.get("accBookId");
   const orgId = request.nextUrl.searchParams.get("orgId");
 
-  if (!accBookId && !orgId) {
-    return NextResponse.json({ error: "accBookId or orgId required" }, { status: 400 });
+  // service-role로 RLS를 우회하므로 org 필터가 유일한 접근 제어 → orgId 필수
+  if (!orgId) {
+    return NextResponse.json({ error: "orgId required" }, { status: 400 });
   }
 
-  let query = supabase.from("evidence_file").select("*");
+  let query = supabase.from("evidence_file").select("*").eq("org_id", Number(orgId));
   if (accBookId) query = query.eq("acc_book_id", Number(accBookId));
-  if (orgId) query = query.eq("org_id", Number(orgId));
 
   const { data, error } = await query.order("created_at", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -79,6 +84,13 @@ export async function POST(request: NextRequest) {
 
     if (!orgId || !fileName || !fileType || !fileData) {
       return NextResponse.json({ error: "필수 필드 누락" }, { status: 400 });
+    }
+
+    if (!isAllowedEvidenceMime(fileType)) {
+      return NextResponse.json(
+        { error: "허용되지 않는 파일 형식입니다 (이미지·PDF만 가능)" },
+        { status: 400 }
+      );
     }
 
     // 거래당 첨부 한도 검증 (acc_book에 연결된 경우만)

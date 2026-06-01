@@ -134,7 +134,12 @@ describe("GET /api/evidence-file", () => {
     expect(json[0].signed_url).toBeUndefined();
   });
 
-  it("accBookId/orgId 모두 없으면 400", async () => {
+  it("orgId가 없으면 400 (accBookId만으로는 조회 불가 — org 스코프 강제)", async () => {
+    const res = await GET(new NextRequest("http://t/api/evidence-file?accBookId=10"));
+    expect(res.status).toBe(400);
+  });
+
+  it("파라미터가 전혀 없으면 400", async () => {
     const res = await GET(new NextRequest("http://t/api/evidence-file"));
     expect(res.status).toBe(400);
   });
@@ -180,6 +185,16 @@ describe("POST /api/evidence-file", () => {
       new NextRequest("http://t/api/evidence-file", {
         method: "POST",
         body: JSON.stringify({ orgId: 7 }),
+      })
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("허용되지 않는 MIME 타입은 400", async () => {
+    const res = await POST(
+      new NextRequest("http://t/api/evidence-file", {
+        method: "POST",
+        body: JSON.stringify(body({ fileType: "text/plain", fileName: "evil.txt" })),
       })
     );
     expect(res.status).toBe(400);

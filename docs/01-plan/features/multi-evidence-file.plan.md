@@ -77,7 +77,7 @@
 
 ### Phase 1 (MVP)
 - [ ] `api/evidence-file/route.ts`에 `DELETE` 메서드 추가 (Storage + DB)
-- [ ] `expense/page.tsx`: `evidenceFile` 단일 → **배열(neweFiles[])** state로 변경, input `multiple`
+- [ ] `expense/page.tsx`: `evidenceFile` 단일 → **배열(newFiles[])** state로 변경, input `multiple`
 - [ ] `expense/page.tsx`: 거래 선택 시 기존 첨부 목록 `GET` 조회·렌더
 - [ ] `expense/page.tsx`: 목록 항목별 다운로드/미리보기 + 삭제 버튼
 - [ ] 저장 로직: 신규 선택 파일들을 순회 업로드

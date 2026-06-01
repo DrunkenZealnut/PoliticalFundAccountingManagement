@@ -23,7 +23,10 @@ export const EVIDENCE_SIGNED_URL_TTL = 3600;
  * 영문/숫자/밑줄/대시만 허용, 연속 밑줄 축약, 100자 제한.
  */
 export function sanitizeFileName(fileName: string): { safeName: string; ext: string } {
-  const ext = fileName.includes(".") ? fileName.substring(fileName.lastIndexOf(".")) : "";
+  // 확장자도 안전 문자만 남겨 Storage object key에 경로 구분자/임의 문자가 섞이지 않게 한다
+  const rawExt = fileName.includes(".") ? fileName.substring(fileName.lastIndexOf(".") + 1) : "";
+  const safeExt = rawExt.replace(/[^a-zA-Z0-9]/g, "").substring(0, 16);
+  const ext = safeExt ? `.${safeExt}` : "";
   const safeName = fileName
     .replace(/\.[^.]+$/, "") // 확장자 제거
     .replace(/[^a-zA-Z0-9_-]/g, "_") // 안전 문자만

@@ -295,6 +295,7 @@ export default function ExpensePage() {
 
   function selectRecord(r: AccBook) {
     setSelected(r);
+    setPendingFiles([]); // 다른 거래 선택 시 대기 파일이 엉뚱한 거래에 업로드되지 않도록 초기화
     const custName =
       r.customer && typeof r.customer === "object" && "name" in r.customer
         ? (r.customer as { name: string | null }).name || ""
