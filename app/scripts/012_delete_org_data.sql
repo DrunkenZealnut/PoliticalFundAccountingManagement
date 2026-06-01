@@ -18,6 +18,9 @@ CREATE OR REPLACE FUNCTION pfam.delete_org_data(p_org_id BIGINT)
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
+-- SECURITY DEFINER 하드닝: 호출자 세션의 search_path 영향 차단.
+-- 모든 객체를 pfam.* 로 한정하고, to_regclass 등 내장 함수 해석을 위해 pg_catalog 포함.
+SET search_path = pfam, pg_catalog
 AS $$
 DECLARE
   c_customer_addr INT := 0;

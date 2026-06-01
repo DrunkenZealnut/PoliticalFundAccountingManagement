@@ -111,12 +111,13 @@ describe("select-organ 삭제 모달", () => {
     const delBtn = screen.getByRole("button", { name: "영구 삭제" });
     expect(delBtn).toBeDisabled();
 
-    const input = screen.getByPlaceholderText("회사A");
+    const input = screen.getByLabelText("삭제 확인용 기관명 입력");
     fireEvent.change(input, { target: { value: "회사" } });
-    expect(delBtn).toBeDisabled();
+    expect(delBtn).toBeDisabled(); // 이름 불일치
 
+    // 이름 일치 + 미리보기 성공 후에만 활성 (preview 비동기 로드 대기)
     fireEvent.change(input, { target: { value: "회사A" } });
-    expect(delBtn).toBeEnabled();
+    await waitFor(() => expect(delBtn).toBeEnabled());
   });
 
   it("마지막 기관을 삭제하면 /register-organ으로 이동한다", async () => {
@@ -127,8 +128,12 @@ describe("select-organ 삭제 모달", () => {
     fireEvent.click(screen.getByLabelText("회사A 삭제"));
     await screen.findByText("사용기관 삭제");
 
-    fireEvent.change(screen.getByPlaceholderText("회사A"), { target: { value: "회사A" } });
-    fireEvent.click(screen.getByRole("button", { name: "영구 삭제" }));
+    fireEvent.change(screen.getByLabelText("삭제 확인용 기관명 입력"), {
+      target: { value: "회사A" },
+    });
+    const delBtn = screen.getByRole("button", { name: "영구 삭제" });
+    await waitFor(() => expect(delBtn).toBeEnabled());
+    fireEvent.click(delBtn);
 
     await waitFor(() => expect(h.push).toHaveBeenCalledWith("/register-organ"));
   });
@@ -142,8 +147,12 @@ describe("select-organ 삭제 모달", () => {
     fireEvent.click(screen.getByLabelText("회사A 삭제"));
     await screen.findByText("사용기관 삭제");
 
-    fireEvent.change(screen.getByPlaceholderText("회사A"), { target: { value: "회사A" } });
-    fireEvent.click(screen.getByRole("button", { name: "영구 삭제" }));
+    fireEvent.change(screen.getByLabelText("삭제 확인용 기관명 입력"), {
+      target: { value: "회사A" },
+    });
+    const delBtn = screen.getByRole("button", { name: "영구 삭제" });
+    await waitFor(() => expect(delBtn).toBeEnabled());
+    fireEvent.click(delBtn);
 
     await waitFor(() => expect(useAuth.getState().orgId).toBeNull());
     expect(h.push).not.toHaveBeenCalledWith("/register-organ");

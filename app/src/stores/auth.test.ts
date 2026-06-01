@@ -30,6 +30,8 @@ describe("auth store - clearOrgan", () => {
     expect(s.orgName).toBeNull();
     expect(s.orgType).toBeNull();
     expect(s.acctName).toBeNull();
+    expect(s.accFrom).toBeNull();
+    expect(s.accTo).toBeNull();
     // user는 유지(로그아웃 아님)
     expect(s.user).not.toBeNull();
     expect(s.user?.id).toBe("u1");

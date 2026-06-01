@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
 import { useAuth } from "@/stores/auth";
@@ -81,6 +81,8 @@ export default function SelectOrganPage() {
   const [confirmText, setConfirmText] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  // 최신 미리보기 요청 식별 — 지연 도착한 이전 기관 응답이 현재 모달을 덮어쓰지 않게 한다.
+  const previewReqRef = useRef<number | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -118,6 +120,8 @@ export default function SelectOrganPage() {
   }
 
   async function openDeleteDialog(item: UserOrganRow) {
+    const reqId = item.organ.org_id;
+    previewReqRef.current = reqId;
     setDeleteTarget(item);
     setPreview(null);
     setConfirmText("");
@@ -126,21 +130,25 @@ export default function SelectOrganPage() {
       const res = await fetch("/api/organ", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "preview", orgId: item.organ.org_id }),
+        body: JSON.stringify({ action: "preview", orgId: reqId }),
       });
       const json = await res.json();
+      // 응답 도착 시점에 더 이상 이 기관의 모달이 아니면 폐기(레이스 방지)
+      if (previewReqRef.current !== reqId) return;
       if (!res.ok) {
         setDeleteError(json.error || "미리보기를 불러오지 못했습니다.");
         return;
       }
       setPreview(json.counts as DeletePreview);
     } catch {
+      if (previewReqRef.current !== reqId) return;
       setDeleteError("미리보기를 불러오지 못했습니다.");
     }
   }
 
   function closeDeleteDialog() {
     if (deleting) return;
+    previewReqRef.current = null;
     setDeleteTarget(null);
     setPreview(null);
     setConfirmText("");
@@ -148,7 +156,8 @@ export default function SelectOrganPage() {
   }
 
   async function handleConfirmDelete() {
-    if (!deleteTarget) return;
+    // 되돌릴 수 없는 작업 — 미리보기 성공 + 기관명 일치 + 비진행 상태에서만 실행(중복 클릭 차단)
+    if (!deleteTarget || deleting || !canDelete) return;
     const targetId = deleteTarget.organ.org_id;
     setDeleting(true);
     setDeleteError(null);
@@ -189,6 +198,8 @@ export default function SelectOrganPage() {
 
   const confirmMatches =
     !!deleteTarget && confirmText.trim() === deleteTarget.organ.org_name.trim();
+  // 삭제 가능 조건: 미리보기 성공(preview 존재 + 에러 없음) + 기관명 일치 + 비진행
+  const canDelete = confirmMatches && !!preview && !deleteError && !deleting;
 
   if (loading) {
     return (
@@ -320,6 +331,7 @@ export default function SelectOrganPage() {
                 value={confirmText}
                 onChange={(e) => setConfirmText(e.target.value)}
                 placeholder={deleteTarget?.organ.org_name}
+                aria-label="삭제 확인용 기관명 입력"
                 disabled={deleting}
               />
             </div>
@@ -332,7 +344,7 @@ export default function SelectOrganPage() {
             <Button
               variant="destructive"
               onClick={handleConfirmDelete}
-              disabled={!confirmMatches || deleting}
+              disabled={!canDelete}
             >
               {deleting ? "삭제 중..." : "영구 삭제"}
             </Button>
