@@ -15,6 +15,8 @@ interface AuthState {
   accTo: string | null;
   setUser: (user: User | null) => void;
   setOrgan: (organ: { org_id: number; org_sec_cd: number; org_name: string; acct_name?: string | null; acc_from?: string | null; acc_to?: string | null }) => void;
+  /** 선택된 사용기관 정보만 초기화(로그인 user는 유지). 현재 기관 삭제 시 사용. */
+  clearOrgan: () => void;
   clear: () => void;
 }
 
@@ -46,6 +48,16 @@ export const useAuth = create<AuthState>()(
           acctName: organ.acct_name || null,
           accFrom: organ.acc_from || null,
           accTo: organ.acc_to || null,
+        }),
+      clearOrgan: () =>
+        set({
+          orgId: null,
+          orgSecCd: null,
+          orgName: null,
+          orgType: null,
+          acctName: null,
+          accFrom: null,
+          accTo: null,
         }),
       clear: () =>
         set({
