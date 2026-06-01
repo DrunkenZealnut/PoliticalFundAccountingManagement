@@ -2,6 +2,13 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
+import {
+  computeCandidateMetrics,
+  computeSupporterMetrics,
+  type CandidateMetrics,
+  type SupporterMetrics,
+  type OrgMetricsRow,
+} from "./org-metrics";
 
 interface MonthlyData {
   month: string;
@@ -42,11 +49,18 @@ export interface DashboardData {
   expenseByCategory: CategoryData[];
   recentTransactions: Transaction[];
   missingReceipts: number;
+  /** 후보자(candidate) 전용 파생 지표 */
+  candidate: CandidateMetrics;
+  /** 후원회(supporter) 전용 파생 지표 */
+  supporter: SupporterMetrics;
 }
 
 interface AccBookRow {
   acc_book_id: number;
   incm_sec_cd: number;
+  acc_sec_cd: number;
+  exp_sec_cd: number;
+  acc_print_ok: string | null;
   acc_date: string;
   acc_amt: number;
   item_sec_cd: number;
@@ -150,6 +164,20 @@ function processData(records: AccBookRow[], codes: CodeValue[]): DashboardData {
     (r) => r.rcp_yn !== "Y" && r.rcp_yn !== "y"
   ).length;
 
+  // 조직 유형별 파생 지표 (records는 OrgMetricsRow 호환)
+  // 코드 컨텍스트: 보전 집계(선거비용 과목)·후보자 기부금(item 코드명) 식별용
+  const codeNameById: Record<number, string> = {};
+  const electionExpenseItemCds: number[] = [];
+  for (const c of codes) {
+    codeNameById[c.cv_id] = c.cv_name;
+    if (c.cv_name === "선거비용") electionExpenseItemCds.push(c.cv_id);
+  }
+  const orgCtx = { electionExpenseItemCds, codeNameById };
+
+  const orgRows = records as unknown as OrgMetricsRow[];
+  const candidate = computeCandidateMetrics(orgRows, orgCtx);
+  const supporter = computeSupporterMetrics(orgRows, currentYM, orgCtx);
+
   return {
     summary: {
       income,
@@ -164,6 +192,8 @@ function processData(records: AccBookRow[], codes: CodeValue[]): DashboardData {
     expenseByCategory,
     recentTransactions,
     missingReceipts,
+    candidate,
+    supporter,
   };
 }
 
@@ -183,7 +213,7 @@ export function useDashboardData(orgId: number | null) {
       const [accRes, codesRes] = await Promise.all([
         supabase
           .from("acc_book")
-          .select("acc_book_id, incm_sec_cd, acc_date, acc_amt, item_sec_cd, content, rcp_yn, cust_id, customer:cust_id(name)")
+          .select("acc_book_id, incm_sec_cd, acc_sec_cd, exp_sec_cd, acc_print_ok, acc_date, acc_amt, item_sec_cd, content, rcp_yn, cust_id, customer:cust_id(name)")
           .eq("org_id", orgId)
           .order("acc_date", { ascending: false }),
         fetch("/api/codes").then((r) => r.json()),
