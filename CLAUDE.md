@@ -40,19 +40,21 @@ This uses Next.js 16 which has breaking changes from training data. Always read 
 ### DB Schema Gotcha
 - `acc_ins_type` column is `VARCHAR(5)` (was CHAR(2), widened via `scripts/008`). PAY_METHODS codes are 3 chars ("118", "583").
 - All dates stored as `YYYYMMDD` strings (not DATE type). UI uses `YYYY-MM-DD`, convert on save/display.
+- `customer.org_id` (added via `scripts/011`) scopes counterparties per organization — a same-name counterparty in two orgs is two rows. The anonymous customer (`name='익명'`) is shared with `org_id` NULL. Every customer read/write/match path must filter/set `org_id` (customers API, customer + customer-batch pages, acc-book batch matching, import/export-sqlite).
+- Migrations live in `app/scripts/0NN_*.sql` and are applied **manually via the Supabase SQL editor** (DDL cannot run through the service-role REST client). Latest is `011`.
 
 ### Source Layout (`app/src/`)
 
 ```
 app/api/          → 8 API route groups (codes, customers, acc-book, excel/*, system/*, address/search, evidence-file, reimbursement)
-app/dashboard/    → 28 pages including wizard (beginner), document-register (manual entry), income, expense, reports, etc.
+app/dashboard/    → 20 pages: income, expense, document-register (manual entry), reports, submit, reset, backup (SQLite backup/restore), customer, customer-batch, organ, aggregate, audit, forms, etc.
 app/login/        → Supabase email/password auth
 components/chat/  → ChatBubble (static FAQ browser, well-tested)
 components/ui/    → shadcn/ui primitives (Button, Card, Dialog, Table, etc.)
 hooks/            → use-code-values, use-donation-limit, use-sort, use-undo
 lib/supabase/     → client.ts (browser), server.ts (SSR), middleware.ts (session)
 lib/chat/         → faq-data.ts (static FAQ items only)
-lib/accounting/   → Business logic (balance calculation, validation)
+lib/accounting/   → Business logic: settlement-calc (balances), funding-source, submission-forms, + PFund2 SQLite compat (organ-pair, pfund2-constants, parity-errors, import-helpers)
 lib/expense-types.ts → Shared 3-level expense type data (선거비용/선거비용외) + PAY_METHODS
 lib/wizard-mappings.ts → Wizard card definitions + code auto-mapping
 lib/excel-template/ → Excel report generation with data-query
@@ -103,6 +105,20 @@ Uploaded receipt/contract images are stored in Supabase Storage (`evidence` buck
 - Receipt/contract content is entered manually by users (no OCR/AI extraction).
 - Max file size: 10MB. Schema: `scripts/007_evidence_file_table.sql`
 
+### PFund2 SQLite Compatibility (백업/복구 + 선관위 호환)
+
+`/dashboard/backup` exports/imports an org's data as a SQLite `.db` matching the official 선관위 **PFund2** program file format. The DDL and conventions live in `lib/accounting/pfund2-constants.ts` and `organ-pair.ts`.
+
+- **Export** (`GET /api/system/export-sqlite`) builds the `.db` in memory via sql.js. The `mode` param maps 1:1 to PFund2 files:
+  - `full` (default) — combined (ORGAN pair + all transactions + reference)
+  - `master` — Fund_Master.db (ORGAN pair + reference + CUSTOMER, 0 transactions)
+  - `data1` — Fund_Data_1.db (candidate org + only its transactions/customers)
+  - `data2` — Fund_Data_2.db (supporter org + only its transactions/customers)
+- **Import** (`POST /api/system/import-sqlite`) restores a `.db` into the selected org. `conflictPolicy`: `overwrite|skip|merge`; `dryRun=true` returns a preview (row counts, organ candidates) with no writes. Write helpers (`bulkInsert`/`bulkUpsert`/`parseConflictPolicy`) are extracted to `import-helpers.ts` (client injected → unit-testable).
+- **organ-pair.ts** maps Supabase `org_id` ↔ PFund2 export `ORG_ID` (1=candidate, 2=supporter) via candidate↔supporter pairing. `remapOrgId` rewrites org-dependent rows for export.
+- **PFund2 CUSTOMER has no ORG_ID column** — so export strips `customer.org_id` and, for `data1`/`data2`, filters customers to the target org. The standard anonymous customer (`CUST_ID=-999`) is guaranteed by `PFUND2_ENSURE_ANONYMOUS_CUSTOMER_SQL`.
+- **parity-errors.ts** defines structured PFund2-compat error codes (missing credentials, invalid SQLite header, conflict policy, etc.).
+
 ### Expense Type Architecture
 
 3-level expense type hierarchy shared across expense page, document-register, and wizard:
@@ -122,6 +138,12 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY   # Public anon key
 SUPABASE_SERVICE_ROLE_KEY       # Server-only, bypasses RLS (required for API routes)
 EPOST_API_KEY                   # 우정사업본부 address search API
 ```
+
+`.env.local` holds these (gitignored via `.env*.local`). Schema changes require running the migration SQL in Supabase manually before deploying code that depends on it.
+
+### Deployment
+
+Merging to `main` auto-deploys to **Vercel production** (`political-fund-accounting-managemen.vercel.app`). PR checks: Vercel preview build (gate), GitGuardian, CodeRabbit (advisory). There is a single Supabase project — no separate staging/test DB, so schema migrations touch production directly (design migrations to be additive/reversible).
 
 ### Reference Documents
 
