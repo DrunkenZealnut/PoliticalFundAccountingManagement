@@ -13,6 +13,7 @@ import { CustomerSearchDialog } from "@/components/customer-search-dialog";
 import { getExpTypeData, PAY_METHODS } from "@/lib/expense-types";
 import { PageGuide } from "@/components/page-guide";
 import { PAGE_GUIDES } from "@/lib/page-guides";
+import { fileToBase64 } from "@/lib/file-utils";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -85,15 +86,6 @@ export default function DocumentRegisterPage() {
   }
 
   function fmt(n: number) { return n.toLocaleString("ko-KR"); }
-
-  function fileToBase64(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve((reader.result as string).split(",")[1]);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-  }
 
   /* ---- File handling ---- */
   const MAX_UPLOAD = 10;
