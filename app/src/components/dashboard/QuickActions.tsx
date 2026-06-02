@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Plus, Minus, Users, BookOpen,
-  FileText, Receipt, FolderSync, FileDown,
+  FileText, FolderSync, FileDown,
   Search, ClipboardList,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -19,27 +19,26 @@ interface QuickAction {
   bgColor: string;
 }
 
-const COMMON_ACTIONS: QuickAction[] = [
+export const COMMON_ACTIONS: QuickAction[] = [
   { label: "수입 등록", href: "/dashboard/income", icon: Plus, color: "text-blue-600", bgColor: "bg-blue-50 dark:bg-blue-950/30" },
   { label: "지출 등록", href: "/dashboard/expense", icon: Minus, color: "text-red-500", bgColor: "bg-red-50 dark:bg-red-950/30" },
   { label: "거래처 관리", href: "/dashboard/customer", icon: Users, color: "text-violet-600", bgColor: "bg-violet-50 dark:bg-violet-950/30" },
   { label: "장부 조회", href: "/dashboard/income-expense-book", icon: BookOpen, color: "text-emerald-600", bgColor: "bg-emerald-50 dark:bg-emerald-950/30" },
 ];
 
-const ORG_SPECIFIC_ACTIONS: Record<OrgType, QuickAction[]> = {
+export const ORG_SPECIFIC_ACTIONS: Record<OrgType, QuickAction[]> = {
   party: [
     { label: "결산작업", href: "/dashboard/settlement", icon: ClipboardList, color: "text-amber-600", bgColor: "bg-amber-50 dark:bg-amber-950/30" },
-    { label: "당비영수증", href: "/dashboard/party-fee-receipt", icon: Receipt, color: "text-pink-600", bgColor: "bg-pink-50 dark:bg-pink-950/30" },
-    { label: "취합작업", href: "/dashboard/aggregation", icon: FolderSync, color: "text-cyan-600", bgColor: "bg-cyan-50 dark:bg-cyan-950/30" },
+    { label: "취합작업", href: "/dashboard/aggregate", icon: FolderSync, color: "text-cyan-600", bgColor: "bg-cyan-50 dark:bg-cyan-950/30" },
   ],
   lawmaker: [
     { label: "수입지출 보고서", href: "/dashboard/income-expense-report", icon: FileText, color: "text-amber-600", bgColor: "bg-amber-50 dark:bg-amber-950/30" },
   ],
   candidate: [
-    { label: "제출파일 생성", href: "/dashboard/export-db", icon: FileDown, color: "text-amber-600", bgColor: "bg-amber-50 dark:bg-amber-950/30" },
+    { label: "제출파일 생성", href: "/dashboard/submit", icon: FileDown, color: "text-amber-600", bgColor: "bg-amber-50 dark:bg-amber-950/30" },
   ],
   supporter: [
-    { label: "기부자 조회", href: "/dashboard/donor-search", icon: Search, color: "text-amber-600", bgColor: "bg-amber-50 dark:bg-amber-950/30" },
+    { label: "기부자 조회", href: "/dashboard/donors", icon: Search, color: "text-amber-600", bgColor: "bg-amber-50 dark:bg-amber-950/30" },
     { label: "수입지출 총괄표", href: "/dashboard/supporter-summary", icon: FileText, color: "text-pink-600", bgColor: "bg-pink-50 dark:bg-pink-950/30" },
   ],
 };
