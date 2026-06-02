@@ -20,12 +20,10 @@ const MENU_ITEMS = {
       { href: "/dashboard/customer-batch", label: "수입지출처 일괄등록" },
     ]},
     { group: "정치자금관리", items: [
-      { href: "/dashboard/wizard", label: "간편등록 마법사" },
       { href: "/dashboard/income", label: "수입내역관리" },
       { href: "/dashboard/expense", label: "지출내역관리" },
       { href: "/dashboard/batch-import", label: "수입지출내역 일괄등록" },
       { href: "/dashboard/document-register", label: "영수증/계약서 자동등록" },
-      { href: "/dashboard/receipt", label: "당비영수증 출력" },
       { href: "/dashboard/resolution", label: "지출결의서 출력" },
     ]},
     { group: "보고관리", items: [
@@ -54,7 +52,6 @@ const MENU_ITEMS = {
       { href: "/dashboard/customer-batch", label: "수입지출처 일괄등록" },
     ]},
     { group: "정치자금관리", items: [
-      { href: "/dashboard/wizard", label: "간편등록 마법사" },
       { href: "/dashboard/income", label: "수입내역관리" },
       { href: "/dashboard/expense", label: "지출내역관리" },
       { href: "/dashboard/batch-import", label: "수입지출내역 일괄등록" },
@@ -86,7 +83,6 @@ const MENU_ITEMS = {
       { href: "/dashboard/customer-batch", label: "수입지출처 일괄등록" },
     ]},
     { group: "정치자금관리", items: [
-      { href: "/dashboard/wizard", label: "간편등록 마법사" },
       { href: "/dashboard/income", label: "수입내역관리" },
       { href: "/dashboard/expense", label: "지출내역관리" },
       { href: "/dashboard/batch-import", label: "수입지출내역 일괄등록" },
@@ -118,7 +114,6 @@ const MENU_ITEMS = {
       { href: "/dashboard/customer-batch", label: "수입지출처 일괄등록" },
     ]},
     { group: "정치자금관리", items: [
-      { href: "/dashboard/wizard", label: "간편등록 마법사" },
       { href: "/dashboard/income", label: "수입내역관리" },
       { href: "/dashboard/expense", label: "지출내역관리" },
       { href: "/dashboard/batch-import", label: "수입지출내역 일괄등록" },
@@ -291,8 +286,6 @@ export default function DashboardLayout({
               {group.items.map((item) => {
                 const step = isEnabled ? getStepForHref(item.href) : undefined;
                 const stepIndex = step && workflowSteps ? workflowSteps.indexOf(step) : -1;
-                const isWizardRecommended = isEnabled && item.href === "/dashboard/wizard"
-                  && workflowSteps?.some(s => (s.id === "income" || s.id === "expense") && !s.completed);
                 const isActive = pathname === item.href;
 
                 return (
@@ -318,9 +311,6 @@ export default function DashboardLayout({
                         </span>
                       )}
                       {item.label}
-                      {isWizardRecommended && (
-                        <span className="text-[#D4883A] text-[10px] font-semibold ml-auto">추천</span>
-                      )}
                     </span>
                   </Link>
                 );
