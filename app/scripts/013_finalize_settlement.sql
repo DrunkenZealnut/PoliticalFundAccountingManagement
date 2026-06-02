@@ -49,5 +49,6 @@ BEGIN
 END;
 $$;
 
+-- 결산확정은 로그인 사용자 전용 동작이므로 authenticated에만 부여(최소 권한 원칙).
 GRANT EXECUTE ON FUNCTION pfam.finalize_settlement(BIGINT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC, NUMERIC)
-  TO authenticated, anon;
+  TO authenticated;
