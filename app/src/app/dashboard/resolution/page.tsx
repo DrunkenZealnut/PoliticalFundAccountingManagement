@@ -63,6 +63,7 @@ interface ResolutionRow {
   rcp_no: string | null;
   acc_ins_type: string | null;
   bigo: string | null;
+  cust_id: number | null;
   customer: Record<string, unknown> | Record<string, unknown>[] | null;
 }
 
@@ -116,7 +117,7 @@ export default function ResolutionPage() {
     let query = supabase
       .from("acc_book")
       .select(
-        "acc_book_id, acc_sec_cd, item_sec_cd, exp_sec_cd, acc_date, content, acc_amt, rcp_yn, rcp_no, acc_ins_type, bigo, customer:cust_id(name, reg_num, addr, job, tel)"
+        "acc_book_id, acc_sec_cd, item_sec_cd, exp_sec_cd, acc_date, content, acc_amt, rcp_yn, rcp_no, acc_ins_type, bigo, cust_id, customer:cust_id(name, reg_num, addr, job, tel)"
       )
       .eq("org_id", orgId)
       .eq("incm_sec_cd", 2)
@@ -128,7 +129,12 @@ export default function ResolutionPage() {
     if (accSecCd) query = query.eq("acc_sec_cd", accSecCd);
     if (itemSecCd) query = query.eq("item_sec_cd", itemSecCd);
 
-    const { data } = await query;
+    const { data, error } = await query;
+    if (error) {
+      alert(`조회 실패: ${error.message}`);
+      setLoading(false);
+      return;
+    }
     setRecords((data || []) as unknown as ResolutionRow[]);
     setCheckedIds(new Set());
     setLoading(false);
@@ -160,7 +166,17 @@ export default function ResolutionPage() {
 
     const selected = records.filter((r) => checkedIds.has(r.acc_book_id));
 
-    const ExcelJS = (await import("exceljs")).default;
+    const ExcelJS = await (async () => {
+      try {
+        return (await import("exceljs")).default;
+      } catch {
+        return null;
+      }
+    })();
+    if (!ExcelJS) {
+      alert("엑셀 모듈을 불러오지 못했습니다. 네트워크 확인 후 다시 시도하세요.");
+      return;
+    }
     const workbook = new ExcelJS.Workbook();
 
     const thin: Partial<import("exceljs").Borders> = {
@@ -371,16 +387,21 @@ export default function ResolutionPage() {
       ws.getColumn(7).width = 10;
     });
 
-    const buffer = await workbook.xlsx.writeBuffer();
-    const blob = new Blob([buffer], {
-      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `지출결의서_${dateFrom}_${dateTo}.xlsx`;
-    a.click();
-    URL.revokeObjectURL(url);
+    try {
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `지출결의서_${dateFrom}_${dateTo}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error("[resolution] 지출결의서 생성 실패:", e);
+      alert("지출결의서 파일 생성 중 오류가 발생했습니다.");
+    }
   }
 
   function handleClear() {

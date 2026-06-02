@@ -56,19 +56,28 @@ export default function SettlementPage() {
     const from = dateFrom.replace(/-/g, "");
     const to = dateTo.replace(/-/g, "");
 
+    try {
     // Fetch all accounting data for the period
-    const { data: accData } = await supabase
+    const { data: accData, error: accErr } = await supabase
       .from("acc_book")
       .select("incm_sec_cd, acc_sec_cd, item_sec_cd, acc_amt")
       .eq("org_id", orgId)
       .gte("acc_date", from)
       .lte("acc_date", to);
+    if (accErr) {
+      alert(`수입지출 조회 실패: ${accErr.message}`);
+      return;
+    }
 
     // Fetch estate data
-    const { data: estateData } = await supabase
+    const { data: estateData, error: estateErr } = await supabase
       .from("estate")
       .select("estate_sec_cd, amt")
       .eq("org_id", orgId);
+    if (estateErr) {
+      alert(`재산내역 조회 실패: ${estateErr.message}`);
+      return;
+    }
 
     const records = accData || [];
 
@@ -133,13 +142,20 @@ export default function SettlementPage() {
           `수입지출내역 또는 재산내역을 수정 후 다시 결산하십시오.`
       );
     }
-
-    setLoading(false);
+    } finally {
+      setLoading(false);
+    }
   }, [orgId, supabase, dateFrom, dateTo]);
 
   // 결산확정 - organ 테이블의 acc_from/acc_to 업데이트 및 opinion 잔액 저장
   async function handleFinalize() {
     if (!orgId || !result || !dateFrom || !dateTo) return;
+
+    // 거래·재산 자료가 전혀 없는 빈 기간은 확정 불가(0원 결산 확정 방지)
+    if (result.income === 0 && result.expense === 0 && result.estateAmt === 0) {
+      alert("결산할 수입·지출·재산 자료가 없습니다. 해당 기간을 확정할 수 없습니다.");
+      return;
+    }
 
     if (result.balance !== result.estateAmt) {
       alert("수입지출 잔액과 재산(현금및예금)이 일치하지 않습니다.\n먼저 데이터를 수정한 후 결산확정하세요.");

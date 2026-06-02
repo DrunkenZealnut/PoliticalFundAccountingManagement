@@ -48,7 +48,11 @@ export default function AssetReportPage() {
     const sb = createSupabaseBrowser();
     sb.from("estate").select("*").eq("org_id", orgId)
       .order("estate_sec_cd").order("estate_order")
-      .then(({ data }) => { setRecords((data as Estate[]) || []); setLoading(false); });
+      .then(({ data, error }) => {
+        if (error) alert(`재산내역 조회 실패: ${error.message}`);
+        setRecords((data as Estate[]) || []);
+        setLoading(false);
+      });
   }, [orgId]);
 
   const activeTab = Number(tab);

@@ -42,7 +42,6 @@ export default function DonorsPage() {
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [showReturned, setShowReturned] = useState(false);
-  const [showPreviousYear, setShowPreviousYear] = useState(false);
   const [showReturnOnly, setShowReturnOnly] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [searchName, setSearchName] = useState("");
@@ -60,6 +59,7 @@ export default function DonorsPage() {
     setSearched(true);
     setSelected(new Set());
 
+    try {
     let query = supabase
       .from("acc_book")
       .select("acc_book_id, cust_id, acc_date, acc_amt, content, return_yn, customer:cust_id(cust_id, name, reg_num, addr, job, tel)")
@@ -70,11 +70,15 @@ export default function DonorsPage() {
     if (dateTo) query = query.lte("acc_date", dateTo.replace(/-/g, ""));
     if (showReturnOnly) query = query.lt("acc_amt", 0);
 
-    const { data } = await query;
+    const { data, error } = await query;
+    if (error) {
+      alert(`조회 실패: ${error.message}`);
+      setDonors([]);
+      return;
+    }
 
     if (!data || data.length === 0) {
       setDonors([]);
-      setLoading(false);
       return;
     }
 
@@ -142,7 +146,9 @@ export default function DonorsPage() {
 
     filtered.sort((a, b) => b.total_amt - a.total_amt);
     setDonors(filtered);
-    setLoading(false);
+    } finally {
+      setLoading(false);
+    }
   }, [orgId, supabase, dateFrom, dateTo, category, showReturned, showReturnOnly, searchName, getAnnualLimit]);
 
   // 반환자료저장
@@ -334,10 +340,6 @@ export default function DonorsPage() {
         </div>
 
         <div className="flex gap-4 items-center flex-wrap">
-          <label className="flex items-center gap-2 text-sm cursor-pointer">
-            <input type="checkbox" checked={showPreviousYear} onChange={() => setShowPreviousYear(!showPreviousYear)} />
-            전년도 자료 포함
-          </label>
           <label className="flex items-center gap-2 text-sm cursor-pointer">
             <input type="checkbox" checked={showReturned} onChange={() => setShowReturned(!showReturned)} />
             반환자료만 조회

@@ -93,7 +93,12 @@ export default function IncomeExpenseBookPage() {
     if (accSecCd) query = query.eq("acc_sec_cd", accSecCd);
     if (itemSecCd) query = query.eq("item_sec_cd", itemSecCd);
 
-    const { data } = await query;
+    const { data, error } = await query;
+    if (error) {
+      alert(`조회 실패: ${error.message}`);
+      setLoading(false);
+      return;
+    }
     setRecords((data || []) as unknown as BookRow[]);
     setLoading(false);
   }
@@ -165,7 +170,8 @@ export default function IncomeExpenseBookPage() {
     let incCum = 0, expCum = 0;
     records.forEach((r, idx) => {
       const isIncome = r.incm_sec_cd === 1;
-      if (isIncome) incCum += r.acc_amt; else expCum += r.acc_amt;
+      const isExpense = r.incm_sec_cd === 2;
+      if (isIncome) incCum += r.acc_amt; else if (isExpense) expCum += r.acc_amt;
       const cust = getCust(r);
       const row = ws.getRow(7 + idx);
       row.getCell(1).value = idx + 1;
@@ -173,8 +179,8 @@ export default function IncomeExpenseBookPage() {
       row.getCell(3).value = r.content;
       row.getCell(4).value = isIncome ? r.acc_amt : null;
       row.getCell(5).value = isIncome ? incCum : null;
-      row.getCell(6).value = !isIncome ? r.acc_amt : null;
-      row.getCell(7).value = !isIncome ? expCum : null;
+      row.getCell(6).value = isExpense ? r.acc_amt : null;
+      row.getCell(7).value = isExpense ? expCum : null;
       row.getCell(8).value = incCum - expCum;
       row.getCell(9).value = cust.name;
       row.getCell(10).value = cust.regNum;
@@ -204,7 +210,7 @@ export default function IncomeExpenseBookPage() {
   let incCum = 0;
   let expCum = 0;
   const rows: RowWithTotals[] = records.map((r) => {
-    if (r.incm_sec_cd === 1) incCum += r.acc_amt; else expCum += r.acc_amt;
+    if (r.incm_sec_cd === 1) incCum += r.acc_amt; else if (r.incm_sec_cd === 2) expCum += r.acc_amt;
     return { ...r, incCum, expCum, balance: incCum - expCum };
   });
 

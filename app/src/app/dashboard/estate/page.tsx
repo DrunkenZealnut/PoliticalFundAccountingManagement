@@ -54,20 +54,27 @@ export default function EstatePage() {
 
   function loadRecords() {
     if (!orgId) return;
-    const supabase = createSupabaseBrowser();
     setLoading(true);
     supabase.from("estate").select("*").eq("org_id", orgId)
       .order("estate_sec_cd").order("estate_order")
-      .then(({ data }) => { setRecords((data as Estate[]) || []); setLoading(false); });
+      .then(({ data, error }) => {
+        if (error) alert(`재산내역 조회 실패: ${error.message}`);
+        setRecords((data as Estate[]) || []);
+        setLoading(false);
+      });
   }
 
   useEffect(() => {
     if (!orgId) return;
-    const supabase = createSupabaseBrowser();
+    // 모듈 레벨 supabase 재사용. setState는 .then 콜백에서만(effect 동기 setState 회피).
     supabase.from("estate").select("*").eq("org_id", orgId)
       .order("estate_sec_cd").order("estate_order")
-      .then(({ data }) => { setRecords((data as Estate[]) || []); setLoading(false); });
-  }, [orgId]);
+      .then(({ data, error }) => {
+        if (error) alert(`재산내역 조회 실패: ${error.message}`);
+        setRecords((data as Estate[]) || []);
+        setLoading(false);
+      });
+  }, [orgId, supabase]);
 
   function resetForm() {
     setSelected(null);
