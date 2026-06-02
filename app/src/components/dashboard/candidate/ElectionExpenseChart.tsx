@@ -1,7 +1,7 @@
 "use client";
 
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ChartShell, fmtTooltip, TOOLTIP_CONTENT_STYLE } from "../chart-common";
 
 interface Props {
   electionExpense: number;
@@ -9,21 +9,7 @@ interface Props {
   loading: boolean;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const fmtTooltip = (v: any) => `${Number(v).toLocaleString("ko-KR")}원`;
-
 const TITLE = "선거비용 vs 선거비용외";
-
-function Shell({ children }: { children: React.ReactNode }) {
-  return (
-    <Card className="border-0 shadow-sm">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">{TITLE}</CardTitle>
-      </CardHeader>
-      <CardContent>{children}</CardContent>
-    </Card>
-  );
-}
 
 export default function ElectionExpenseChart({
   electionExpense,
@@ -32,22 +18,22 @@ export default function ElectionExpenseChart({
 }: Props) {
   if (loading) {
     return (
-      <Shell>
+      <ChartShell title={TITLE}>
         <div className="h-[300px] flex items-center justify-center">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
         </div>
-      </Shell>
+      </ChartShell>
     );
   }
 
   const total = electionExpense + nonElectionExpense;
   if (total === 0) {
     return (
-      <Shell>
+      <ChartShell title={TITLE}>
         <div className="h-[300px] flex items-center justify-center text-sm text-muted-foreground">
           지출 내역이 없습니다
         </div>
-      </Shell>
+      </ChartShell>
     );
   }
 
@@ -67,7 +53,7 @@ export default function ElectionExpenseChart({
   ].filter((d) => d.amount > 0);
 
   return (
-    <Shell>
+    <ChartShell title={TITLE}>
       <ResponsiveContainer width="100%" height={300}>
         <PieChart>
           <Pie
@@ -85,17 +71,7 @@ export default function ElectionExpenseChart({
               <Cell key={d.label} fill={d.color} />
             ))}
           </Pie>
-          <Tooltip
-            formatter={fmtTooltip}
-            contentStyle={{
-              borderRadius: "8px",
-              border: "1px solid hsl(var(--border))",
-              background: "hsl(var(--popover))",
-              color: "hsl(var(--popover-foreground))",
-              fontSize: "13px",
-              boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
-            }}
-          />
+          <Tooltip formatter={fmtTooltip} contentStyle={TOOLTIP_CONTENT_STYLE} />
           <Legend
             layout="vertical"
             align="right"
@@ -110,6 +86,6 @@ export default function ElectionExpenseChart({
           />
         </PieChart>
       </ResponsiveContainer>
-    </Shell>
+    </ChartShell>
   );
 }
