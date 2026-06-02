@@ -174,27 +174,20 @@ export default function SettlementPage() {
     const from = dateFrom.replace(/-/g, "");
     const to = dateTo.replace(/-/g, "");
 
-    // Update organ's accounting period
-    const { error: organErr } = await supabase
-      .from("organ")
-      .update({ acc_from: from, acc_to: to })
-      .eq("org_id", orgId);
+    // 회계기간(organ) + 결산요약(opinion)을 단일 트랜잭션으로 확정(scripts/013 RPC).
+    // 두 쓰기를 따로 하던 기존 방식의 반쪽 저장 위험 제거.
+    const { error } = await supabase.rpc("finalize_settlement", {
+      p_org_id: orgId,
+      p_from: from,
+      p_to: to,
+      p_estate_amt: result.netEstate,
+      p_in_amt: result.income,
+      p_cm_amt: result.expense,
+      p_balance_amt: result.balance,
+    });
 
-    // Upsert opinion with financial summary
-    const { error: opinionErr } = await supabase
-      .from("opinion")
-      .upsert({
-        org_id: orgId,
-        acc_from: from,
-        acc_to: to,
-        estate_amt: result.netEstate,
-        in_amt: result.income,
-        cm_amt: result.expense,
-        balance_amt: result.balance,
-      }, { onConflict: "org_id" });
-
-    if (organErr || opinionErr) {
-      alert(`결산확정 저장 실패: ${organErr?.message || opinionErr?.message}`);
+    if (error) {
+      alert(`결산확정 저장 실패: ${error.message}`);
     } else {
       setSettled(true);
       alert("결산이 확정되었습니다.\n\n보고관리 → 제출파일생성으로 이동하여 제출파일을 생성할 수 있습니다.");
