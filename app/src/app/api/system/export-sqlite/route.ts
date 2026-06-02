@@ -418,6 +418,38 @@ const buildOrganExport = (
   };
 const remapOrgId = remapOrgIdShared;
 
+/**
+ * 공식 선관위 ACC_BOOK 포맷 정규화 (지출 행 한정).
+ *
+ * 앱은 '지출방법' 코드(예: "118"=계좌입금, 3자리)를 `acc_ins_type` 문자열에 저장하지만,
+ * 공식 스키마의 `ACC_INS_TYPE`은 `CHAR(2)`라 3자리 값이 들어가면 윈도우 선관위 프로그램이
+ * 지출부 로드 시 거부 → 지출부 전체가 표시되지 않는다(수입부는 acc_ins_type이 비어 정상).
+ *
+ * 원본 선관위 데이터는 지출방법 코드를 `EXP_TYPE_CD`(정수)에 담고 `ACC_INS_TYPE`은 비운다.
+ * 이 함수는 export 시 그 공식 포맷으로 변환한다:
+ *   - acc_ins_type이 2자리 초과(=PAY_METHODS 코드)이고 exp_type_cd가 미설정(-1/빈값)이면
+ *     해당 숫자 코드를 exp_type_cd로 이동하고 acc_ins_type은 비운다.
+ *   - 그 외 2자리 초과 잔여 문자열도 CHAR(2) 초과 방지를 위해 비운다.
+ * 수입 행·이미 공식 포맷(acc_ins_type 빈값/2자리 이하)인 행은 변경하지 않는다.
+ */
+export function normalizeOfficialExpenseRow(
+  row: Record<string, unknown>,
+): Record<string, unknown> {
+  const ins = row.acc_ins_type;
+  if (typeof ins !== "string" || ins.length <= 2) return row;
+
+  const out = { ...row };
+  const expTypeCd = Number(out.exp_type_cd ?? -1);
+  const insNum = Number(ins);
+  // 지출방법 숫자 코드이고 exp_type_cd가 미설정(-1/NaN)이면 공식 위치(EXP_TYPE_CD)로 이동
+  if (Number.isInteger(insNum) && (expTypeCd === -1 || !Number.isFinite(expTypeCd))) {
+    out.exp_type_cd = insNum;
+  }
+  // CHAR(2) 초과 방지: acc_ins_type 비움
+  out.acc_ins_type = null;
+  return out;
+}
+
 async function fetchTable(
   table: string,
   orgFilter?: { col: string; orgId: number },
@@ -684,8 +716,14 @@ export async function GET(request: NextRequest) {
     //   data1 → export ORG_ID=1 거래만
     //   data2 → export ORG_ID=2 거래만
     //   full → 전체
-    const finalAccBook = filterByExportOrgId(remapOrgId(accBook, orgIdMap));
-    const finalAccBookBak = filterByExportOrgId(remapOrgId(accBookBak, orgIdMap));
+    // 공식 포맷 정규화: 지출 행의 3자리 acc_ins_type(지출방법)을 EXP_TYPE_CD로 이동하고
+    // ACC_INS_TYPE(CHAR(2))을 비워, 선관위 프로그램이 지출부를 정상 로드하도록 한다.
+    const finalAccBook = filterByExportOrgId(remapOrgId(accBook, orgIdMap)).map(
+      normalizeOfficialExpenseRow,
+    );
+    const finalAccBookBak = filterByExportOrgId(remapOrgId(accBookBak, orgIdMap)).map(
+      normalizeOfficialExpenseRow,
+    );
     insertRows(db, "ACC_BOOK", finalAccBook);
     insertRows(db, "ACC_BOOK_BAK", finalAccBookBak);
 

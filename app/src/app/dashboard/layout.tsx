@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
 import { useAuth } from "@/stores/auth";
 import { useBeginnerMode, type WorkflowStep } from "@/stores/beginner-mode";
@@ -20,12 +20,10 @@ const MENU_ITEMS = {
       { href: "/dashboard/customer-batch", label: "수입지출처 일괄등록" },
     ]},
     { group: "정치자금관리", items: [
-      { href: "/dashboard/wizard", label: "간편등록 마법사" },
       { href: "/dashboard/income", label: "수입내역관리" },
       { href: "/dashboard/expense", label: "지출내역관리" },
       { href: "/dashboard/batch-import", label: "수입지출내역 일괄등록" },
       { href: "/dashboard/document-register", label: "영수증/계약서 자동등록" },
-      { href: "/dashboard/receipt", label: "당비영수증 출력" },
       { href: "/dashboard/resolution", label: "지출결의서 출력" },
     ]},
     { group: "보고관리", items: [
@@ -36,6 +34,7 @@ const MENU_ITEMS = {
       { href: "/dashboard/asset-report", label: "재산명세서" },
       { href: "/dashboard/party-summary", label: "정당 수입지출 총괄표" },
       { href: "/dashboard/support-detail", label: "지원금내역" },
+      { href: "/dashboard/reimbursement", label: "보전비용 관리" },
       { href: "/dashboard/reports", label: "보고서 및 수입지출부 출력" },
       { href: "/dashboard/audit", label: "감사의견서 등 출력" },
       { href: "/dashboard/forms", label: "서식 템플릿 출력" },
@@ -53,7 +52,6 @@ const MENU_ITEMS = {
       { href: "/dashboard/customer-batch", label: "수입지출처 일괄등록" },
     ]},
     { group: "정치자금관리", items: [
-      { href: "/dashboard/wizard", label: "간편등록 마법사" },
       { href: "/dashboard/income", label: "수입내역관리" },
       { href: "/dashboard/expense", label: "지출내역관리" },
       { href: "/dashboard/batch-import", label: "수입지출내역 일괄등록" },
@@ -67,6 +65,7 @@ const MENU_ITEMS = {
       { href: "/dashboard/asset-report", label: "재산명세서" },
       { href: "/dashboard/income-expense-report", label: "정치자금 수입지출보고서" },
       { href: "/dashboard/income-expense-book", label: "정치자금 수입지출부" },
+      { href: "/dashboard/reimbursement", label: "보전비용 관리" },
       { href: "/dashboard/reports", label: "보고서 및 수입지출부 출력" },
       { href: "/dashboard/audit", label: "감사의견서 등 출력" },
       { href: "/dashboard/forms", label: "서식 템플릿 출력" },
@@ -84,7 +83,6 @@ const MENU_ITEMS = {
       { href: "/dashboard/customer-batch", label: "수입지출처 일괄등록" },
     ]},
     { group: "정치자금관리", items: [
-      { href: "/dashboard/wizard", label: "간편등록 마법사" },
       { href: "/dashboard/income", label: "수입내역관리" },
       { href: "/dashboard/expense", label: "지출내역관리" },
       { href: "/dashboard/batch-import", label: "수입지출내역 일괄등록" },
@@ -98,7 +96,7 @@ const MENU_ITEMS = {
       { href: "/dashboard/asset-report", label: "재산명세서" },
       { href: "/dashboard/income-expense-report", label: "정치자금 수입지출보고서" },
       { href: "/dashboard/income-expense-book", label: "정치자금 수입지출부" },
-      { href: "/dashboard/reimbursement", label: "정치자금 수입지출부 보전비용" },
+      { href: "/dashboard/reimbursement", label: "보전비용 관리" },
       { href: "/dashboard/reports", label: "보고서 및 수입지출부 출력" },
       { href: "/dashboard/audit", label: "감사의견서 등 출력" },
       { href: "/dashboard/forms", label: "서식 템플릿 출력" },
@@ -116,7 +114,6 @@ const MENU_ITEMS = {
       { href: "/dashboard/customer-batch", label: "수입지출처 일괄등록" },
     ]},
     { group: "정치자금관리", items: [
-      { href: "/dashboard/wizard", label: "간편등록 마법사" },
       { href: "/dashboard/income", label: "수입내역관리" },
       { href: "/dashboard/expense", label: "지출내역관리" },
       { href: "/dashboard/batch-import", label: "수입지출내역 일괄등록" },
@@ -148,6 +145,7 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const { user, orgName, orgType, orgId, orgSecCd, accFrom, accTo, setUser } = useAuth();
 
   const ORG_TYPE_LABELS: Record<number, string> = {
@@ -277,22 +275,29 @@ export default function DashboardLayout({
         </div>
         <nav className="p-2">
           {menuGroups.map((group) => (
-            <div key={group.group} className="mb-3">
-              <h3 className="px-3 py-1 text-xs font-semibold text-gray-400 uppercase">
+            <div
+              key={group.group}
+              className="mb-1 pt-3 mt-2 border-t border-[#E2E0DC] first:border-t-0 first:pt-1 first:mt-0"
+            >
+              {/* 큰메뉴(그룹): 남색 볼드 오버라인 + 자간으로 섹션 헤더로 명확히 구분 */}
+              <h3 className="px-3 pb-1.5 text-[11px] font-bold tracking-[0.08em] text-[#1B3A5C]">
                 {group.group}
               </h3>
               {group.items.map((item) => {
                 const step = isEnabled ? getStepForHref(item.href) : undefined;
                 const stepIndex = step && workflowSteps ? workflowSteps.indexOf(step) : -1;
-                const isWizardRecommended = isEnabled && item.href === "/dashboard/wizard"
-                  && workflowSteps?.some(s => (s.id === "income" || s.id === "expense") && !s.completed);
+                const isActive = pathname === item.href;
 
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
                     onClick={() => setSidebarOpen(false)}
-                    className={`block px-3 py-2 text-sm rounded hover:bg-gray-100 transition-colors
+                    aria-current={isActive ? "page" : undefined}
+                    className={`block ml-2 pl-3 pr-3 py-1.5 text-[13px] rounded-md border-l-2 transition-colors
+                      ${isActive
+                        ? "bg-[#1B3A5C]/10 text-[#1B3A5C] font-semibold border-[#1B3A5C]"
+                        : "text-gray-700 border-transparent hover:bg-gray-100 hover:text-gray-900"}
                       ${isEnabled && step && !step.completed && currentStepId !== step.id ? "opacity-50" : ""}`}
                   >
                     <span className="flex items-center gap-2">
@@ -306,9 +311,6 @@ export default function DashboardLayout({
                         </span>
                       )}
                       {item.label}
-                      {isWizardRecommended && (
-                        <span className="text-[#D4883A] text-[10px] font-semibold ml-auto">추천</span>
-                      )}
                     </span>
                   </Link>
                 );

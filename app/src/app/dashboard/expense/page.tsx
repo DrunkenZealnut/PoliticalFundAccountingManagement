@@ -17,6 +17,7 @@ import { getExpTypeData, PAY_METHODS } from "@/lib/expense-types";
 import { PageGuide } from "@/components/page-guide";
 import { EmptyState } from "@/components/empty-state";
 import { PAGE_GUIDES } from "@/lib/page-guides";
+import { EvidenceFileManager, type PendingFile } from "@/components/evidence/evidence-file-manager";
 
 interface AccBook {
   acc_book_id: number;
@@ -63,7 +64,8 @@ export default function ExpensePage() {
   const [activeFilters, setActiveFilters] = useState<SearchFilters | null>(null);
   const [searchAccSecCd, setSearchAccSecCd] = useState(0);
   const [checkedIds, setCheckedIds] = useState<Set<number>>(new Set());
-  const [evidenceFile, setEvidenceFile] = useState<{ name: string; type: string; base64: string } | null>(null);
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+  const [evidenceCounts, setEvidenceCounts] = useState<Record<number, number>>({});
 
   // Search dropdown options
   const searchAccountOptions = orgSecCd ? getAccounts(orgSecCd, 2) : [];
@@ -121,8 +123,26 @@ export default function ExpensePage() {
     setLoading(false);
   }
 
+  // 거래별 증빙파일 첨부 개수 맵 (목록 배지용, signed URL 미생성)
+  async function loadEvidenceCounts(targetOrgId: number) {
+    try {
+      const res = await fetch(`/api/evidence-file?orgId=${targetOrgId}`);
+      const data = await res.json();
+      if (!Array.isArray(data)) return;
+      const m: Record<number, number> = {};
+      for (const f of data) {
+        if (f.acc_book_id) m[f.acc_book_id] = (m[f.acc_book_id] || 0) + 1;
+      }
+      setEvidenceCounts(m);
+    } catch {
+      /* 무시 */
+    }
+  }
+
   useEffect(() => {
     if (!orgId) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial data fetch
+    loadEvidenceCounts(orgId);
     const sb = createSupabaseBrowser();
     Promise.all([
       sb.from("acc_book").select("*, customer:cust_id(name)").eq("org_id", orgId).eq("incm_sec_cd", 2)
@@ -224,10 +244,37 @@ export default function ExpensePage() {
     loadRecords(activeFilters);
   }
 
+  // 대기 중 신규 파일들을 acc_book에 순차 업로드 (best-effort, 실패 건수 알림)
+  async function uploadPendingFiles(accBookId: number) {
+    if (pendingFiles.length === 0) return;
+    let failed = 0;
+    for (let i = 0; i < pendingFiles.length; i++) {
+      const f = pendingFiles[i];
+      try {
+        const res = await fetch("/api/evidence-file", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            accBookId,
+            orgId,
+            fileName: f.name,
+            fileType: f.type,
+            fileData: f.base64,
+            index: i,
+          }),
+        });
+        if (!res.ok) failed++;
+      } catch {
+        failed++;
+      }
+    }
+    if (failed > 0) alert(`증빙파일 ${pendingFiles.length}건 중 ${failed}건 업로드 실패`);
+  }
+
   function resetForm() {
     setSelected(null);
     setSelectedCustomerName("");
-    setEvidenceFile(null);
+    setPendingFiles([]);
     setForm({
       acc_sec_cd: 0,
       item_sec_cd: 0,
@@ -248,6 +295,7 @@ export default function ExpensePage() {
 
   function selectRecord(r: AccBook) {
     setSelected(r);
+    setPendingFiles([]); // 다른 거래 선택 시 대기 파일이 엉뚱한 거래에 업로드되지 않도록 초기화
     const custName =
       r.customer && typeof r.customer === "object" && "name" in r.customer
         ? (r.customer as { name: string | null }).name || ""
@@ -351,43 +399,20 @@ export default function ExpensePage() {
         alert(`수정 실패: ${error.message}`);
         return;
       }
-      // 수정 시에도 증빙파일 업로드 (새 파일 선택한 경우)
-      if (evidenceFile) {
-        await fetch("/api/evidence-file", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            accBookId: selected.acc_book_id,
-            orgId,
-            fileName: evidenceFile.name,
-            fileType: evidenceFile.type,
-            fileData: evidenceFile.base64,
-          }),
-        });
-      }
+      // 수정 시에도 증빙파일 업로드 (새로 선택한 파일들)
+      await uploadPendingFiles(selected.acc_book_id);
     } else {
       const { data: inserted, error } = await supabase.from("acc_book").insert(payload).select("acc_book_id").single();
       if (error) {
         alert(`등록 실패: ${error.message}`);
         return;
       }
-      // 증빙파일 업로드
-      if (evidenceFile && inserted?.acc_book_id) {
-        await fetch("/api/evidence-file", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            accBookId: inserted.acc_book_id,
-            orgId,
-            fileName: evidenceFile.name,
-            fileType: evidenceFile.type,
-            fileData: evidenceFile.base64,
-          }),
-        });
-      }
+      // 증빙파일 업로드 (새로 선택한 파일들)
+      if (inserted?.acc_book_id) await uploadPendingFiles(inserted.acc_book_id);
     }
     resetForm();
     loadRecords(activeFilters);
+    if (orgId) loadEvidenceCounts(orgId);
   }
 
   async function handleDelete() {
@@ -418,6 +443,7 @@ export default function ExpensePage() {
     }
     resetForm();
     loadRecords(activeFilters);
+    if (orgId) loadEvidenceCounts(orgId);
   }
 
   async function handleBatchDelete() {
@@ -444,6 +470,7 @@ export default function ExpensePage() {
     setCheckedIds(new Set());
     resetForm();
     loadRecords(activeFilters);
+    if (orgId) loadEvidenceCounts(orgId);
   }
 
   function toggleCheck(id: number) {
@@ -779,33 +806,15 @@ export default function ExpensePage() {
             )}
           </div>
 
-          {/* 증빙파일 첨부 */}
-          <div>
-            <Label>증빙파일</Label>
-            <div className="flex items-center gap-2 mt-1">
-              <Input
-                type="file"
-                accept="image/*,application/pdf"
-                className="flex-1"
-                onChange={async (e) => {
-                  const file = e.target.files?.[0];
-                  if (!file) { setEvidenceFile(null); return; }
-                  const reader = new FileReader();
-                  reader.onload = () => {
-                    const base64 = (reader.result as string).split(",")[1];
-                    setEvidenceFile({ name: file.name, type: file.type, base64 });
-                  };
-                  reader.readAsDataURL(file);
-                }}
-              />
-              {evidenceFile && (
-                <span className="text-xs text-green-600 whitespace-nowrap">
-                  {evidenceFile.name}
-                </span>
-              )}
-            </div>
-            <p className="text-xs text-gray-400 mt-1">영수증/계약서 이미지 (JPG, PNG, PDF)</p>
-          </div>
+          {/* 증빙파일 첨부 (다중) */}
+          {orgId && (
+            <EvidenceFileManager
+              accBookId={selected?.acc_book_id ?? null}
+              orgId={orgId}
+              pendingFiles={pendingFiles}
+              onPendingChange={setPendingFiles}
+            />
+          )}
         </div>
       </div>
 
@@ -923,6 +932,14 @@ export default function ExpensePage() {
                       <span className="text-green-600">O</span>
                     ) : (
                       <span className="text-red-500">X</span>
+                    )}
+                    {evidenceCounts[r.acc_book_id] > 0 && (
+                      <span
+                        className="ml-1 text-xs text-blue-600"
+                        title={`증빙파일 ${evidenceCounts[r.acc_book_id]}건`}
+                      >
+                        📎{evidenceCounts[r.acc_book_id]}
+                      </span>
                     )}
                   </td>
                   <td className="px-3 py-2 text-gray-600">

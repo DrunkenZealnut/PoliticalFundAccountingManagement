@@ -1,11 +1,30 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
 import { useAuth } from "@/stores/auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+
+interface DeletePreview {
+  income: number;
+  incomeAmt: number;
+  expense: number;
+  expenseAmt: number;
+  evidence: number;
+  estate: number;
+  customer: number;
+  backup: number;
+}
 
 const ORG_TYPE_LABELS: Record<number, string> = {
   50: "중앙당",
@@ -52,9 +71,18 @@ function fmtPeriod(from: string | null, to: string | null): string {
 
 export default function SelectOrganPage() {
   const router = useRouter();
-  const { user, setOrgan } = useAuth();
+  const { user, orgId, setOrgan, clearOrgan } = useAuth();
   const [organs, setOrgans] = useState<UserOrganRow[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // 삭제 모달 상태
+  const [deleteTarget, setDeleteTarget] = useState<UserOrganRow | null>(null);
+  const [preview, setPreview] = useState<DeletePreview | null>(null);
+  const [confirmText, setConfirmText] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  // 최신 미리보기 요청 식별 — 지연 도착한 이전 기관 응답이 현재 모달을 덮어쓰지 않게 한다.
+  const previewReqRef = useRef<number | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -91,6 +119,88 @@ export default function SelectOrganPage() {
     router.push("/register-organ");
   }
 
+  async function openDeleteDialog(item: UserOrganRow) {
+    const reqId = item.organ.org_id;
+    previewReqRef.current = reqId;
+    setDeleteTarget(item);
+    setPreview(null);
+    setConfirmText("");
+    setDeleteError(null);
+    try {
+      const res = await fetch("/api/organ", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "preview", orgId: reqId }),
+      });
+      const json = await res.json();
+      // 응답 도착 시점에 더 이상 이 기관의 모달이 아니면 폐기(레이스 방지)
+      if (previewReqRef.current !== reqId) return;
+      if (!res.ok) {
+        setDeleteError(json.error || "미리보기를 불러오지 못했습니다.");
+        return;
+      }
+      setPreview(json.counts as DeletePreview);
+    } catch {
+      if (previewReqRef.current !== reqId) return;
+      setDeleteError("미리보기를 불러오지 못했습니다.");
+    }
+  }
+
+  function closeDeleteDialog() {
+    if (deleting) return;
+    previewReqRef.current = null;
+    setDeleteTarget(null);
+    setPreview(null);
+    setConfirmText("");
+    setDeleteError(null);
+  }
+
+  async function handleConfirmDelete() {
+    // 되돌릴 수 없는 작업 — 미리보기 성공 + 기관명 일치 + 비진행 상태에서만 실행(중복 클릭 차단)
+    if (!deleteTarget || deleting || !canDelete) return;
+    const targetId = deleteTarget.organ.org_id;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch("/api/organ", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", orgId: targetId }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setDeleteError(json.error || "삭제 중 오류가 발생했습니다.");
+        setDeleting(false);
+        return;
+      }
+
+      // 현재 선택된 기관을 삭제한 경우 store 정리
+      const wasCurrent = orgId === targetId;
+      if (wasCurrent) clearOrgan();
+
+      // 목록 갱신
+      const remaining = organs.filter((o) => o.organ.org_id !== targetId);
+      setOrgans(remaining);
+      setDeleting(false);
+      setDeleteTarget(null);
+      setPreview(null);
+      setConfirmText("");
+      alert(`'${json.orgName ?? deleteTarget.organ.org_name}' 사용기관이 삭제되었습니다.`);
+
+      if (remaining.length === 0) {
+        router.push("/register-organ");
+      }
+    } catch {
+      setDeleteError("삭제 중 오류가 발생했습니다.");
+      setDeleting(false);
+    }
+  }
+
+  const confirmMatches =
+    !!deleteTarget && confirmText.trim() === deleteTarget.organ.org_name.trim();
+  // 삭제 가능 조건: 미리보기 성공(preview 존재 + 에러 없음) + 기관명 일치 + 비진행
+  const canDelete = confirmMatches && !!preview && !deleteError && !deleting;
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center text-gray-400">
@@ -119,37 +229,49 @@ export default function SelectOrganPage() {
           ) : (
             <>
               {organs.map((item) => (
-                <button
+                <div
                   key={item.org_id}
-                  onClick={() => handleSelect(item.organ)}
-                  className="w-full text-left p-4 rounded-lg border hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                  className="flex items-stretch rounded-lg border hover:border-blue-300 transition-colors overflow-hidden"
                 >
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <p className="font-semibold text-lg">
-                        {item.organ.org_name}
-                      </p>
-                      <p className="text-sm text-gray-500 mt-0.5">
-                        {ORG_TYPE_LABELS[item.organ.org_sec_cd] ||
-                          `코드: ${item.organ.org_sec_cd}`}
-                      </p>
+                  <button
+                    onClick={() => handleSelect(item.organ)}
+                    className="flex-1 text-left p-4 hover:bg-blue-50 transition-colors"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <p className="font-semibold text-lg">
+                          {item.organ.org_name}
+                        </p>
+                        <p className="text-sm text-gray-500 mt-0.5">
+                          {ORG_TYPE_LABELS[item.organ.org_sec_cd] ||
+                            `코드: ${item.organ.org_sec_cd}`}
+                        </p>
+                      </div>
+                      {item.is_default && (
+                        <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                          기본
+                        </span>
+                      )}
                     </div>
-                    {item.is_default && (
-                      <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
-                        기본
+                    <div className="mt-2 text-xs text-gray-400 flex gap-4">
+                      <span>
+                        회계기간:{" "}
+                        {fmtPeriod(item.organ.acc_from, item.organ.acc_to)}
                       </span>
-                    )}
-                  </div>
-                  <div className="mt-2 text-xs text-gray-400 flex gap-4">
-                    <span>
-                      회계기간:{" "}
-                      {fmtPeriod(item.organ.acc_from, item.organ.acc_to)}
-                    </span>
-                    {item.organ.acct_name && (
-                      <span>회계책임자: {item.organ.acct_name}</span>
-                    )}
-                  </div>
-                </button>
+                      {item.organ.acct_name && (
+                        <span>회계책임자: {item.organ.acct_name}</span>
+                      )}
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => openDeleteDialog(item)}
+                    aria-label={`${item.organ.org_name} 삭제`}
+                    title="사용기관 삭제"
+                    className="px-3 border-l text-gray-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+                  >
+                    삭제
+                  </button>
+                </div>
               ))}
               <div className="pt-4 border-t text-center">
                 <Button variant="outline" onClick={handleRegisterNew}>
@@ -160,6 +282,75 @@ export default function SelectOrganPage() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => {
+          if (!open) closeDeleteDialog();
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>사용기관 삭제</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
+              <p className="font-semibold">경고: 삭제된 자료는 복구할 수 없습니다.</p>
+              <p>해당 기관의 모든 회계자료·증빙파일·자산이 영구히 삭제됩니다.</p>
+            </div>
+
+            <p className="text-sm">
+              <b>&ldquo;{deleteTarget?.organ.org_name}&rdquo;</b>의 다음 데이터가
+              삭제됩니다:
+            </p>
+
+            {deleteError ? (
+              <p className="text-sm text-red-600">{deleteError}</p>
+            ) : preview ? (
+              <div className="bg-gray-50 rounded p-3 text-sm space-y-1">
+                <p>
+                  수입 <b>{preview.income.toLocaleString("ko-KR")}건</b> ·
+                  지출 <b>{preview.expense.toLocaleString("ko-KR")}건</b>
+                </p>
+                <p>
+                  증빙파일 {preview.evidence.toLocaleString("ko-KR")}건 · 자산{" "}
+                  {preview.estate.toLocaleString("ko-KR")}건 · 수입지출처{" "}
+                  {preview.customer.toLocaleString("ko-KR")}건
+                </p>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-400">영향 자료를 확인하는 중...</p>
+            )}
+
+            <div className="space-y-1">
+              <p className="text-sm text-gray-600">
+                확인을 위해 기관명을 그대로 입력하세요:
+              </p>
+              <Input
+                value={confirmText}
+                onChange={(e) => setConfirmText(e.target.value)}
+                placeholder={deleteTarget?.organ.org_name}
+                aria-label="삭제 확인용 기관명 입력"
+                disabled={deleting}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={closeDeleteDialog} disabled={deleting}>
+              취소
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleConfirmDelete}
+              disabled={!canDelete}
+            >
+              {deleting ? "삭제 중..." : "영구 삭제"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

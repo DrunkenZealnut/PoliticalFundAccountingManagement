@@ -8,21 +8,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-All commands run from the `app/` directory:
+All commands run from the `app/` directory.
+
+> **CRITICAL — `node_modules/.bin` is empty in this environment.** Both `npm run *`
+> and `npx <tool>` fail with `command not found` (vitest/eslint/next are not on PATH).
+> Invoke the binaries via their node entry points directly:
 
 ```bash
 cd app
-npm run dev          # Dev server on port 3001
-npm run build        # Production build
-npm run lint         # ESLint (v9 flat config)
-npm run test         # Vitest run (all tests)
-npm run test:watch   # Vitest watch mode
+node node_modules/next/dist/bin/next dev --port 3001        # Dev server (port 3001)
+node node_modules/next/dist/bin/next build                  # Production build
+node node_modules/eslint/bin/eslint.js <paths>              # Lint (v9 flat config)
+node node_modules/vitest/vitest.mjs run                     # Run all tests
+node node_modules/vitest/vitest.mjs run src/stores/auth.test.ts   # Single test file
 ```
 
-Run a single test file:
-```bash
-cd app && npx vitest run src/components/chat/ChatBubble.test.tsx
-```
+(The `package.json` scripts — `npm run dev|build|lint|test|test:watch` — encode the
+intended commands but only work where `.bin` is populated.)
 
 ## Architecture
 
@@ -64,9 +66,11 @@ types/database.ts → Supabase-generated types for pfam schema
 
 ### Database Schema (`pfam`)
 
-Key tables: `organ` (organizations), `customer` (counterparties), `acc_book` (accounting ledger), `codeset`/`codevalue` (reference codes), `acc_rel` (code-org mapping), `estate` (assets), `opinion` (audit). RPC functions: `calculate_balance`, `export_org_data`.
+Key tables: `organ` (organizations), `customer` (counterparties), `acc_book` (accounting ledger), `codeset`/`codevalue` (reference codes), `acc_rel` (code-org mapping), `estate` (assets), `opinion` (audit). RPC functions: `calculate_balance`, `export_org_data`, `delete_org_data` (atomic org cascade-delete, see below).
 
 Organization types: party, lawmaker, candidate, supporter — determined by `orgSecCd` code.
+
+**FK cascade gotcha**: Most `org_id` foreign keys have **no `ON DELETE CASCADE`** (exceptions: `evidence_file.acc_book_id → acc_book`, `user_organ.user_id → auth.users`). Deleting an org therefore goes through the `delete_org_data(p_org_id)` RPC (`scripts/012`), which removes child rows in reverse-FK order inside one transaction. `customer.org_id` is nullable (added in `scripts/011` for org isolation) — shared/anonymous customers (`org_id IS NULL`) are preserved on delete. Evidence Storage files are removed by the API *before* the RPC (Postgres can't delete Storage objects).
 
 ### API Pattern
 
@@ -97,6 +101,12 @@ Two distinct export systems:
 2. **Batch report output** (`reports/page.tsx` client-side) — generates multi-sheet workbook with covers, 정치자금 수입·지출부 (13-column combined income+expense format), grouped by account+subject combo
 
 Excel generation uses ExcelJS directly (not templates) to match official election commission form layouts. Each account/subject combination produces one sheet with both income and expense records sorted by date.
+
+### SQLite Export/Import (선관위 Fund_Data round-trip)
+
+`/api/system/export-sqlite` (자료백업) builds a SQLite `.db` matching the official 선관위 Windows program's schema exactly (`Fund_Master`/`Fund_Data_1` 후보자 / `Fund_Data_2` 후원회), so users can load it into that program. `/api/system/import-sqlite` ingests the same format. The DDL in the export route **must mirror the official column types** — they are stricter than our Supabase schema and the Windows program rejects mismatches on load.
+
+**Critical gotcha (caused a real bug)**: the official `ACC_BOOK.ACC_INS_TYPE` is `CHAR(2)`, but the app stores 3-char 지출방법 codes (PAY_METHODS: "118", "585", ...) in `acc_ins_type`. Exporting a 3-char value into `CHAR(2)` makes the program **silently drop the entire 지출(expense) ledger** while income loads fine. The official format instead carries the pay-method code in `EXP_TYPE_CD` (integer) with `ACC_INS_TYPE` empty. `normalizeOfficialExpenseRow` in the export route fixes this per-row before insert (moves the code to `EXP_TYPE_CD`, clears `ACC_INS_TYPE`). When adding fields to the SQLite export, watch for similar app↔official format divergences.
 
 ### Evidence File Storage
 
