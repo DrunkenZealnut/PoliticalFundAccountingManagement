@@ -43,13 +43,13 @@ This uses Next.js 16 which has breaking changes from training data. Always read 
 - `acc_ins_type` column is `VARCHAR(5)` (was CHAR(2), widened via `scripts/008`). PAY_METHODS codes are 3 chars ("118", "583").
 - All dates stored as `YYYYMMDD` strings (not DATE type). UI uses `YYYY-MM-DD`, convert on save/display.
 - `customer.org_id` (added via `scripts/011`) scopes counterparties per organization — a same-name counterparty in two orgs is two rows. The anonymous customer (`name='익명'`) is shared with `org_id` NULL. Every customer read/write/match path must filter/set `org_id` (customers API, customer + customer-batch pages, acc-book batch matching, import/export-sqlite).
-- Migrations live in `app/scripts/0NN_*.sql` and are applied **manually via the Supabase SQL editor** (DDL cannot run through the service-role REST client). Latest is `011`.
+- Migrations live in `app/scripts/0NN_*.sql` and are applied **manually via the Supabase SQL editor** (DDL cannot run through the service-role REST client). Latest is `013` (`012` = `delete_org_data` RPC, `013` = `finalize_settlement` RPC).
 
 ### Source Layout (`app/src/`)
 
 ```
-app/api/          → 8 API route groups (codes, customers, acc-book, excel/*, system/*, address/search, evidence-file, reimbursement)
-app/dashboard/    → 20 pages: income, expense, document-register (manual entry), reports, submit, reset, backup (SQLite backup/restore), customer, customer-batch, organ, aggregate, audit, forms, etc.
+app/api/          → route groups: codes, customers, acc-book, organ, excel/{export,report}, system/{export-sqlite,import-sqlite,recompute-settlement,workflow-status}, address/search, evidence-file, reimbursement/claim-form/aggregate
+app/dashboard/    → 26 pages: income, expense, document-register (manual entry), reports, submit, reset, backup (SQLite backup/restore), customer, customer-batch, organ, aggregate, audit, forms, settlement, estate, codes, etc. Several are org-type-gated (party-summary, supporter-summary, support-detail, donors) — see Org-Type Differentiation below.
 app/login/        → Supabase email/password auth
 components/chat/  → ChatBubble (static FAQ browser, well-tested)
 components/ui/    → shadcn/ui primitives (Button, Card, Dialog, Table, etc.)
@@ -66,9 +66,13 @@ types/database.ts → Supabase-generated types for pfam schema
 
 ### Database Schema (`pfam`)
 
-Key tables: `organ` (organizations), `customer` (counterparties), `acc_book` (accounting ledger), `codeset`/`codevalue` (reference codes), `acc_rel` (code-org mapping), `estate` (assets), `opinion` (audit). RPC functions: `calculate_balance`, `export_org_data`, `delete_org_data` (atomic org cascade-delete, see below).
+Key tables: `organ` (organizations), `customer` (counterparties), `acc_book` (accounting ledger), `codeset`/`codevalue` (reference codes), `acc_rel` (code-org mapping), `estate` (assets), `opinion` (audit). RPC functions: `calculate_balance`, `export_org_data`, `delete_org_data` (atomic org cascade-delete, see below), `finalize_settlement` (`scripts/013`, transactional settlement lock — EXECUTE granted to `authenticated` only).
 
 Organization types: party, lawmaker, candidate, supporter — determined by `orgSecCd` code.
+
+### Org-Type Differentiation
+
+The dashboard adapts to the selected org's `orgType`. `components/dashboard/QuickActions.tsx` defines `COMMON_ACTIONS` plus per-orgType `ORG_SPECIFIC_ACTIONS`; sidebar nav and some pages are org-type-specific (`party-summary`, `supporter-summary`, `support-detail`, `donors`). When adding an org-specific quick action, the `href` **must** match an existing `app/dashboard/<route>/page.tsx` — mismatches 404 (regression-guarded by `QuickActions.test.tsx`).
 
 **FK cascade gotcha**: Most `org_id` foreign keys have **no `ON DELETE CASCADE`** (exceptions: `evidence_file.acc_book_id → acc_book`, `user_organ.user_id → auth.users`). Deleting an org therefore goes through the `delete_org_data(p_org_id)` RPC (`scripts/012`), which removes child rows in reverse-FK order inside one transaction. `customer.org_id` is nullable (added in `scripts/011` for org isolation) — shared/anonymous customers (`org_id IS NULL`) are preserved on delete. Evidence Storage files are removed by the API *before* the RPC (Postgres can't delete Storage objects).
 
