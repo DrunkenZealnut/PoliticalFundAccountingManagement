@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/stores/auth";
 import { useCodeValues } from "@/hooks/use-code-values";
 import { useUndo } from "@/hooks/use-undo";
@@ -16,6 +16,8 @@ import { AccBookSearch, type SearchFilters } from "@/components/acc-book-search"
 import { PageGuide } from "@/components/page-guide";
 import { EmptyState } from "@/components/empty-state";
 import { PAGE_GUIDES } from "@/lib/page-guides";
+import { buildIncomeSummary } from "@/lib/accounting/ledger-summary";
+import { LedgerSummaryHeader } from "@/components/dashboard/LedgerSummaryHeader";
 
 interface AccBook {
   acc_book_id: number;
@@ -75,6 +77,12 @@ export default function IncomePage() {
   const accountOptions = orgSecCd ? getAccounts(orgSecCd, 1) : [];
   const itemOptions =
     orgSecCd && form.acc_sec_cd ? getItems(orgSecCd, 1, form.acc_sec_cd) : [];
+
+  // 현황 요약 (현재 조회된 수입 records 기준, 잔액은 전체 기준)
+  const incomeStatus = useMemo(
+    () => buildIncomeSummary(records, { getName, balance: summary.balance, orgType }),
+    [records, summary.balance, getName, orgType],
+  );
 
   async function loadRecords(filters?: SearchFilters | null) {
     if (!orgId) return;
@@ -418,6 +426,14 @@ export default function IncomePage() {
           </div>
         </HelpTooltip>
       </div>
+
+      {/* 현황 요약 */}
+      <LedgerSummaryHeader
+        summary={incomeStatus}
+        groupTone="income"
+        scopeLabel={`현재 조회 ${records.length}건`}
+        loading={loading}
+      />
 
       {/* 입력 폼 */}
       <div className="bg-white rounded-lg border p-4">

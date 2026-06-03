@@ -122,4 +122,10 @@ export const HELP_TEXTS: Record<string, HelpText> = {
   // 기타
   "document-register.ocr": { title: "AI 자동 인식", description: "업로드한 영수증·계약서 이미지에서 날짜, 금액, 거래처, 내역을 AI가 자동으로 읽어냅니다." },
   "batch-import.template-note": { title: "엑셀 양식 안내", description: "양식 내의 유의사항 시트와 컬럼 헤더를 삭제하지 마세요. 검증 시 오류가 발생합니다." },
+
+  // 현황 요약 (수입/지출 내역 상단 헤더)
+  "ledger.income-total": { title: "수입 총액", description: "현재 조회된 수입 내역의 합계입니다. 검색 조건을 적용하면 그 결과 기준으로 바뀝니다." },
+  "ledger.balance": { title: "잔액(전체)", description: "전체 수입에서 전체 지출을 뺀 잔액입니다. 검색 필터와 무관하게 항상 전체 기준입니다." },
+  "ledger.election-item": { title: "선거비용(과목)", description: "과목이 '선거비용'인 지출의 합계입니다. 보전 대상 여부와는 별개로, 과목 분류 기준 금액입니다." },
+  "ledger.reimbursable": { title: "보전대상", description: "지출유형(세부코드)이 지정된 보전 대상 선거비용입니다. 대시보드 '선거비용 지출' 카드와 동일한 기준이며, 과목 선거비용과 다를 수 있습니다." },
 };
