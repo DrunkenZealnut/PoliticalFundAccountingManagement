@@ -48,18 +48,19 @@ This uses Next.js 16 which has breaking changes from training data. Always read 
 ### Source Layout (`app/src/`)
 
 ```
-app/api/          → route groups: codes, customers, acc-book, organ, excel/{export,report}, system/{export-sqlite,import-sqlite,recompute-settlement,workflow-status}, address/search, evidence-file, reimbursement/claim-form/aggregate
-app/dashboard/    → 26 pages: income, expense, document-register (manual entry), reports, submit, reset, backup (SQLite backup/restore), customer, customer-batch, organ, aggregate, audit, forms, settlement, estate, codes, etc. Several are org-type-gated (party-summary, supporter-summary, support-detail, donors) — see Org-Type Differentiation below.
+app/api/          → route groups: codes, customers, acc-book, organ, excel/{export,report}, system/{export-sqlite,import-sqlite,recompute-settlement,workflow-status}, address/search, evidence-file, reimbursement/claim-form/aggregate, hwpx/generate
+app/dashboard/    → 27 pages: income, expense, document-register (manual entry), reports, submit, reset, backup (SQLite backup/restore), customer, customer-batch, organ, aggregate, audit, forms, settlement, estate, codes, submission-forms (선관위 제출서류 HWPX 생성), etc. Several are org-type-gated (party-summary, supporter-summary, support-detail, donors) — see Org-Type Differentiation below.
 app/login/        → Supabase email/password auth
 components/chat/  → ChatBubble (static FAQ browser, well-tested)
 components/ui/    → shadcn/ui primitives (Button, Card, Dialog, Table, etc.)
-hooks/            → use-code-values, use-donation-limit, use-sort, use-undo
+hooks/            → use-code-values, use-donation-limit, use-sort, use-undo, use-hwpx-prefill
 lib/supabase/     → client.ts (browser), server.ts (SSR), middleware.ts (session)
 lib/chat/         → faq-data.ts (static FAQ items only)
 lib/accounting/   → Business logic: settlement-calc (balances), funding-source, submission-forms, + PFund2 SQLite compat (organ-pair, pfund2-constants, parity-errors, import-helpers)
 lib/expense-types.ts → Shared 3-level expense type data (선거비용/선거비용외) + PAY_METHODS
 lib/wizard-mappings.ts → Wizard card definitions + code auto-mapping
 lib/excel-template/ → Excel report generation with data-query
+lib/hwpx/         → 선관위 제출서류 HWPX 생성: generate (토큰 치환 코어, JSZip·STORED mimetype), escape (XML escape + 날짜 포맷), form-fields (서식 6종 정의 + 토큰 레지스트리, 템플릿은 public/hwpx-templates/*.hwpx)
 stores/           → auth.ts (user + org state), help-mode.ts
 types/database.ts → Supabase-generated types for pfam schema
 ```
