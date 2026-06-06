@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
 import { useAuth } from "@/stores/auth";
 import { useCodeValues } from "@/hooks/use-code-values";
@@ -18,6 +18,8 @@ import { PageGuide } from "@/components/page-guide";
 import { EmptyState } from "@/components/empty-state";
 import { PAGE_GUIDES } from "@/lib/page-guides";
 import { EvidenceFileManager, type PendingFile } from "@/components/evidence/evidence-file-manager";
+import { buildExpenseSummary } from "@/lib/accounting/ledger-summary";
+import { LedgerSummaryHeader } from "@/components/dashboard/LedgerSummaryHeader";
 
 interface AccBook {
   acc_book_id: number;
@@ -34,6 +36,7 @@ interface AccBook {
   rcp_no: string | null;
   acc_sort_num: number | null;
   acc_ins_type: string | null;
+  acc_print_ok: string | null;
   bigo: string | null;
   exp_type_cd: number | null;
   exp_group1_cd: string | null;
@@ -494,6 +497,12 @@ export default function ExpensePage() {
 
   const { sorted, sort, toggle } = useSort(records);
 
+  // 현황 요약 (현재 조회된 지출 records 기준, 잔액은 전체 기준)
+  const expenseStatus = useMemo(
+    () => buildExpenseSummary(records, { getName, balance: summary.balance, orgType }),
+    [records, summary.balance, getName, orgType],
+  );
+
   if (codesLoading) {
     return (
       <div className="flex items-center justify-center h-64 text-gray-400">
@@ -522,6 +531,14 @@ export default function ExpensePage() {
           </span>
         </div>
       </div>
+
+      {/* 현황 요약 */}
+      <LedgerSummaryHeader
+        summary={expenseStatus}
+        groupTone="expense"
+        scopeLabel={`현재 조회 ${records.length}건`}
+        loading={loading}
+      />
 
       <div className="bg-white rounded-lg border p-4">
         <div className="flex gap-2 mb-4">
