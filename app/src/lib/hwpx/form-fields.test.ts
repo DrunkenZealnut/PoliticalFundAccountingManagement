@@ -52,7 +52,14 @@ describe("_token-manifest.json ↔ HWPX_FORM_DEFS 정합성", () => {
       const entry = manifest[def.id];
       expect(entry, `manifest에 ${def.id} 없음`).toBeDefined();
       expect(entry.file).toBe(def.template);
-      const manifestTokens = new Set(entry.tokens.map((t) => t.slice(2, -2)));
+      const manifestTokens = new Set(
+        entry.tokens.map((t) => {
+          if (!t.startsWith("{{") || !t.endsWith("}}")) {
+            throw new Error(`매니페스트 ${def.id}의 토큰 형식 오류: ${t}`);
+          }
+          return t.slice(2, -2);
+        })
+      );
       const defTokens = new Set(def.fields.map((f) => f.token));
       expect(manifestTokens).toEqual(defTokens);
     });
