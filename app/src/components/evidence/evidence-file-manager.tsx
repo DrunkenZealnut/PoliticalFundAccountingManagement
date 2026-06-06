@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { EVIDENCE_MAX_FILES, EVIDENCE_MAX_FILE_SIZE } from "@/lib/evidence/storage-path";
 import { fileToBase64 } from "@/lib/file-utils";
+import { detectDeliveryFee, extractPdfText } from "@/lib/evidence/delivery-fee-detector";
 
 /**
  * 증빙파일 관리 컴포넌트.
@@ -62,6 +63,7 @@ export function EvidenceFileManager({
   const [loading, setLoading] = useState(false);
   const [preview, setPreview] = useState<PreviewTarget | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [deliveryWarning, setDeliveryWarning] = useState(false);
 
   const fetchExisting = useCallback(async () => {
     if (!accBookId) {
@@ -108,6 +110,21 @@ export function EvidenceFileManager({
     }
     onPendingChange(next);
 
+    // 새로 추가된 PDF에서 배송비 항목을 감지하면 별도 등록 안내 배너를 켠다.
+    for (const file of files.slice(0, room)) {
+      if (file.type !== "application/pdf") continue;
+      try {
+        const base64 = await fileToBase64(file);
+        const text = await extractPdfText(base64);
+        if (detectDeliveryFee(text).matched) {
+          setDeliveryWarning(true);
+          break;
+        }
+      } catch {
+        // 추출 실패(스캔/암호화 PDF 등)는 조용히 무시
+      }
+    }
+
     if (files.length > room) {
       alert(`최대 ${EVIDENCE_MAX_FILES}건까지만 첨부됩니다. ${files.length - room}건은 제외되었습니다.`);
     }
@@ -115,7 +132,9 @@ export function EvidenceFileManager({
   }
 
   function removePending(idx: number) {
-    onPendingChange(pendingFiles.filter((_, i) => i !== idx));
+    const next = pendingFiles.filter((_, i) => i !== idx);
+    onPendingChange(next);
+    if (next.length === 0) setDeliveryWarning(false);
   }
 
   async function deleteExisting(fileId: number) {
@@ -136,6 +155,14 @@ export function EvidenceFileManager({
           ({totalCount}/{EVIDENCE_MAX_FILES})
         </span>
       </Label>
+      {deliveryWarning && (
+        <div
+          role="alert"
+          className="mt-1 rounded border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-800"
+        >
+          ⚠️ 이 증빙에 배송비(운송·발송·택배 등)가 포함된 것 같습니다. 배송비는 별도 항목으로 등록하세요.
+        </div>
+      )}
 
       {/* 기존 첨부 목록 */}
       {accBookId != null && (
