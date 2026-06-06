@@ -89,6 +89,12 @@ export default function FormInputPanel({ def, prefill }: Props) {
         <span className="text-xs text-muted-foreground">서식 {def.id}</span>
       </div>
 
+      {def.fields.length === 0 && (
+        <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
+          이 서식은 빈 공식 양식입니다. 다운로드한 뒤 한글에서 직접 작성하세요.
+        </p>
+      )}
+
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {def.fields.map((f) => (
           <div key={f.token} className="flex flex-col gap-1.5">
@@ -129,7 +135,7 @@ export default function FormInputPanel({ def, prefill }: Props) {
 
       <div className="flex items-center gap-3">
         <Button onClick={handleGenerate} disabled={busy}>
-          {busy ? "생성 중…" : "HWPX 생성 및 다운로드"}
+          {busy ? "생성 중…" : def.fields.length === 0 ? "빈 양식 다운로드" : "HWPX 생성 및 다운로드"}
         </Button>
         <span className="text-xs text-muted-foreground">
           다운로드한 .hwpx 파일을 한글에서 열어 확인·인쇄·날인 후 제출하세요.

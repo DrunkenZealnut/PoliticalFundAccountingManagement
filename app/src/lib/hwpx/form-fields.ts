@@ -30,7 +30,17 @@ export type OrgScope = "all" | "candidate" | "supporter";
 export interface HwpxFormDef {
   id: string;
   label: string;
-  category: "인계인수" | "회계책임자" | "예금계좌" | "후원회";
+  category:
+    | "인계인수"
+    | "회계책임자"
+    | "예금계좌"
+    | "후원회"
+    | "회계장부"
+    | "지급명세서"
+    | "증빙정리"
+    | "회계보고서"
+    | "정치자금영수증"
+    | "보전·청구";
   template: string;
   orgScope: OrgScope;
   fields: readonly HwpxFormField[];
@@ -155,6 +165,35 @@ export const HWPX_FORM_DEFS: readonly HwpxFormDef[] = [
       "후원회명",
     ),
   },
+
+  /* ----------------------------------------------------------------- */
+  /*  회계실무 작성예시 추출 서식 (다운로드용 공식 양식, 토큰 없음)    */
+  /*  한글에서 직접 작성하는 회계장부·보고서·명세서·청구서 계열       */
+  /* ----------------------------------------------------------------- */
+  { id: "7", label: "(예비)후보자 정치자금 수입계정별 회계장부", category: "회계장부", template: "form-7.hwpx", orgScope: "candidate", fields: [] },
+  { id: "8", label: "후원회 정치자금 수입계정별 회계장부", category: "회계장부", template: "form-8.hwpx", orgScope: "supporter", fields: [] },
+  { id: "20", label: "정치자금 수입·지출부(회계장부 마감)", category: "회계장부", template: "form-20.hwpx", orgScope: "all", fields: [] },
+  { id: "14", label: "선거사무관계자 수당·실비 지급명세서", category: "지급명세서", template: "form-14.hwpx", orgScope: "candidate", fields: [] },
+  { id: "17", label: "영수증 등 증빙서류 첩부 및 정리", category: "증빙정리", template: "form-17.hwpx", orgScope: "all", fields: [] },
+  { id: "22-1", label: "(예비)후보자 회계보고서(수입·지출보고서)", category: "회계보고서", template: "form-22-1.hwpx", orgScope: "candidate", fields: [] },
+  { id: "22-2", label: "(예비)후보자 회계보고서(선거비용 지출내역 집계표)", category: "회계보고서", template: "form-22-2.hwpx", orgScope: "candidate", fields: [] },
+  { id: "22-3", label: "(예비)후보자 회계보고서(재산명세서)", category: "회계보고서", template: "form-22-3.hwpx", orgScope: "candidate", fields: [] },
+  { id: "22-4", label: "(예비)후보자 회계보고서(수입·지출부)", category: "회계보고서", template: "form-22-4.hwpx", orgScope: "candidate", fields: [] },
+  { id: "23-1", label: "후원회 회계보고서(제출문서)", category: "회계보고서", template: "form-23-1.hwpx", orgScope: "supporter", fields: [] },
+  { id: "23-2", label: "후원회 회계보고서(재산명세서)", category: "회계보고서", template: "form-23-2.hwpx", orgScope: "supporter", fields: [] },
+  { id: "23-3", label: "후원회 회계보고서(수입·지출총괄표)", category: "회계보고서", template: "form-23-3.hwpx", orgScope: "supporter", fields: [] },
+  { id: "23-4", label: "후원회 회계보고서(수입명세서)", category: "회계보고서", template: "form-23-4.hwpx", orgScope: "supporter", fields: [] },
+  { id: "23-5", label: "후원회 회계보고서(지출명세서)", category: "회계보고서", template: "form-23-5.hwpx", orgScope: "supporter", fields: [] },
+  { id: "23-6", label: "후원회 회계보고서(영수증)", category: "회계보고서", template: "form-23-6.hwpx", orgScope: "supporter", fields: [] },
+  { id: "23-7", label: "후원회 회계보고서(후원금 기부자 명단)", category: "회계보고서", template: "form-23-7.hwpx", orgScope: "supporter", fields: [] },
+  { id: "23-8", label: "후원회 회계보고서(고액기부자 명단)", category: "회계보고서", template: "form-23-8.hwpx", orgScope: "supporter", fields: [] },
+  { id: "23-9", label: "후원회 회계보고서(감사의견서)", category: "회계보고서", template: "form-23-9.hwpx", orgScope: "supporter", fields: [] },
+  { id: "23-10", label: "후원회 회계보고서(영수증 첩부)", category: "회계보고서", template: "form-23-10.hwpx", orgScope: "supporter", fields: [] },
+  { id: "23-11", label: "후원회 회계보고서(잔여재산 인계·인수서)", category: "회계보고서", template: "form-23-11.hwpx", orgScope: "supporter", fields: [] },
+  { id: "37-2", label: "정치자금영수증 발급신청서", category: "정치자금영수증", template: "form-37-2.hwpx", orgScope: "supporter", fields: [] },
+  { id: "38", label: "정치자금영수증 발행·반납대장", category: "정치자금영수증", template: "form-38.hwpx", orgScope: "supporter", fields: [] },
+  { id: "43", label: "선거비용 보전청구서", category: "보전·청구", template: "form-43.hwpx", orgScope: "candidate", fields: [] },
+  { id: "44", label: "점자형선거공보 등 부담비용 지급청구서", category: "보전·청구", template: "form-44.hwpx", orgScope: "candidate", fields: [] },
 ];
 
 export function getFormDef(id: string): HwpxFormDef | undefined {
