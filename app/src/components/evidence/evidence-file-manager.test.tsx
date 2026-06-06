@@ -2,6 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import { EvidenceFileManager } from "./evidence-file-manager";
 
+vi.mock("@/lib/evidence/delivery-fee-detector", () => ({
+  extractPdfText: vi.fn().mockResolvedValue("점자 박스/포장/발송비 44,352"),
+  detectDeliveryFee: vi.fn().mockReturnValue({ matched: true, keyword: "발송비" }),
+}));
+
 const noop = () => {};
 
 const sampleRow = (over: Record<string, unknown> = {}) => ({
@@ -104,5 +109,18 @@ describe("EvidenceFileManager", () => {
       const input = container.querySelector('input[type="file"]') as HTMLInputElement;
       expect(input.disabled).toBe(true);
     });
+  });
+
+  it("배송비가 감지된 PDF를 첨부하면 별도 등록 안내 배너를 표시한다", async () => {
+    render(
+      <EvidenceFileManager accBookId={null} orgId={7} pendingFiles={[]} onPendingChange={noop} />
+    );
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const pdf = new File(["%PDF-1.4 dummy"], "견적서.pdf", { type: "application/pdf" });
+    fireEvent.change(input, { target: { files: [pdf] } });
+
+    expect(
+      await screen.findByText(/배송비는 별도 항목으로 등록하세요/)
+    ).toBeInTheDocument();
   });
 });
