@@ -55,3 +55,6 @@ Thumbs.db
 nohup.out
 .env*.local
 .gstack/
+
+# Python venv (hwpx 스킬 도구용)
+.venv/
