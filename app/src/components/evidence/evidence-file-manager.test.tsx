@@ -165,4 +165,19 @@ describe("EvidenceFileManager", () => {
       expect(screen.queryByText(/배송비는 별도 항목으로 등록하세요/)).not.toBeInTheDocument()
     );
   });
+
+  it("배송비 배너의 닫기(✕) 버튼을 누르면 배너가 사라진다", async () => {
+    render(
+      <EvidenceFileManager accBookId={null} orgId={7} pendingFiles={[]} onPendingChange={noop} />
+    );
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const pdf = new File(["%PDF-1.4 dummy"], "견적서.pdf", { type: "application/pdf" });
+    fireEvent.change(input, { target: { files: [pdf] } });
+    await screen.findByText(/배송비는 별도 항목으로 등록하세요/);
+
+    fireEvent.click(screen.getByLabelText("배송비 안내 닫기"));
+    await waitFor(() =>
+      expect(screen.queryByText(/배송비는 별도 항목으로 등록하세요/)).not.toBeInTheDocument()
+    );
+  });
 });
