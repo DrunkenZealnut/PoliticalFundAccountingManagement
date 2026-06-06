@@ -24,7 +24,8 @@ export function fmtKoreanDate(input: string): string {
   const digits = input.replace(/[^0-9]/g, "");
   if (digits.length !== 8) return input;
   const y = digits.slice(0, 4);
-  const m = String(Number(digits.slice(4, 6)));
-  const d = String(Number(digits.slice(6, 8)));
-  return `${y}년 ${m}월 ${d}일`;
+  const mNum = Number(digits.slice(4, 6));
+  const dNum = Number(digits.slice(6, 8));
+  if (mNum < 1 || mNum > 12 || dNum < 1 || dNum > 31) return input;
+  return `${y}년 ${mNum}월 ${dNum}일`;
 }

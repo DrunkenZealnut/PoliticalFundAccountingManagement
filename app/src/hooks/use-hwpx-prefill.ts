@@ -26,8 +26,6 @@ export function useHwpxPrefill() {
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
-      // 비동기 경계 확보: effect 본문에서 동기 setState 호출 방지
-      await Promise.resolve();
       if (cancelled) return;
       if (!orgId) {
         setOrgan(null);

@@ -60,10 +60,8 @@ describe("generateHwpx", () => {
     // 첫 local file header: PK\x03\x04, compression method @offset8(2B)=0, filename @offset30
     expect(bytes[0]).toBe(0x50); // P
     expect(bytes[1]).toBe(0x4b); // K
-    const method = bytes[8] | (bytes[10] /* unused */ & 0); // method low byte
     expect(bytes[8]).toBe(0); // STORED low byte
     expect(bytes[9]).toBe(0); // STORED high byte
-    void method;
     const nameBytes = bytes.slice(30, 30 + "mimetype".length);
     expect(Buffer.from(nameBytes).toString("utf8")).toBe("mimetype");
   });

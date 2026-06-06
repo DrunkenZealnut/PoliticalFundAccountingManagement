@@ -34,25 +34,27 @@ export default function SubmissionFormsPage() {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-[260px_1fr]">
-        <Card>
-          <CardContent className="py-4">
-            <FormCatalog forms={forms} selectedId={selected?.id ?? null} onSelect={setSelected} />
-          </CardContent>
-        </Card>
+      {orgId && (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-[260px_1fr]">
+          <Card>
+            <CardContent className="py-4">
+              <FormCatalog forms={forms} selectedId={selected?.id ?? null} onSelect={setSelected} />
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardContent className="py-4">
-            {selected ? (
-              <FormInputPanel def={selected} prefill={prefill} />
-            ) : (
-              <p className="py-8 text-center text-sm text-muted-foreground">
-                왼쪽에서 작성할 서식을 선택하세요.
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+          <Card>
+            <CardContent className="py-4">
+              {selected ? (
+                <FormInputPanel def={selected} prefill={prefill} />
+              ) : (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  왼쪽에서 작성할 서식을 선택하세요.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

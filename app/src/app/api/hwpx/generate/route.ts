@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
   }
 
   const { formId, values } = body;
-  if (!formId || typeof values !== "object" || values === null) {
+  if (!formId || typeof values !== "object" || values === null || Array.isArray(values)) {
     return errorResponse("INVALID_REQUEST", "formId와 values가 필요합니다.", 400);
   }
 

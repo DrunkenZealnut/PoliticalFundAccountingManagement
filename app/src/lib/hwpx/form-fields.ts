@@ -163,8 +163,9 @@ export function getFormDef(id: string): HwpxFormDef | undefined {
 
 /** 조직 타입(orgType)에 따라 노출할 서식 필터. */
 export function formsForOrgType(orgType: string | null): HwpxFormDef[] {
-  const isSupporter = orgType === "supporter";
-  return HWPX_FORM_DEFS.filter((f) =>
-    f.orgScope === "all" || (isSupporter ? f.orgScope === "supporter" : f.orgScope === "candidate")
-  );
+  return HWPX_FORM_DEFS.filter((f) => {
+    if (f.orgScope === "all") return true;
+    if (orgType === "supporter") return f.orgScope === "supporter";
+    return f.orgScope === "candidate";
+  });
 }
