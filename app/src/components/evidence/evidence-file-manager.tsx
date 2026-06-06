@@ -170,9 +170,19 @@ export function EvidenceFileManager({
       {deliveryWarning && (
         <div
           role="alert"
-          className="mt-1 rounded border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-800"
+          className="mt-1 flex items-start gap-2 rounded border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-800"
         >
-          ⚠️ 이 증빙에 배송비(운송·발송·택배 등)가 포함된 것 같습니다. 배송비는 별도 항목으로 등록하세요.
+          <span className="flex-1">
+            ⚠️ 이 증빙에 배송비(운송·발송·택배 등)가 포함된 것 같습니다. 배송비는 별도 항목으로 등록하세요.
+          </span>
+          <button
+            type="button"
+            onClick={() => setDeliveryWarning(false)}
+            className="shrink-0 text-amber-600 hover:text-amber-900"
+            aria-label="배송비 안내 닫기"
+          >
+            ✕
+          </button>
         </div>
       )}
 
