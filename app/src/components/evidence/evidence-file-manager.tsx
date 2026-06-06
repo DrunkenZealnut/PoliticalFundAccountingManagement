@@ -86,6 +86,19 @@ export function EvidenceFileManager({
     fetchExisting();
   }, [fetchExisting]);
 
+  // 거래 전환 시: 이전 거래에서 켜진 배송비 경고는 새 거래에 무의미하므로 초기화한다.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- accBookId 변경 시 경고 동기화
+    setDeliveryWarning(false);
+  }, [accBookId]);
+
+  // 대기 파일이 모두 비워지면(저장 후 초기화·전체 제거) 경고를 해제한다.
+  // 경고는 handleSelect의 PDF 배송비 감지에서만 켠다.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 대기 파일 상태에 경고 동기화
+    if (pendingFiles.length === 0) setDeliveryWarning(false);
+  }, [pendingFiles.length]);
+
   const totalCount = existing.length + pendingFiles.length;
 
   async function handleSelect(e: React.ChangeEvent<HTMLInputElement>) {
@@ -132,9 +145,8 @@ export function EvidenceFileManager({
   }
 
   function removePending(idx: number) {
-    const next = pendingFiles.filter((_, i) => i !== idx);
-    onPendingChange(next);
-    if (next.length === 0) setDeliveryWarning(false);
+    // 경고 해제는 pendingFiles 동기화 useEffect가 처리한다(전체 제거 시).
+    onPendingChange(pendingFiles.filter((_, i) => i !== idx));
   }
 
   async function deleteExisting(fileId: number) {

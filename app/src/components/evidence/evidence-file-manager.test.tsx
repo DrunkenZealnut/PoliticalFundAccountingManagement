@@ -1,6 +1,7 @@
+import { useState } from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
-import { EvidenceFileManager } from "./evidence-file-manager";
+import { EvidenceFileManager, type PendingFile } from "./evidence-file-manager";
 
 vi.mock("@/lib/evidence/delivery-fee-detector", () => ({
   extractPdfText: vi.fn().mockResolvedValue("점자 박스/포장/발송비 44,352"),
@@ -122,5 +123,46 @@ describe("EvidenceFileManager", () => {
     expect(
       await screen.findByText(/배송비는 별도 항목으로 등록하세요/)
     ).toBeInTheDocument();
+  });
+
+  it("다른 거래를 선택하면(accBookId 변경) 배송비 배너가 사라진다", async () => {
+    const { rerender } = render(
+      <EvidenceFileManager accBookId={1} orgId={7} pendingFiles={[]} onPendingChange={noop} />
+    );
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const pdf = new File(["%PDF-1.4 dummy"], "견적서.pdf", { type: "application/pdf" });
+    fireEvent.change(input, { target: { files: [pdf] } });
+    await screen.findByText(/배송비는 별도 항목으로 등록하세요/);
+
+    // 다른 거래 선택: 상위가 accBookId를 바꾸고 대기 파일을 비운다
+    rerender(
+      <EvidenceFileManager accBookId={2} orgId={7} pendingFiles={[]} onPendingChange={noop} />
+    );
+    await waitFor(() =>
+      expect(screen.queryByText(/배송비는 별도 항목으로 등록하세요/)).not.toBeInTheDocument()
+    );
+  });
+
+  it("대기 파일이 모두 비워지면(저장 후) 배송비 배너가 사라진다", async () => {
+    function Wrapper() {
+      const [pf, setPf] = useState<PendingFile[]>([]);
+      return (
+        <>
+          <button onClick={() => setPf([])}>저장</button>
+          <EvidenceFileManager accBookId={5} orgId={7} pendingFiles={pf} onPendingChange={setPf} />
+        </>
+      );
+    }
+    render(<Wrapper />);
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const pdf = new File(["%PDF-1.4 dummy"], "견적서.pdf", { type: "application/pdf" });
+    fireEvent.change(input, { target: { files: [pdf] } });
+    await screen.findByText(/배송비는 별도 항목으로 등록하세요/);
+
+    // 저장 후 상위가 대기 파일을 비운다
+    fireEvent.click(screen.getByText("저장"));
+    await waitFor(() =>
+      expect(screen.queryByText(/배송비는 별도 항목으로 등록하세요/)).not.toBeInTheDocument()
+    );
   });
 });
