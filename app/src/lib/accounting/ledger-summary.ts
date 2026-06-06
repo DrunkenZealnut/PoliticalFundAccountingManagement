@@ -49,6 +49,8 @@ export interface LedgerRow {
   acc_sec_cd: number;
   item_sec_cd: number;
   exp_sec_cd: number;
+  /** 보전 체크 여부 ('Y'=보전 대상). 보전 예상액 산정에 사용 */
+  acc_print_ok?: string | null;
 }
 
 export interface BuildOpts {
@@ -127,11 +129,9 @@ export function buildIncomeSummary(rows: LedgerRow[], opts: BuildOpts): LedgerSu
 /** 과목 기준 선거비용 판별: 과목(item_sec_cd) 코드명 === "선거비용"
  *  SSOT: reimbursement-aggregator / use-dashboard-data의 electionExpenseItemCds와 동일 기준 */
 const ELECTION_ITEM_NAME = "선거비용";
-/** 보전대상 판별: 지출유형 세부코드 부여(exp_sec_cd>0). org-metrics.computeCandidateMetrics와 동일(대시보드 '선거비용 지출' KPI) */
-const isReimbursementTarget = (r: LedgerRow) => (r.exp_sec_cd ?? 0) > 0;
 
-/** 지출내역 현황: 지출 총액·(후보자) 선거비용/외(과목)·보전대상·건수·(잔액) + 과목별 breakdown.
- *  FR-08: 선거비용/보전대상은 후보자(candidate) 전용 개념 → candidate에서만 표시. */
+/** 지출내역 현황: 지출 총액·(후보자) 선거비용/외(과목)·보전 예상액·건수·(잔액) + 과목별 breakdown.
+ *  FR-08: 선거비용/보전 예상액은 후보자(candidate) 전용 개념 → candidate에서만 표시. */
 export function buildExpenseSummary(rows: LedgerRow[], opts: BuildOpts): LedgerSummary {
   const total = sumAmt(rows);
   const primary: SummaryStat[] = [
@@ -141,12 +141,20 @@ export function buildExpenseSummary(rows: LedgerRow[], opts: BuildOpts): LedgerS
     // 과목 기준 선거비용/선거비용외 (사용자가 보는 과목·breakdown과 동일 기준)
     const election = sumAmt(rows.filter((r) => opts.getName(r.item_sec_cd) === ELECTION_ITEM_NAME));
     const nonElection = total - election;
-    // 보전대상 선거비용 (별개 개념: 지출유형 세부코드 부여분, 대시보드 KPI와 동일)
-    const reimbursableTarget = sumAmt(rows.filter(isReimbursementTarget));
+    // 보전 예상액 = 보전 체크(acc_print_ok='Y') & 선거비용 과목 & 자금원≠기타
+    //   (reimbursement-aggregator·대시보드 '보전 예상액'과 동일 기준)
+    const reimbursable = sumAmt(
+      rows.filter(
+        (r) =>
+          r.acc_print_ok === "Y" &&
+          opts.getName(r.item_sec_cd) === ELECTION_ITEM_NAME &&
+          classifyFundingSource(r.acc_sec_cd, opts.getName(r.acc_sec_cd)) !== "기타",
+      ),
+    );
     primary.push(
       { key: "election", label: "선거비용(과목)", value: election, unit: "won", tone: "warn", helpId: "ledger.election-item" },
       { key: "nonElection", label: "선거비용외(과목)", value: nonElection, unit: "won", tone: "neutral" },
-      { key: "reimbursable", label: "보전대상", value: reimbursableTarget, unit: "won", tone: "balance", helpId: "ledger.reimbursable" },
+      { key: "reimbursable", label: "보전 예상액", value: reimbursable, unit: "won", tone: "balance", helpId: "ledger.reimbursable" },
     );
   }
   primary.push({ key: "count", label: "건수", value: rows.length, unit: "count", tone: "neutral" });

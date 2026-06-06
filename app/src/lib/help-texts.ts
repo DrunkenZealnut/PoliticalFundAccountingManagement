@@ -127,5 +127,5 @@ export const HELP_TEXTS: Record<string, HelpText> = {
   "ledger.income-total": { title: "수입 총액", description: "현재 조회된 수입 내역의 합계입니다. 검색 조건을 적용하면 그 결과 기준으로 바뀝니다." },
   "ledger.balance": { title: "잔액(전체)", description: "전체 수입에서 전체 지출을 뺀 잔액입니다. 검색 필터와 무관하게 항상 전체 기준입니다." },
   "ledger.election-item": { title: "선거비용(과목)", description: "과목이 '선거비용'인 지출의 합계입니다. 보전 대상 여부와는 별개로, 과목 분류 기준 금액입니다." },
-  "ledger.reimbursable": { title: "보전대상", description: "지출유형(세부코드)이 지정된 보전 대상 선거비용입니다. 대시보드 '선거비용 지출' 카드와 동일한 기준이며, 과목 선거비용과 다를 수 있습니다." },
+  "ledger.reimbursable": { title: "보전 예상액", description: "보전비용 관리에서 '보전 대상'으로 체크한 선거비용의 합계입니다(대시보드 '보전 예상액'과 동일 기준). 체크 전에는 0원이며, 보전 대상을 체크·저장하면 반영됩니다." },
 };

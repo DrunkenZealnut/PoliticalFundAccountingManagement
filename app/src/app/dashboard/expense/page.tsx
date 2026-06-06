@@ -36,6 +36,7 @@ interface AccBook {
   rcp_no: string | null;
   acc_sort_num: number | null;
   acc_ins_type: string | null;
+  acc_print_ok: string | null;
   bigo: string | null;
   exp_type_cd: number | null;
   exp_group1_cd: string | null;

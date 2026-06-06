@@ -13,12 +13,13 @@ function row(p: Partial<LedgerRow>): LedgerRow {
 }
 
 describe("buildExpenseSummary", () => {
-  // 과목 코드명: 86=선거비용, 87=선거비용외
-  const getName = (n: number) => (n === 86 ? "선거비용" : n === 87 ? "선거비용외" : String(n));
+  // 과목 코드명: 86=선거비용, 87=선거비용외, 82=보조금(자금원)
+  const getName = (n: number) =>
+    n === 86 ? "선거비용" : n === 87 ? "선거비용외" : n === 82 ? "보조금" : String(n);
   const rows = [
-    row({ acc_amt: 1000, item_sec_cd: 86, exp_sec_cd: 5 }), // 과목 선거비용 + 보전대상
-    row({ acc_amt: 2000, item_sec_cd: 86, exp_sec_cd: 0 }), // 과목 선거비용, 비보전
-    row({ acc_amt: 500, item_sec_cd: 87, exp_sec_cd: 0 }), // 과목 선거비용외
+    row({ acc_amt: 1000, item_sec_cd: 86, acc_sec_cd: 82, acc_print_ok: "Y" }), // 선거비용 과목 + 보전 체크 + 보조금
+    row({ acc_amt: 2000, item_sec_cd: 86, acc_sec_cd: 82, acc_print_ok: "N" }), // 선거비용 과목, 미체크
+    row({ acc_amt: 500, item_sec_cd: 87, acc_sec_cd: 82, acc_print_ok: "N" }), // 선거비용외
   ];
 
   it("T1: 선거비용(과목) + 선거비용외(과목) = 지출 총액 (candidate)", () => {
@@ -32,9 +33,15 @@ describe("buildExpenseSummary", () => {
     expect(election + nonElection).toBe(total);
   });
 
-  it("보전대상은 exp_sec_cd>0 기준 (과목 선거비용과 별개)", () => {
+  it("보전 예상액 = acc_print_ok='Y' & 선거비용 과목 & 자금원≠기타", () => {
     const s = buildExpenseSummary(rows, { getName, orgType: "candidate" });
     expect(s.primary.find((p) => p.key === "reimbursable")!.value).toBe(1000);
+  });
+
+  it("보전 미체크 시 보전 예상액 0", () => {
+    const none = rows.map((r) => ({ ...r, acc_print_ok: "N" }));
+    const s = buildExpenseSummary(none, { getName, orgType: "candidate" });
+    expect(s.primary.find((p) => p.key === "reimbursable")!.value).toBe(0);
   });
 
   it("FR-08: 후보자가 아니면 선거비용/보전대상 카드 미표시", () => {
