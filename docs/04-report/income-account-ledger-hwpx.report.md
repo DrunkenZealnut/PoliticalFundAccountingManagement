@@ -3,7 +3,7 @@
 > **Summary**: 수입계정별 회계장부(공식 서식 7) 자동 생성 기능 구현 완료. 99% 설계-구현 일치, 전체 511 테스트 통과.
 >
 > **Project**: 정치자금 회계관리 시스템
-> **Version**: v0.3.1.0
+> **Version**: v0.4.0.0
 > **Author**: DrunkenZealnut
 > **Date**: 2026-06-08
 > **Status**: Approved (FR-10 수동 검증 대기)
