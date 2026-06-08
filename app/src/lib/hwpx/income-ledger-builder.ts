@@ -35,6 +35,7 @@ export const LEDGER_ROW_TOKENS = {
   job: "직업",
   tel: "전화",
   receiptNo: "영수증",
+  remark: "비고",
 } as const;
 
 /** 회계장부 생성에 필요한 customer 최소 필드. */
@@ -74,6 +75,7 @@ export interface LedgerCellRow {
   job: string;
   tel: string;
   receiptNo: string;
+  remark: string; // 비고 (서식 22-4 컬럼; acc_book 무필드 → 공란)
 }
 
 export interface LedgerGroup {
@@ -119,10 +121,10 @@ export function formatBirthFromRegNum(regNum: string | null | undefined): string
   // 익명(9999) 등 6자리 미만은 생년월일로 볼 수 없음
   if (digits.length < 6) return "";
   const yy = digits.slice(0, 2);
-  const mm = Number(digits.slice(2, 4));
-  const dd = Number(digits.slice(4, 6));
-  if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return "";
-  return `${yy}/${digits.slice(2, 4)}/${digits.slice(4, 6)}`;
+  const mm = digits.slice(2, 4);
+  const dd = digits.slice(4, 6);
+  if (Number(mm) < 1 || Number(mm) > 12 || Number(dd) < 1 || Number(dd) > 31) return "";
+  return `${yy}/${mm}/${dd}`;
 }
 
 /** customer.addr + addr_detail 결합 (빈 값 제외). */
@@ -192,6 +194,7 @@ export function buildIncomeLedgerModel(
         job: anon ? "" : (r.customer?.job ?? ""),
         tel: anon ? "" : (r.customer?.tel ?? ""),
         receiptNo: r.rcp_no ?? "",
+        remark: "",
       };
     });
 
@@ -231,5 +234,6 @@ export function rowTokens(row: LedgerCellRow): Record<string, string> {
     [LEDGER_ROW_TOKENS.job]: row.job,
     [LEDGER_ROW_TOKENS.tel]: row.tel,
     [LEDGER_ROW_TOKENS.receiptNo]: row.receiptNo,
+    [LEDGER_ROW_TOKENS.remark]: row.remark,
   };
 }

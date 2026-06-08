@@ -16,28 +16,25 @@
 /*   - 표 id 는 그룹마다 고유 (baseId + groupIndex) — 동일 id 손상 방지 */
 /*  JSZip 비의존(문자열 변환만) → 단위 테스트 가능.                     */
 /* ------------------------------------------------------------------ */
-import { escapeXml } from "./escape";
+import { replaceTokens, stripUnresolvedTokens } from "./generate";
 import {
   groupHeaderTokens,
   rowTokens,
   type IncomeLedgerModel,
   type LedgerGroup,
 } from "./income-ledger-builder";
+import {
+  estateGroupTokens,
+  estateRowTokens,
+  type EstateGroup,
+  type EstateModel,
+} from "./estate-builder";
 
 const GROUP_RE = /<!--LEDGER:GROUP_START-->([\s\S]*?)<!--LEDGER:GROUP_END-->/;
 const ROW_RE = /<!--LEDGER:ROW_START-->([\s\S]*?)<!--LEDGER:ROW_END-->/;
 /** 그룹(표) 사이 간격 문단. 빈 줄 한 칸. */
 const GROUP_SEPARATOR =
   '<hp:p id="0" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"/></hp:p>';
-
-/** 토큰값 치환 (모든 출현, XML escape 적용). generate.ts 와 동일 규약. */
-function replaceTokens(xml: string, values: Record<string, string>): string {
-  let out = xml;
-  for (const [key, value] of Object.entries(values)) {
-    out = out.split(`{{${key}}}`).join(escapeXml(value ?? ""));
-  }
-  return out;
-}
 
 /** tbl 여는 태그의 속성값을 치환 (해당 블록의 첫 tbl). */
 function setTblAttr(block: string, attr: "rowCnt" | "id", value: number | string): string {
@@ -115,9 +112,91 @@ export function renderIncomeLedgerSection(sectionXml: string, model: IncomeLedge
       : model.groups.map((g, i) => renderGroup(groupBlock, g, i, baseTblId)).join(GROUP_SEPARATOR);
 
   let out = sectionXml.replace(GROUP_RE, rendered);
-  // 잔여 마커 주석 제거
+  // 잔여 마커 주석 제거 + 입력되지 않은 잔여 토큰 정리
   out = out.replace(/<!--LEDGER:[A-Z_]+-->/g, "");
-  // 입력되지 않은 잔여 토큰 정리
-  out = out.replace(/\{\{[^}]+\}\}/g, "");
-  return out;
+  return stripUnresolvedTokens(out).xml;
+}
+
+/* ------------------------------------------------------------------ */
+/*  재산명세서(서식 22-3) 렌더 — 단일 표 내 구분 그룹 동적 복제          */
+/*                                                                    */
+/*  form-22-3-fill.hwpx 의 표는 [헤더행] + ESTATE:GROUP[명세행(ROW) +  */
+/*  소계행] + [합계행] 구조다. 각 구분 그룹마다 명세행을 재산 건수만큼   */
+/*  복제하되, c0(구분명) 셀은 그룹 첫 명세행에만 두고 rowSpan 으로       */
+/*  명세행+소계행 전체를 묶는다(2번째 이후 명세행은 c0 셀 제거). 마지막   */
+/*  에 표 전체 rowAddr 를 0..N 으로 재계산하고 rowCnt 를 맞춘다.        */
+/* ------------------------------------------------------------------ */
+const ESTATE_GROUP_RE = /<!--ESTATE:GROUP_START-->([\s\S]*?)<!--ESTATE:GROUP_END-->/;
+const ESTATE_ROW_RE = /<!--ESTATE:ROW_START-->([\s\S]*?)<!--ESTATE:ROW_END-->/;
+/** 명세행 첫 셀(구분명, colAddr=0) tc 매칭. */
+const C0_TC_RE = /<hp:tc\b(?:(?!<\/hp:tc>)[\s\S])*?<hp:cellAddr colAddr="0"[\s\S]*?<\/hp:tc>/;
+
+/** 명세행에서 c0(구분명) 셀 tc 를 제거 (rowSpan 으로 덮이는 2번째+ 행). */
+function removeC0Cell(tr: string): string {
+  return tr.replace(C0_TC_RE, "");
+}
+
+/** 명세행 c0 셀의 cellSpan rowSpan 을 지정값으로 (그룹 첫 행). */
+function setC0RowSpan(tr: string, rowSpan: number): string {
+  const m = tr.match(C0_TC_RE);
+  if (!m || m.index === undefined) return tr;
+  const c0 = m[0].replace(/(<hp:cellSpan\b[^>]*\browSpan=")\d+(")/, `$1${rowSpan}$2`);
+  return tr.slice(0, m.index) + c0 + tr.slice(m.index + m[0].length);
+}
+
+/** 표 내 모든 tr 의 cellAddr rowAddr 를 0..N 으로 순차 재부여. */
+function recalcTableRowAddr(tableXml: string): string {
+  let i = 0;
+  return tableXml.replace(/<hp:tr\b[\s\S]*?<\/hp:tr>/g, (tr) => {
+    const ra = i++;
+    return tr.replace(/(<hp:cellAddr\b[^>]*\browAddr=")\d+(")/g, `$1${ra}$2`);
+  });
+}
+
+/** 구분 그룹 1개 → 명세행(N) + 소계행 XML. */
+function renderEstateGroup(rowTemplate: string, subtotalBlock: string, group: EstateGroup): string {
+  const n = group.rows.length;
+  // 첫 행/나머지 행 템플릿을 그룹당 1회만 정규식 처리 (행마다 C0_TC_RE 재실행 방지)
+  const firstTpl = setC0RowSpan(rowTemplate, n + 1); // c0(구분명) rowSpan = 명세n + 소계1
+  const restTpl = removeC0Cell(rowTemplate); // 2번째+ 행: c0 제거(병합에 덮임)
+  const details = group.rows
+    .map((row, i) =>
+      i === 0
+        ? replaceTokens(firstTpl, { ...estateGroupTokens(group), ...estateRowTokens(row) })
+        : replaceTokens(restTpl, estateRowTokens(row)),
+    )
+    .join("");
+  return details + replaceTokens(subtotalBlock, { 소계: group.subtotal });
+}
+
+/**
+ * 템플릿 section0.xml 의 ESTATE:GROUP 영역을 재산 모델로 렌더한 XML 반환.
+ * 마커·잔여 토큰 제거 + 표 rowAddr/rowCnt 재계산.
+ */
+export function renderEstateSection(sectionXml: string, model: EstateModel): string {
+  const gm = sectionXml.match(ESTATE_GROUP_RE);
+  if (!gm) throw new Error("템플릿에 ESTATE:GROUP 마커가 없습니다");
+  const groupBlock = gm[1];
+  const rm = groupBlock.match(ESTATE_ROW_RE);
+  if (!rm) throw new Error("템플릿에 ESTATE:ROW 마커가 없습니다");
+  const rowTemplate = rm[1];
+  // 소계행 = GROUP 블록에서 ROW(명세행) 영역을 제거한 나머지
+  const subtotalBlock = groupBlock.replace(ESTATE_ROW_RE, "");
+
+  const groupsXml = model.groups
+    .map((g) => renderEstateGroup(rowTemplate, subtotalBlock, g))
+    .join("");
+
+  let out = sectionXml.replace(ESTATE_GROUP_RE, groupsXml);
+  // 합계행(GROUP 밖) 치환
+  out = replaceTokens(out, { 합계: model.total });
+  // 표 전체 rowAddr 재계산 + rowCnt 동기화
+  out = out.replace(/<hp:tbl\b[\s\S]*?<\/hp:tbl>/, (tbl) => {
+    const recalced = recalcTableRowAddr(tbl);
+    const trCount = (recalced.match(/<hp:tr\b/g) ?? []).length;
+    return setTblAttr(recalced, "rowCnt", trCount);
+  });
+  // 마커·잔여 토큰 제거
+  out = out.replace(/<!--ESTATE:[A-Z_]+-->/g, "");
+  return stripUnresolvedTokens(out).xml;
 }
