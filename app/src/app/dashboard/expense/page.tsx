@@ -20,6 +20,8 @@ import { PAGE_GUIDES } from "@/lib/page-guides";
 import { EvidenceFileManager, type PendingFile } from "@/components/evidence/evidence-file-manager";
 import { buildExpenseSummary } from "@/lib/accounting/ledger-summary";
 import { LedgerSummaryHeader } from "@/components/dashboard/LedgerSummaryHeader";
+import { buildFundingAllocation } from "@/lib/accounting/funding-allocation";
+import { FundingAllocationPanel } from "@/components/dashboard/FundingAllocationPanel";
 
 interface AccBook {
   acc_book_id: number;
@@ -45,6 +47,14 @@ interface AccBook {
   customer?: { name: string | null } | null;
 }
 
+/** 자금원별 충당 현황 집계용 org 전체 행 (수입+지출) */
+interface FundingRow {
+  incm_sec_cd: number;
+  acc_amt: number;
+  acc_sec_cd: number;
+  item_sec_cd: number;
+}
+
 export default function ExpensePage() {
   const supabase = createSupabaseBrowser();
   const { orgId, orgSecCd, orgType } = useAuth();
@@ -60,6 +70,7 @@ export default function ExpensePage() {
   const [selected, setSelected] = useState<AccBook | null>(null);
   const [loading, setLoading] = useState(false);
   const [summary, setSummary] = useState({ income: 0, expense: 0, balance: 0 });
+  const [allRows, setAllRows] = useState<FundingRow[]>([]);
   const [filteredTotal, setFilteredTotal] = useState({ amount: 0, count: 0 });
   const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
   const [customerDialogMode, setCustomerDialogMode] = useState<"search" | "register">("search");
@@ -117,8 +128,9 @@ export default function ExpensePage() {
     setRecords(recs);
     setFilteredTotal({ amount: recs.reduce((s: number, r: AccBook) => s + r.acc_amt, 0), count: recs.length });
 
-    const { data: allData } = await sb.from("acc_book").select("incm_sec_cd, acc_amt").eq("org_id", orgId).limit(100000);
+    const { data: allData } = await sb.from("acc_book").select("incm_sec_cd, acc_amt, acc_sec_cd, item_sec_cd").eq("org_id", orgId).limit(100000);
     if (allData) {
+      setAllRows(allData as FundingRow[]);
       const inc = allData.filter((r) => r.incm_sec_cd === 1).reduce((s, r) => s + r.acc_amt, 0);
       const exp = allData.filter((r) => r.incm_sec_cd === 2).reduce((s, r) => s + r.acc_amt, 0);
       setSummary({ income: inc, expense: exp, balance: inc - exp });
@@ -150,12 +162,13 @@ export default function ExpensePage() {
     Promise.all([
       sb.from("acc_book").select("*, customer:cust_id(name)").eq("org_id", orgId).eq("incm_sec_cd", 2)
         .order("acc_date").order("acc_sort_num").limit(100000),
-      sb.from("acc_book").select("incm_sec_cd, acc_amt").eq("org_id", orgId).limit(100000),
+      sb.from("acc_book").select("incm_sec_cd, acc_amt, acc_sec_cd, item_sec_cd").eq("org_id", orgId).limit(100000),
     ]).then(([recRes, sumRes]) => {
       const recs = recRes.data || [];
       setRecords(recs);
       setFilteredTotal({ amount: recs.reduce((s: number, r: { acc_amt: number }) => s + r.acc_amt, 0), count: recs.length });
       if (sumRes.data) {
+        setAllRows(sumRes.data as FundingRow[]);
         const inc = sumRes.data.filter((r) => r.incm_sec_cd === 1).reduce((s, r) => s + r.acc_amt, 0);
         const exp = sumRes.data.filter((r) => r.incm_sec_cd === 2).reduce((s, r) => s + r.acc_amt, 0);
         setSummary({ income: inc, expense: exp, balance: inc - exp });
@@ -503,6 +516,16 @@ export default function ExpensePage() {
     [records, summary.balance, getName, orgType],
   );
 
+  // 자금원별 충당 현황 (org 전체 누적 기준 — 후보자 전용)
+  const fundingAllocation = useMemo(
+    () =>
+      buildFundingAllocation(
+        allRows.map((r) => ({ ...r, acc_date: "" })),
+        { getName },
+      ),
+    [allRows, getName],
+  );
+
   if (codesLoading) {
     return (
       <div className="flex items-center justify-center h-64 text-gray-400">
@@ -539,6 +562,11 @@ export default function ExpensePage() {
         scopeLabel={`현재 조회 ${records.length}건`}
         loading={loading}
       />
+
+      {/* 자금원별 충당 현황 (후보자 전용) — 어느 수입계정으로 지출을 할당할지 가늠 */}
+      {orgType === "candidate" && (
+        <FundingAllocationPanel allocation={fundingAllocation} loading={loading} />
+      )}
 
       <div className="bg-white rounded-lg border p-4">
         <div className="flex gap-2 mb-4">

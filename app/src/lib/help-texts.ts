@@ -32,6 +32,7 @@ export const HELP_TEXTS: Record<string, HelpText> = {
   "income.summary": { title: "수입액/지출액/잔액", description: "현재 사용기관의 전체 수입액 합계, 지출액 합계, 잔액(수입-지출)을 표시합니다." },
 
   // 지출내역관리
+  "expense.funding-allocation": { title: "자금원별 충당 현황", description: "자금원(후보자자산·후원회기부금·보조금·보조금외)별로 받은 수입, 지출한 금액, 남은 가용잔액(수입-지출)을 사용기관 전체 누적 기준으로 보여줍니다. 어느 수입계정에 여력이 남았는지 가늠하여 지출을 할당하는 데 참고하세요. 가용잔액이 음수(⚠)면 해당 자금원을 초과 지출한 상태입니다. 보전·확정 금액은 결산 기준으로 산정됩니다." },
   "expense.exp-type": { title: "지출유형", description: "(예비)후보자는 대분류→중분류→소분류를 필수로 선택합니다. 후원회는 선택하지 않습니다." },
   "expense.pay-method": { title: "지출방법", description: "계좌입금, 카드, 현금, 수표, 신용카드, 체크카드, 미지급, 기타 중 선택합니다." },
   "expense.target": { title: "지출대상자", description: "🔍 버튼으로 기존 등록된 수입지출처를 검색하거나, [지출대상자 등록]으로 새로 등록할 수 있습니다." },
