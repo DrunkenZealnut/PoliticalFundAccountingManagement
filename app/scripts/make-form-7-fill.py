@@ -134,8 +134,12 @@ def main():
         if name == "mimetype":
             continue
         data = new_xml.encode("utf-8") if name == "Contents/section0.xml" else zin.read(name)
-        zout.writestr(name, data, zipfile.ZIP_DEFLATED)
+        # date_time 고정(기본 1980-01-01) — 재실행 시 동일 바이트 보장(재현성)
+        zi_entry = zipfile.ZipInfo(name)
+        zi_entry.compress_type = zipfile.ZIP_DEFLATED
+        zout.writestr(zi_entry, data)
     zout.close()
+    zin.close()
     print("생성:", DST)
     print("토큰 15개 OK, 표 1개 OK, 마커 OK, XML well-formed OK")
 

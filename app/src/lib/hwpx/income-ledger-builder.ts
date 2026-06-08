@@ -177,7 +177,8 @@ export function buildIncomeLedgerModel(
         expenseNow: "",
         expenseCum: "",
         balance: formatAmount(cum),
-        name: r.customer?.name ?? "",
+        // 익명은 실명이 들어와도 "익명"으로 정규화(비식별화 + 회계장부 표기 유지)
+        name: anon ? "익명" : (r.customer?.name ?? ""),
         birth: anon ? "" : formatBirthFromRegNum(r.customer?.reg_num),
         addr: anon ? "" : joinAddr(r.customer),
         job: anon ? "" : (r.customer?.job ?? ""),

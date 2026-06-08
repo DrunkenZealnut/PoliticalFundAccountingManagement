@@ -14,6 +14,7 @@ import { createClient } from "@supabase/supabase-js";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import JSZip from "jszip";
+import { createSupabaseServer } from "@/lib/supabase/server";
 import { repackageSection } from "@/lib/hwpx/generate";
 import {
   buildIncomeLedgerModel,
@@ -43,8 +44,33 @@ export async function POST(request: NextRequest) {
   }
 
   const orgId = Number(body.orgId);
-  if (!orgId || Number.isNaN(orgId)) {
-    return errorResponse("INVALID_REQUEST", "orgId가 필요합니다.", 400);
+  if (!Number.isInteger(orgId) || orgId <= 0) {
+    return errorResponse("INVALID_REQUEST", "유효한 orgId가 필요합니다.", 400);
+  }
+
+  // 인증 + 멤버십 검증 — service-role 은 RLS 를 우회하므로, SSR 쿠키의 로그인
+  // 사용자 + user_organ 소속을 확인해야 타 기관 데이터 열람(IDOR)을 막는다.
+  // (/api/organ 과 동일한 가드)
+  const server = await createSupabaseServer();
+  const {
+    data: { user },
+  } = await server.auth.getUser();
+  if (!user) {
+    return errorResponse("UNAUTHORIZED", "로그인이 필요합니다.", 401);
+  }
+  const { data: membership, error: membershipError } = await supabase
+    .from("user_organ")
+    .select("org_id")
+    .eq("user_id", user.id)
+    .eq("org_id", orgId)
+    .maybeSingle();
+  if (membershipError) {
+    return errorResponse("AUTH_CHECK_FAILED", "권한 확인 중 오류가 발생했습니다.", 500, {
+      detail: membershipError.message,
+    });
+  }
+  if (!membership) {
+    return errorResponse("FORBIDDEN", "해당 기관에 대한 권한이 없습니다.", 403);
   }
 
   // 1. 수입행 + customer 상세 (org 스코프 강제)
