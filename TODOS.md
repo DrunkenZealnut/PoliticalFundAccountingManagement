@@ -6,8 +6,9 @@
 - **What:** Validate the caller's auth token and verify they have access to the requested orgId before processing any request.
 - **Why:** The API uses `SUPABASE_SERVICE_ROLE_KEY` (bypasses RLS) and never checks who's calling. Any client can read/modify any org's financial data by passing any `orgId`. This is the most serious security gap in the codebase.
 - **Context:** `app/src/app/api/acc-book/route.ts` lines 4-7. The service role key is needed for some operations (e.g., cross-table joins), but the route should extract and verify the user's auth token from the request, then confirm the user has a `user_organ` relationship to the requested `orgId`. Consider switching to the user's token for read operations and reserving service role for admin operations only.
+- **Reference pattern:** `/api/organ` and `/api/hwpx/income-ledger` (added v0.4.0.0) already implement the correct guard: `createSupabaseServer()` → `auth.getUser()` (401) → `user_organ` membership check on `(user_id, org_id)` (403) before any service-role query. Apply the same guard to `acc-book` and other service-role routes.
 - **Depends on:** Nothing. Can be done independently.
-- **Added:** 2026-04-01 (eng review of feat/search-total-summary)
+- **Added:** 2026-04-01 (eng review of feat/search-total-summary); income-ledger guarded 2026-06-08 (CodeRabbit review of PR #58)
 
 ## P2 - Architecture
 

@@ -48,7 +48,7 @@ This uses Next.js 16 which has breaking changes from training data. Always read 
 ### Source Layout (`app/src/`)
 
 ```
-app/api/          → route groups: codes, customers, acc-book, organ, excel/{export,report}, system/{export-sqlite,import-sqlite,recompute-settlement,workflow-status}, address/search, evidence-file, reimbursement/claim-form/aggregate, hwpx/generate
+app/api/          → route groups: codes, customers, acc-book, organ, excel/{export,report}, system/{export-sqlite,import-sqlite,recompute-settlement,workflow-status}, address/search, evidence-file, reimbursement/claim-form/aggregate, hwpx/{generate,income-ledger}
 app/dashboard/    → 27 pages: income, expense, document-register (manual entry), reports, submit, reset, backup (SQLite backup/restore), customer, customer-batch, organ, aggregate, audit, forms, settlement, estate, codes, submission-forms (선관위 제출서류 HWPX 생성), etc. Several are org-type-gated (party-summary, supporter-summary, support-detail, donors) — see Org-Type Differentiation below.
 app/login/        → Supabase email/password auth
 components/chat/  → ChatBubble (static FAQ browser, well-tested)
@@ -60,7 +60,7 @@ lib/accounting/   → Business logic: settlement-calc (balances), funding-source
 lib/expense-types.ts → Shared 3-level expense type data (선거비용/선거비용외) + PAY_METHODS
 lib/wizard-mappings.ts → Wizard card definitions + code auto-mapping
 lib/excel-template/ → Excel report generation with data-query
-lib/hwpx/         → 선관위 제출서류 HWPX 생성: generate (토큰 치환 코어, JSZip·STORED mimetype), escape (XML escape + 날짜 포맷), form-fields (서식 6종 정의 + 토큰 레지스트리, 템플릿은 public/hwpx-templates/*.hwpx)
+lib/hwpx/         → 선관위 제출서류 HWPX 생성: generate (토큰 치환 코어 + repackageSection 재패키징 헬퍼, JSZip·STORED mimetype), escape (XML escape + 날짜 포맷), form-fields (서식 정의 + 토큰 레지스트리 + dataFill 플래그, 템플릿은 public/hwpx-templates/*.hwpx). **회계장부 데이터 채움**(서식 7): income-ledger-builder (수입행→계정·과목 그룹·누계·잔액, 순수) + owpml-table (form-7-fill.hwpx 의 GROUP/ROW 마커 기반 표·행 동적 복제, 순수) → api/hwpx/income-ledger. 표는 문단(`<hp:p><hp:run>`) 안에 내장되므로 마커 경계·태그 균형 주의(특히 텍스트 셀 토큰화 시 `</hp:run>` 이중 닫힘). 새 dataFill 서식 추가 시 next.config outputFileTracingIncludes 와 form-fields.test 의 dataFill 예외 처리 확인.
 stores/           → auth.ts (user + org state), help-mode.ts
 types/database.ts → Supabase-generated types for pfam schema
 ```
