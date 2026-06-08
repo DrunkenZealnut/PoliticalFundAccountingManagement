@@ -20,9 +20,9 @@
 
 import { classifyFundingSource, type FundingSource } from "./funding-source";
 import { applyCorrections, type AccBookRow } from "./settlement-calc";
-
-/** 과목 기준 선거비용 판별 — ledger-summary.ts와 동일 SSOT */
-const ELECTION_ITEM_NAME = "선거비용";
+// 과목 기준 선거비용 판별은 ledger-summary와 동일 SSOT(과목 item_sec_cd 코드명 === "선거비용")를 공유.
+// NOTE: expense-types의 detectItemCategory는 지출유형 대분류명(expGroup1)을 받는 별개 분류라 여기 적용 불가.
+import { ELECTION_ITEM_NAME } from "./ledger-summary";
 
 /** 자금원 표시 고정 순서 */
 const FUNDING_ORDER: readonly FundingSource[] = [
