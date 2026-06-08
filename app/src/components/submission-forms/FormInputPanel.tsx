@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { fmtKoreanDate } from "@/lib/hwpx/escape";
+import { useAuth } from "@/stores/auth";
 import type { HwpxFormDef, HwpxFormField } from "@/lib/hwpx/form-fields";
 
 interface Props {
@@ -17,13 +18,33 @@ interface Props {
   prefill: (def: HwpxFormDef) => Record<string, string>;
 }
 
+/** dataFill 서식 → 호출할 데이터 채움 API 경로. */
+const DATA_FILL_ENDPOINT: Record<NonNullable<HwpxFormDef["dataFill"]>, string> = {
+  "income-ledger": "/api/hwpx/income-ledger",
+};
+
 const isAuto = (f: HwpxFormField) => f.source.from === "organ" || f.source.from === "auth" || f.source.from === "const";
 
 /** 필드 타입별 입력 길이 상한 (route.ts MAX_LEN 과 동기화). */
 const MAX_LEN: Record<string, number> = { tel: 40, account: 40, date: 20, text: 200, textarea: 1000 };
 const maxLenFor = (type: string) => MAX_LEN[type] ?? 200;
 
+const safeFileName = (label: string) => `${label.replace(/[\\/:*?"<>|·\s]+/g, "_")}.hwpx`;
+
+/** Blob 을 첨부 파일로 다운로드. */
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export default function FormInputPanel({ def, prefill }: Props) {
+  const { orgId } = useAuth();
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,20 +87,64 @@ export default function FormInputPanel({ def, prefill }: Props) {
         const body = await res.json().catch(() => null);
         throw new Error(body?.error?.message ?? `생성 실패 (${res.status})`);
       }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${def.label.replace(/[\\/:*?"<>|·\s]+/g, "_")}.hwpx`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      downloadBlob(await res.blob(), safeFileName(def.label));
     } catch (e) {
       setError(e instanceof Error ? e.message : "생성 중 오류가 발생했습니다.");
     } finally {
       setBusy(false);
     }
+  }
+
+  /** dataFill 서식: DB 데이터로 표/행을 채워 생성 (토큰 입력 없음). */
+  async function handleGenerateLedger() {
+    if (!def.dataFill) return;
+    if (!orgId) {
+      setError("사용기관을 먼저 선택하세요.");
+      return;
+    }
+    setError(null);
+    setBusy(true);
+    try {
+      const res = await fetch(DATA_FILL_ENDPOINT[def.dataFill], {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orgId }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error?.message ?? `생성 실패 (${res.status})`);
+      }
+      downloadBlob(await res.blob(), safeFileName(def.label));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "생성 중 오류가 발생했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // dataFill 서식(회계장부 등): 토큰 입력 폼 대신 데이터 채움 액션을 노출
+  if (def.dataFill) {
+    return (
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">{def.label}</h2>
+          <span className="text-xs text-muted-foreground">서식 {def.id}</span>
+        </div>
+        <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
+          수입내역관리에 입력된 데이터로 계정·과목별 회계장부를 자동 생성합니다.
+          다운로드한 .hwpx 파일을 한글에서 열어 확인·인쇄·날인 후 제출하세요.
+        </p>
+        {error && (
+          <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>
+        )}
+        <div className="flex items-center gap-3">
+          <Button onClick={handleGenerateLedger} disabled={busy || !orgId}>
+            {busy ? "생성 중…" : "수입 데이터로 회계장부 생성"}
+          </Button>
+          {!orgId && <span className="text-xs text-muted-foreground">사용기관을 먼저 선택하세요.</span>}
+        </div>
+      </div>
+    );
   }
 
   return (
