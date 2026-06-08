@@ -11,6 +11,7 @@ import { HelpTooltip } from "@/components/help-tooltip";
 import { PageGuide } from "@/components/page-guide";
 import { EmptyState } from "@/components/empty-state";
 import { PAGE_GUIDES } from "@/lib/page-guides";
+import { ESTATE_TYPES } from "@/lib/accounting/estate-types";
 
 interface Estate {
   estate_id: number;
@@ -24,16 +25,6 @@ interface Estate {
   reg_date: string | null;
   estate_order: number | null;
 }
-
-const ESTATE_TYPES = [
-  { value: 43, label: "토지" },
-  { value: 44, label: "건물" },
-  { value: 45, label: "주식 또는 유가증권" },
-  { value: 46, label: "비품" },
-  { value: 47, label: "현금 및 예금" },
-  { value: 48, label: "그 밖의 재산" },
-  { value: 49, label: "차입금" },
-];
 
 export default function EstatePage() {
   const supabase = createSupabaseBrowser();

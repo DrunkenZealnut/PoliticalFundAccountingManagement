@@ -48,8 +48,9 @@ export interface HwpxFormDef {
    * 데이터 채움 서식: 일반 토큰 입력 대신 DB 데이터로 표/행을 동적 생성한다.
    * 지정 시 `fields` 는 비고(반복 토큰은 표 내부에서 별도 처리) — 토큰 정합성 검사 제외.
    *  - "income-ledger": 수입내역 → 수입계정별 회계장부 (POST /api/hwpx/income-ledger)
+   *  - "accounting-report": 수입·지출·재산 → 회계보고서 22-1/22-3/22-4 (POST /api/hwpx/accounting-report)
    */
-  dataFill?: "income-ledger";
+  dataFill?: "income-ledger" | "accounting-report";
 }
 
 /* ------------------------------------------------------------------ */
@@ -181,10 +182,10 @@ export const HWPX_FORM_DEFS: readonly HwpxFormDef[] = [
   { id: "20", label: "정치자금 수입·지출부(회계장부 마감)", category: "회계장부", template: "form-20.hwpx", orgScope: "all", fields: [] },
   { id: "14", label: "선거사무관계자 수당·실비 지급명세서", category: "지급명세서", template: "form-14.hwpx", orgScope: "candidate", fields: [] },
   { id: "17", label: "영수증 등 증빙서류 첩부 및 정리", category: "증빙정리", template: "form-17.hwpx", orgScope: "all", fields: [] },
-  { id: "22-1", label: "(예비)후보자 회계보고서(수입·지출보고서)", category: "회계보고서", template: "form-22-1.hwpx", orgScope: "candidate", fields: [] },
+  { id: "22-1", label: "(예비)후보자 회계보고서(수입·지출보고서)", category: "회계보고서", template: "form-22-1-fill.hwpx", orgScope: "candidate", fields: [], dataFill: "accounting-report" },
   { id: "22-2", label: "(예비)후보자 회계보고서(선거비용 지출내역 집계표)", category: "회계보고서", template: "form-22-2.hwpx", orgScope: "candidate", fields: [] },
-  { id: "22-3", label: "(예비)후보자 회계보고서(재산명세서)", category: "회계보고서", template: "form-22-3.hwpx", orgScope: "candidate", fields: [] },
-  { id: "22-4", label: "(예비)후보자 회계보고서(수입·지출부)", category: "회계보고서", template: "form-22-4.hwpx", orgScope: "candidate", fields: [] },
+  { id: "22-3", label: "(예비)후보자 회계보고서(재산명세서)", category: "회계보고서", template: "form-22-3-fill.hwpx", orgScope: "candidate", fields: [], dataFill: "accounting-report" },
+  { id: "22-4", label: "(예비)후보자 회계보고서(수입·지출부)", category: "회계보고서", template: "form-22-4-fill.hwpx", orgScope: "candidate", fields: [], dataFill: "accounting-report" },
   { id: "23-1", label: "후원회 회계보고서(제출문서)", category: "회계보고서", template: "form-23-1.hwpx", orgScope: "supporter", fields: [] },
   { id: "23-2", label: "후원회 회계보고서(재산명세서)", category: "회계보고서", template: "form-23-2.hwpx", orgScope: "supporter", fields: [] },
   { id: "23-3", label: "후원회 회계보고서(수입·지출총괄표)", category: "회계보고서", template: "form-23-3.hwpx", orgScope: "supporter", fields: [] },

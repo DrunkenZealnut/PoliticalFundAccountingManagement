@@ -4,6 +4,7 @@ import { join } from "node:path";
 import JSZip from "jszip";
 import { HWPX_FORM_DEFS } from "./form-fields";
 import { LEDGER_GROUP_TOKENS, LEDGER_ROW_TOKENS } from "./income-ledger-builder";
+import { buildReportSummaryModel, summaryTokens } from "./report-summary-builder";
 
 async function templateTokens(template: string): Promise<Set<string>> {
   const bytes = new Uint8Array(readFileSync(join(process.cwd(), "public/hwpx-templates", template)));
@@ -51,10 +52,11 @@ describe("dataFill 서식(회계장부) 템플릿 정합성", () => {
   for (const def of dataFillDefs.filter((d) => d.dataFill === "income-ledger")) {
     it(`${def.id}: 템플릿에 회계장부 반복 토큰 + GROUP/ROW 마커가 존재`, async () => {
       const inTemplate = await templateTokens(def.template);
+      // 비고(remark)는 서식 22-4 수입·지출부 전용 컬럼 — 서식 7(13컬럼)에는 없음
       const required = [
         ...Object.values(LEDGER_GROUP_TOKENS),
         ...Object.values(LEDGER_ROW_TOKENS),
-      ];
+      ].filter((t) => t !== LEDGER_ROW_TOKENS.remark);
       const missing = required.filter((t) => !inTemplate.has(t));
       expect(missing, `템플릿 누락 토큰: ${missing.join(", ")}`).toEqual([]);
 
@@ -67,6 +69,36 @@ describe("dataFill 서식(회계장부) 템플릿 정합성", () => {
       expect(sec).toMatch(/<!--LEDGER:ROW_END-->/);
     });
   }
+
+  // 22-4 수입·지출부 = 서식 7 동일 토큰 + 비고(remark) + LEDGER 마커
+  it("22-4: 수입·지출부 반복 토큰(비고 포함) + GROUP/ROW 마커", async () => {
+    const inTemplate = await templateTokens("form-22-4-fill.hwpx");
+    const required = [...Object.values(LEDGER_GROUP_TOKENS), ...Object.values(LEDGER_ROW_TOKENS)];
+    expect(required.filter((t) => !inTemplate.has(t)), "22-4 누락 토큰").toEqual([]);
+    const bytes = new Uint8Array(readFileSync(join(process.cwd(), "public/hwpx-templates/form-22-4-fill.hwpx")));
+    const sec = await (await JSZip.loadAsync(bytes)).file("Contents/section0.xml")!.async("string");
+    expect(sec).toMatch(/<!--LEDGER:GROUP_START-->/);
+    expect(sec).toMatch(/<!--LEDGER:ROW_START-->/);
+  });
+
+  // 22-1 총괄표 = 고정 셀 치환. 템플릿 토큰 ↔ summaryTokens 키 1:1 (마커 없음)
+  it("22-1: 총괄표 셀 토큰이 summaryTokens 키와 1:1", async () => {
+    const inTemplate = await templateTokens("form-22-1-fill.hwpx");
+    const keys = Object.keys(summaryTokens(buildReportSummaryModel([], () => "")));
+    expect(keys.filter((t) => !inTemplate.has(t)), "템플릿에 없는 빌더 토큰").toEqual([]);
+    expect([...inTemplate].filter((t) => !keys.includes(t)), "빌더에 없는 템플릿 토큰").toEqual([]);
+  });
+
+  // 22-3 재산명세서 = 명세행 토큰 + 소계/합계 + ESTATE 마커
+  it("22-3: 재산명세서 토큰 + GROUP/ROW 마커", async () => {
+    const inTemplate = await templateTokens("form-22-3-fill.hwpx");
+    const required = ["구분", "종류", "수량", "내용", "가액", "비고", "소계", "합계"];
+    expect(required.filter((t) => !inTemplate.has(t)), "22-3 누락 토큰").toEqual([]);
+    const bytes = new Uint8Array(readFileSync(join(process.cwd(), "public/hwpx-templates/form-22-3-fill.hwpx")));
+    const sec = await (await JSZip.loadAsync(bytes)).file("Contents/section0.xml")!.async("string");
+    expect(sec).toMatch(/<!--ESTATE:GROUP_START-->/);
+    expect(sec).toMatch(/<!--ESTATE:ROW_START-->/);
+  });
 });
 
 // _token-manifest.json 은 코드에서 소비되지 않는 문서용 참조이므로 drift 방지를 위해

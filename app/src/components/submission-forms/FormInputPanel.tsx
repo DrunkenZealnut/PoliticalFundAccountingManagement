@@ -21,6 +21,19 @@ interface Props {
 /** dataFill 서식 → 호출할 데이터 채움 API 경로. */
 const DATA_FILL_ENDPOINT: Record<NonNullable<HwpxFormDef["dataFill"]>, string> = {
   "income-ledger": "/api/hwpx/income-ledger",
+  "accounting-report": "/api/hwpx/accounting-report",
+};
+
+/** dataFill 서식 → 안내문구·버튼 라벨. */
+const DATA_FILL_TEXT: Record<NonNullable<HwpxFormDef["dataFill"]>, { desc: string; button: string }> = {
+  "income-ledger": {
+    desc: "수입내역관리에 입력된 데이터로 계정·과목별 회계장부를 자동 생성합니다.",
+    button: "수입 데이터로 회계장부 생성",
+  },
+  "accounting-report": {
+    desc: "입력된 수입·지출·재산 데이터로 회계보고서를 자동 생성합니다.",
+    button: "데이터로 회계보고서 생성",
+  },
 };
 
 const isAuto = (f: HwpxFormField) => f.source.from === "organ" || f.source.from === "auth" || f.source.from === "const";
@@ -63,6 +76,27 @@ export default function FormInputPanel({ def, prefill }: Props) {
   const setField = (token: string, v: string) =>
     setValues((prev) => ({ ...prev, [token]: v }));
 
+  /** POST → 실패 시 메시지 throw → 성공 시 .hwpx 다운로드. (두 생성 핸들러 공통) */
+  async function postAndDownload(endpoint: string, payload: unknown) {
+    setBusy(true);
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error?.message ?? `생성 실패 (${res.status})`);
+      }
+      downloadBlob(await res.blob(), safeFileName(def.label));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "생성 중 오류가 발생했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleGenerate() {
     setError(null);
     if (missingRequired.length > 0) {
@@ -75,24 +109,7 @@ export default function FormInputPanel({ def, prefill }: Props) {
       const raw = values[f.token] ?? "";
       payload[f.token] = f.type === "date" && raw ? fmtKoreanDate(raw) : raw;
     }
-
-    setBusy(true);
-    try {
-      const res = await fetch("/api/hwpx/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ formId: def.id, values: payload }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        throw new Error(body?.error?.message ?? `생성 실패 (${res.status})`);
-      }
-      downloadBlob(await res.blob(), safeFileName(def.label));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "생성 중 오류가 발생했습니다.");
-    } finally {
-      setBusy(false);
-    }
+    await postAndDownload("/api/hwpx/generate", { formId: def.id, values: payload });
   }
 
   /** dataFill 서식: DB 데이터로 표/행을 채워 생성 (토큰 입력 없음). */
@@ -103,23 +120,8 @@ export default function FormInputPanel({ def, prefill }: Props) {
       return;
     }
     setError(null);
-    setBusy(true);
-    try {
-      const res = await fetch(DATA_FILL_ENDPOINT[def.dataFill], {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orgId }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        throw new Error(body?.error?.message ?? `생성 실패 (${res.status})`);
-      }
-      downloadBlob(await res.blob(), safeFileName(def.label));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "생성 중 오류가 발생했습니다.");
-    } finally {
-      setBusy(false);
-    }
+    // formId 는 accounting-report 가 서식 분기에 사용(income-ledger 는 무시)
+    await postAndDownload(DATA_FILL_ENDPOINT[def.dataFill], { orgId, formId: def.id });
   }
 
   // dataFill 서식(회계장부 등): 토큰 입력 폼 대신 데이터 채움 액션을 노출
@@ -131,7 +133,7 @@ export default function FormInputPanel({ def, prefill }: Props) {
           <span className="text-xs text-muted-foreground">서식 {def.id}</span>
         </div>
         <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
-          수입내역관리에 입력된 데이터로 계정·과목별 회계장부를 자동 생성합니다.
+          {DATA_FILL_TEXT[def.dataFill].desc}{" "}
           다운로드한 .hwpx 파일을 한글에서 열어 확인·인쇄·날인 후 제출하세요.
         </p>
         {error && (
@@ -139,7 +141,7 @@ export default function FormInputPanel({ def, prefill }: Props) {
         )}
         <div className="flex items-center gap-3">
           <Button onClick={handleGenerateLedger} disabled={busy || !orgId}>
-            {busy ? "생성 중…" : "수입 데이터로 회계장부 생성"}
+            {busy ? "생성 중…" : DATA_FILL_TEXT[def.dataFill].button}
           </Button>
           {!orgId && <span className="text-xs text-muted-foreground">사용기관을 먼저 선택하세요.</span>}
         </div>

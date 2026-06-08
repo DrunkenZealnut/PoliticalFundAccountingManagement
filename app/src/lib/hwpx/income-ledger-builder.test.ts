@@ -184,12 +184,13 @@ describe("buildIncomeLedgerModel", () => {
 });
 
 describe("토큰 매핑", () => {
-  it("rowTokens 는 13개 셀 토큰을 모두 채운다", () => {
+  it("rowTokens 는 14개 셀 토큰을 모두 채운다 (비고 포함)", () => {
     const model = buildIncomeLedgerModel([row({})], getName);
     const tok = rowTokens(model.groups[0].rows[0]);
-    expect(Object.keys(tok)).toHaveLength(13);
+    expect(Object.keys(tok)).toHaveLength(14);
     expect(tok[LEDGER_ROW_TOKENS.date]).toBe("2026/5/21");
     expect(tok[LEDGER_ROW_TOKENS.incomeNow]).toBe("1,000");
+    expect(tok[LEDGER_ROW_TOKENS.remark]).toBe(""); // 비고: acc_book 무필드 → 공란
   });
 
   it("groupHeaderTokens 는 계정명/과목명", () => {
