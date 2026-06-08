@@ -127,8 +127,9 @@ export function buildIncomeSummary(rows: LedgerRow[], opts: BuildOpts): LedgerSu
 }
 
 /** 과목 기준 선거비용 판별: 과목(item_sec_cd) 코드명 === "선거비용"
- *  SSOT: reimbursement-aggregator / use-dashboard-data의 electionExpenseItemCds와 동일 기준 */
-const ELECTION_ITEM_NAME = "선거비용";
+ *  SSOT: reimbursement-aggregator / use-dashboard-data의 electionExpenseItemCds와 동일 기준.
+ *  funding-allocation 등 과목 기준 선거비용 판별이 필요한 모듈이 공유 import한다. */
+export const ELECTION_ITEM_NAME = "선거비용";
 
 /** 지출내역 현황: 지출 총액·(후보자) 선거비용/외(과목)·보전 예상액·건수·(잔액) + 과목별 breakdown.
  *  FR-08: 선거비용/보전 예상액은 후보자(candidate) 전용 개념 → candidate에서만 표시. */
