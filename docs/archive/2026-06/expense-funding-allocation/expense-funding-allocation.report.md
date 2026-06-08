@@ -43,7 +43,7 @@
 
 ## 2. PDCA 사이클 요약
 
-```
+```text
 [Plan] ✅ → [Design] ✅ → [Do] ✅ → [Check] ✅ 96% → [Report] ✅
 ```
 

@@ -33,7 +33,7 @@
 
 ## 2. Architecture & Data Flow
 
-```
+```text
 expense/page.tsx
   ├─ (기존) fetch org 전체 acc_book 행 [수입+지출]  ← L120-125, summary 계산용
   │     └─ allRows: AccBookRow[]  (★ 신규: state로 보존)
