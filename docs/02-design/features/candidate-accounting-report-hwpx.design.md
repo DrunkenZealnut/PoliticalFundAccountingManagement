@@ -42,7 +42,7 @@
 
 ### 2.1 Component Diagram
 
-```
+```text
 ┌──────────────────────────┐    ┌─────────────────────────────────────┐    ┌──────────────┐
 │ submission-forms page     │    │ POST /api/hwpx/accounting-report     │    │ Supabase     │
 │  FormCatalog(22-1/3/4 선택)│──▶│  { orgId, formId }                   │──▶│ pfam.acc_book│
@@ -186,7 +186,7 @@ dataFill?: "income-ledger" | "accounting-report";
 
 ### 5.3 User Flow
 
-```
+```text
 대시보드 → 선관위 제출서류 → [회계보고서] 22-1/22-3/22-4 선택
   → (자동) 안내 표시 → "데이터로 회계보고서 생성" 클릭
   → .hwpx 다운로드 → 한글에서 확인·인쇄·날인 → 제출
@@ -206,7 +206,7 @@ dataFill?: "income-ledger" | "accounting-report";
 
 ### 6.2 22-1 렌더 (고정 셀 치환)
 
-```
+```text
 1. buildReportSummaryModel(rows, getName) → {rows[4], total}
 2. 토큰맵 = { 자산_수입: fmt(rows.자산.income), …, 합계_잔액: fmt(total.balance), 선거명, 후보자명, … }
 3. form-22-1-fill.hwpx section 로드 → replaceTokens(section, 토큰맵) → 잔여 {{…}} 제거 → 재패키징

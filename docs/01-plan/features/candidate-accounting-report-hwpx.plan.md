@@ -159,7 +159,7 @@
 - **고정 셀 채움형 (22-1)** — 행 수가 고정(구분 5~6행)이므로 `{{토큰}}` 치환(기존 `generateHwpx`) 또는 셀 단위 마커 치환으로 충분. 핵심은 **집계 로직**(순수 함수).
 
 데이터 흐름(서식별 동일 골격):
-```
+```text
 submission-forms (서식 22-1/22-3/22-4 선택, "데이터로 생성")
   → POST /api/hwpx/accounting-report { orgId, form: "22-1"|"22-3"|"22-4" }
      → 인증 + user_organ 멤버십 가드 (income-ledger route 패턴)
