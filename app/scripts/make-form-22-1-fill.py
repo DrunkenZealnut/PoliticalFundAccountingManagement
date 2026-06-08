@@ -44,6 +44,8 @@ def main():
     xml = zin.read("Contents/section0.xml").decode("utf-8")
 
     tbl_m = re.search(r"<hp:tbl\b.*?</hp:tbl>", xml, re.S)
+    if not tbl_m:
+        raise RuntimeError(f"템플릿에서 <hp:tbl>을 찾을 수 없습니다: {SRC}")
     tbl = tbl_m.group(0)
 
     def repl_tr(m):

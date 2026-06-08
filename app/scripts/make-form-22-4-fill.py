@@ -61,11 +61,15 @@ def main():
 
     # 1) 첫 tbl + 표를 감싸는 문단 </hp:p> 까지(태그 균형)
     tbl_m = re.search(r"<hp:tbl\b.*?</hp:tbl>", xml, re.S)
+    if not tbl_m:
+        raise RuntimeError(f"템플릿에서 <hp:tbl>을 찾을 수 없습니다: {SRC}")
     tbl_close = tbl_m.end()
     wrap_end = xml.index("</hp:p>", tbl_close) + len("</hp:p>")
 
     # 2) GROUP 시작 = [계 정 명] 문단의 <hp:p 시작
     acct_i = xml.find("계 정 명")
+    if acct_i < 0:
+        raise RuntimeError("템플릿에서 '계 정 명' 텍스트를 찾지 못함")
     g_start = xml.rfind("<hp:p ", 0, acct_i)
     if g_start < 0:
         raise RuntimeError("계정명 문단을 찾지 못함")
@@ -77,6 +81,8 @@ def main():
 
     # 4) 표 안 데이터행(=14 tc) 처리: 첫 데이터행 토큰화+ROW마커, 예시 나머지 삭제
     gtbl_m = re.search(r"<hp:tbl\b.*?</hp:tbl>", group_block, re.S)
+    if not gtbl_m:
+        raise RuntimeError("group_block에서 <hp:tbl>을 찾을 수 없습니다")
     gtbl = gtbl_m.group(0)
     trs = list(re.finditer(r"<hp:tr\b.*?</hp:tr>", gtbl, re.S))
     data_idx = [i for i, m in enumerate(trs) if len(re.findall(r"<hp:tc\b", m.group(0))) == COLCNT]
