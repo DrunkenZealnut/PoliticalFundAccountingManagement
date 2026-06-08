@@ -22,6 +22,37 @@ export interface GenerateResult {
 }
 
 /**
+ * 템플릿 .hwpx 의 section0.xml 을 새 내용으로 교체해 재패키징한다.
+ * mimetype 은 ZIP 첫 엔트리·STORED, 나머지는 DEFLATE (HWPX 규약).
+ * 회계장부처럼 토큰 치환을 넘어 section 을 직접 조립하는 경로에서 재사용.
+ */
+export async function repackageSection(
+  template: ArrayBuffer | Uint8Array,
+  newSection: string
+): Promise<Uint8Array> {
+  const src = await JSZip.loadAsync(template);
+  if (!src.file(SECTION_PATH)) throw new Error(`템플릿에 ${SECTION_PATH} 가 없습니다`);
+
+  const out = new JSZip();
+  const mimeFile = src.file("mimetype");
+  const mime = mimeFile ? await mimeFile.async("string") : MIMETYPE;
+  out.file("mimetype", mime, { compression: "STORE" });
+
+  for (const path of Object.keys(src.files)) {
+    if (path === "mimetype") continue;
+    const entry = src.files[path];
+    if (entry.dir) continue;
+    if (path === SECTION_PATH) {
+      out.file(path, newSection, { compression: "DEFLATE" });
+    } else {
+      const bytes = await entry.async("uint8array");
+      out.file(path, bytes, { compression: "DEFLATE" });
+    }
+  }
+  return out.generateAsync({ type: "uint8array" });
+}
+
+/**
  * @param template 템플릿 .hwpx 의 raw bytes
  * @param values   토큰명(중괄호 제외) → 값. 예: { "회계책임자명": "홍길동" }
  */
@@ -43,24 +74,6 @@ export async function generateHwpx(
   const unresolved = Array.from(new Set(sec.match(/\{\{[^}]+\}\}/g) ?? []));
   sec = sec.replace(/\{\{[^}]+\}\}/g, "");
 
-  // mimetype-first(STORED) 보장을 위해 새 zip 으로 재구성
-  const out = new JSZip();
-  const mimeFile = src.file("mimetype");
-  const mime = mimeFile ? await mimeFile.async("string") : MIMETYPE;
-  out.file("mimetype", mime, { compression: "STORE" });
-
-  for (const path of Object.keys(src.files)) {
-    if (path === "mimetype") continue;
-    const entry = src.files[path];
-    if (entry.dir) continue;
-    if (path === SECTION_PATH) {
-      out.file(path, sec, { compression: "DEFLATE" });
-    } else {
-      const bytes = await entry.async("uint8array");
-      out.file(path, bytes, { compression: "DEFLATE" });
-    }
-  }
-
-  const bytes = await out.generateAsync({ type: "uint8array" });
+  const bytes = await repackageSection(template, sec);
   return { bytes, unresolved };
 }
