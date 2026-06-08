@@ -44,6 +44,12 @@ export interface HwpxFormDef {
   template: string;
   orgScope: OrgScope;
   fields: readonly HwpxFormField[];
+  /**
+   * 데이터 채움 서식: 일반 토큰 입력 대신 DB 데이터로 표/행을 동적 생성한다.
+   * 지정 시 `fields` 는 비고(반복 토큰은 표 내부에서 별도 처리) — 토큰 정합성 검사 제외.
+   *  - "income-ledger": 수입내역 → 수입계정별 회계장부 (POST /api/hwpx/income-ledger)
+   */
+  dataFill?: "income-ledger";
 }
 
 /* ------------------------------------------------------------------ */
@@ -170,7 +176,7 @@ export const HWPX_FORM_DEFS: readonly HwpxFormDef[] = [
   /*  회계실무 작성예시 추출 서식 (다운로드용 공식 양식, 토큰 없음)    */
   /*  한글에서 직접 작성하는 회계장부·보고서·명세서·청구서 계열       */
   /* ----------------------------------------------------------------- */
-  { id: "7", label: "(예비)후보자 정치자금 수입계정별 회계장부", category: "회계장부", template: "form-7.hwpx", orgScope: "candidate", fields: [] },
+  { id: "7", label: "(예비)후보자 정치자금 수입계정별 회계장부", category: "회계장부", template: "form-7-fill.hwpx", orgScope: "candidate", fields: [], dataFill: "income-ledger" },
   { id: "8", label: "후원회 정치자금 수입계정별 회계장부", category: "회계장부", template: "form-8.hwpx", orgScope: "supporter", fields: [] },
   { id: "20", label: "정치자금 수입·지출부(회계장부 마감)", category: "회계장부", template: "form-20.hwpx", orgScope: "all", fields: [] },
   { id: "14", label: "선거사무관계자 수당·실비 지급명세서", category: "지급명세서", template: "form-14.hwpx", orgScope: "candidate", fields: [] },

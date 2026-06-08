@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import JSZip from "jszip";
 import { HWPX_FORM_DEFS } from "./form-fields";
+import { LEDGER_GROUP_TOKENS, LEDGER_ROW_TOKENS } from "./income-ledger-builder";
 
 async function templateTokens(template: string): Promise<Set<string>> {
   const bytes = new Uint8Array(readFileSync(join(process.cwd(), "public/hwpx-templates", template)));
@@ -15,7 +16,9 @@ async function templateTokens(template: string): Promise<Set<string>> {
 }
 
 describe("HWPX_FORM_DEFS ↔ 템플릿 토큰 정합성", () => {
-  for (const def of HWPX_FORM_DEFS) {
+  // dataFill 서식(회계장부)은 표 내부에서 반복 토큰을 동적 처리하므로
+  // def.fields ↔ 템플릿 토큰 1:1 정합성 검사 대상에서 제외한다.
+  for (const def of HWPX_FORM_DEFS.filter((d) => !d.dataFill)) {
     it(`${def.id} (${def.label}): 정의 토큰 = 템플릿 토큰`, async () => {
       const inTemplate = await templateTokens(def.template);
       const inDef = new Set(def.fields.map((f) => f.token));
@@ -36,6 +39,36 @@ describe("HWPX_FORM_DEFS ↔ 템플릿 토큰 정합성", () => {
   });
 });
 
+describe("dataFill 서식(회계장부) 템플릿 정합성", () => {
+  const dataFillDefs = HWPX_FORM_DEFS.filter((d) => d.dataFill);
+
+  it("dataFill 서식은 fields 가 비어 있다(반복 토큰은 표 내부 처리)", () => {
+    for (const def of dataFillDefs) {
+      expect(def.fields, `${def.id}`).toEqual([]);
+    }
+  });
+
+  for (const def of dataFillDefs.filter((d) => d.dataFill === "income-ledger")) {
+    it(`${def.id}: 템플릿에 회계장부 반복 토큰 + GROUP/ROW 마커가 존재`, async () => {
+      const inTemplate = await templateTokens(def.template);
+      const required = [
+        ...Object.values(LEDGER_GROUP_TOKENS),
+        ...Object.values(LEDGER_ROW_TOKENS),
+      ];
+      const missing = required.filter((t) => !inTemplate.has(t));
+      expect(missing, `템플릿 누락 토큰: ${missing.join(", ")}`).toEqual([]);
+
+      const bytes = new Uint8Array(readFileSync(join(process.cwd(), "public/hwpx-templates", def.template)));
+      const zip = await JSZip.loadAsync(bytes);
+      const sec = await zip.file("Contents/section0.xml")!.async("string");
+      expect(sec).toMatch(/<!--LEDGER:GROUP_START-->/);
+      expect(sec).toMatch(/<!--LEDGER:GROUP_END-->/);
+      expect(sec).toMatch(/<!--LEDGER:ROW_START-->/);
+      expect(sec).toMatch(/<!--LEDGER:ROW_END-->/);
+    });
+  }
+});
+
 // _token-manifest.json 은 코드에서 소비되지 않는 문서용 참조이므로 drift 방지를 위해
 // HWPX_FORM_DEFS 와의 정합성을 빌드타임에 가드한다.
 describe("_token-manifest.json ↔ HWPX_FORM_DEFS 정합성", () => {
@@ -47,11 +80,17 @@ describe("_token-manifest.json ↔ HWPX_FORM_DEFS 정합성", () => {
     expect(new Set(Object.keys(manifest))).toEqual(new Set(HWPX_FORM_DEFS.map((d) => d.id)));
   });
 
-  for (const def of HWPX_FORM_DEFS) {
-    it(`${def.id}: manifest file/토큰이 정의와 일치`, () => {
+  it("모든 서식의 manifest file 이 정의 template 과 일치", () => {
+    for (const def of HWPX_FORM_DEFS) {
+      expect(manifest[def.id]?.file, `${def.id}`).toBe(def.template);
+    }
+  });
+
+  // 토큰 정합성은 일반(비 dataFill) 서식만 — dataFill 은 반복 토큰 문서화
+  for (const def of HWPX_FORM_DEFS.filter((d) => !d.dataFill)) {
+    it(`${def.id}: manifest 토큰이 정의와 일치`, () => {
       const entry = manifest[def.id];
       expect(entry, `manifest에 ${def.id} 없음`).toBeDefined();
-      expect(entry.file).toBe(def.template);
       const manifestTokens = new Set(
         entry.tokens.map((t) => {
           if (!t.startsWith("{{") || !t.endsWith("}}")) {
