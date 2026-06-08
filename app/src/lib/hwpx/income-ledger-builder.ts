@@ -1,13 +1,17 @@
 /* ------------------------------------------------------------------ */
-/*  수입계정별 회계장부(공식 서식 7) 뷰모델 빌더 — 순수 함수            */
+/*  수입계정별 회계장부(공식 서식 7 = 정치자금 수입·지출부) 뷰모델 빌더 */
 /*                                                                    */
-/*  acc_book 수입행(incm_sec_cd=1) + customer 상세를 받아             */
-/*  계정+과목 그룹별로 묶고, 그룹 내 일자순 누계·잔액을 계산해         */
-/*  form-7 표의 셀 토큰값으로 매핑한다.                                */
+/*  acc_book 행(수입 incm_sec_cd=1 + 지출 incm_sec_cd=2) + customer    */
+/*  상세를 받아 계정+과목 그룹별로 묶고, 그룹 내 일자순으로 수입·지출   */
+/*  을 섞어 각각의 누계와 잔액(수입누계-지출누계)을 계산해 form-7 표의   */
+/*  셀 토큰값으로 매핑한다.                                            */
 /*                                                                    */
-/*  설계근거: docs/02-design/features/income-account-ledger-hwpx.design.md */
-/*   - 잔액 = 그룹 내 수입 누계 (수입-only, 지출 컬럼 공란)            */
-/*   - 정렬: 계정코드 ASC → 과목코드 ASC, 그룹 내 acc_date ASC         */
+/*  근거(실데이터 org 9): 수입·지출이 동일 계정·과목 코드(82/84/85 ×    */
+/*  86/87)를 공유하므로 (acc_sec_cd,item_sec_cd) 그룹에 수입·지출이      */
+/*  함께 묶인다. form-7 작성예시도 한 표에 수입·지출 일자순 혼합 +       */
+/*  잔액=수입누계-지출누계 구조.                                       */
+/*   - 정렬: 계정코드 ASC → 과목코드 ASC, 그룹 내 acc_date ASC →        */
+/*     동일자는 수입(incm=1) 먼저                                       */
 /*  React/Next 비의존 → 단위 테스트 가능.                              */
 /* ------------------------------------------------------------------ */
 
@@ -43,9 +47,10 @@ export interface LedgerCustomer {
   tel: string | null;
 }
 
-/** acc_book 수입행 + customer 상세 (전용 조회 결과). */
+/** acc_book 행(수입/지출) + customer 상세 (전용 조회 결과). */
 export interface IncomeLedgerInputRow {
   acc_date: string; // YYYYMMDD
+  incm_sec_cd: number; // 1=수입, 2=지출
   acc_sec_cd: number;
   item_sec_cd: number;
   content: string;
@@ -58,11 +63,11 @@ export interface IncomeLedgerInputRow {
 export interface LedgerCellRow {
   date: string;
   content: string;
-  incomeNow: string;
-  incomeCum: string;
-  expenseNow: ""; // 공란(수입-only)
-  expenseCum: ""; // 공란
-  balance: string;
+  incomeNow: string; // 수입행이면 금액, 지출행이면 ""
+  incomeCum: string; // 수입행에만 수입 누계 표시
+  expenseNow: string; // 지출행이면 금액, 수입행이면 ""
+  expenseCum: string; // 지출행에만 지출 누계 표시
+  balance: string; // 수입누계 - 지출누계 (모든 행)
   name: string;
   birth: string;
   addr: string;
@@ -134,8 +139,8 @@ function isAnonymous(row: IncomeLedgerInputRow): boolean {
 type GetName = (cvId: number) => string;
 
 /**
- * 수입행들을 계정+과목 그룹으로 묶어 회계장부 모델로 변환.
- * @param rows 수입행(+customer 상세)
+ * 수입·지출행들을 계정+과목 그룹으로 묶어 회계장부 모델로 변환.
+ * @param rows 수입·지출행(+customer 상세)
  * @param getName cv_id → 코드명 (codevalue)
  */
 export function buildIncomeLedgerModel(
@@ -162,21 +167,24 @@ export function buildIncomeLedgerModel(
     const [accSecCd, itemSecCd] = key.split(":").map(Number);
     const groupRows = groupMap.get(key)!
       .slice()
-      // 그룹 내 일자순(동일자는 입력 순서 유지 — stable sort)
-      .sort((a, b) => a.acc_date.localeCompare(b.acc_date));
+      // 그룹 내 일자순, 동일자는 수입(incm=1) 먼저 (stable sort)
+      .sort((a, b) => a.acc_date.localeCompare(b.acc_date) || a.incm_sec_cd - b.incm_sec_cd);
 
-    let cum = 0;
+    let incCum = 0;
+    let expCum = 0;
     const cells: LedgerCellRow[] = groupRows.map((r) => {
-      cum += r.acc_amt || 0;
+      const isIncome = r.incm_sec_cd === 1;
+      if (isIncome) incCum += r.acc_amt || 0;
+      else expCum += r.acc_amt || 0;
       const anon = isAnonymous(r);
       return {
         date: formatLedgerDate(r.acc_date),
         content: r.content ?? "",
-        incomeNow: formatAmount(r.acc_amt),
-        incomeCum: formatAmount(cum),
-        expenseNow: "",
-        expenseCum: "",
-        balance: formatAmount(cum),
+        incomeNow: isIncome ? formatAmount(r.acc_amt) : "",
+        incomeCum: isIncome ? formatAmount(incCum) : "",
+        expenseNow: isIncome ? "" : formatAmount(r.acc_amt),
+        expenseCum: isIncome ? "" : formatAmount(expCum),
+        balance: formatAmount(incCum - expCum),
         // 익명은 실명이 들어와도 "익명"으로 정규화(비식별화 + 회계장부 표기 유지)
         name: anon ? "익명" : (r.customer?.name ?? ""),
         birth: anon ? "" : formatBirthFromRegNum(r.customer?.reg_num),

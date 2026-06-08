@@ -73,19 +73,19 @@ export async function POST(request: NextRequest) {
     return errorResponse("FORBIDDEN", "해당 기관에 대한 권한이 없습니다.", 403);
   }
 
-  // 1. 수입행 + customer 상세 (org 스코프 강제)
+  // 1. 수입·지출행 + customer 상세 (org 스코프 강제). 서식 7은 수입·지출부이므로
+  //    incm_sec_cd 필터 없이 모두 조회 → 계정·과목 그룹 내에서 수입·지출을 합산.
   const { data: rows, error: rowsErr } = await supabase
     .from("acc_book")
     .select(
-      "acc_date, acc_sec_cd, item_sec_cd, content, acc_amt, rcp_no, cust_id, " +
+      "acc_date, incm_sec_cd, acc_sec_cd, item_sec_cd, content, acc_amt, rcp_no, cust_id, " +
         "customer:cust_id(name, reg_num, addr, addr_detail, job, tel)"
     )
     .eq("org_id", orgId)
-    .eq("incm_sec_cd", 1)
     .order("acc_date", { ascending: true });
 
   if (rowsErr) {
-    return errorResponse("QUERY_FAILED", "수입내역 조회에 실패했습니다.", 500, { detail: rowsErr.message });
+    return errorResponse("QUERY_FAILED", "수입·지출내역 조회에 실패했습니다.", 500, { detail: rowsErr.message });
   }
 
   // 2. codevalue 코드명 맵 (계정명/과목명)

@@ -23,6 +23,7 @@ const getName = (cv: number) => NAMES[cv] ?? `코드${cv}`;
 function row(p: Partial<IncomeLedgerInputRow>): IncomeLedgerInputRow {
   return {
     acc_date: "20260521",
+    incm_sec_cd: 1,
     acc_sec_cd: 84,
     item_sec_cd: 10,
     content: "내역",
@@ -110,10 +111,45 @@ describe("buildIncomeLedgerModel", () => {
     expect(rows[1]).toMatchObject({ incomeNow: "1,500,000", incomeCum: "21,500,000", balance: "21,500,000" });
   });
 
-  it("지출 컬럼은 공란", () => {
-    const model = buildIncomeLedgerModel([row({})], getName);
-    expect(model.groups[0].rows[0].expenseNow).toBe("");
-    expect(model.groups[0].rows[0].expenseCum).toBe("");
+  it("수입행은 지출 컬럼 공란, 지출행은 수입 컬럼 공란", () => {
+    const model = buildIncomeLedgerModel(
+      [
+        row({ incm_sec_cd: 1, acc_amt: 1000 }),
+        row({ incm_sec_cd: 2, acc_amt: 300, acc_date: "20260522" }),
+      ],
+      getName,
+    );
+    const [inc, exp] = model.groups[0].rows;
+    expect(inc).toMatchObject({ incomeNow: "1,000", expenseNow: "", expenseCum: "" });
+    expect(exp).toMatchObject({ expenseNow: "300", incomeNow: "", incomeCum: "" });
+  });
+
+  it("같은 계정·과목 그룹에 수입·지출을 일자순 혼합하고 잔액=수입누계-지출누계", () => {
+    const model = buildIncomeLedgerModel(
+      [
+        row({ incm_sec_cd: 1, acc_date: "20260521", acc_amt: 20000000, content: "수입A" }),
+        row({ incm_sec_cd: 1, acc_date: "20260522", acc_amt: 1500000, content: "수입B" }),
+        row({ incm_sec_cd: 2, acc_date: "20260523", acc_amt: 1500000, content: "지출C" }),
+      ],
+      getName,
+    );
+    expect(model.groups).toHaveLength(1); // 수입·지출이 한 그룹
+    const rows = model.groups[0].rows;
+    expect(rows.map((r) => r.content)).toEqual(["수입A", "수입B", "지출C"]);
+    expect(rows[0]).toMatchObject({ incomeCum: "20,000,000", balance: "20,000,000" });
+    expect(rows[1]).toMatchObject({ incomeCum: "21,500,000", balance: "21,500,000" });
+    expect(rows[2]).toMatchObject({ expenseNow: "1,500,000", expenseCum: "1,500,000", balance: "20,000,000" });
+  });
+
+  it("동일자는 수입(incm=1)을 지출보다 먼저 정렬", () => {
+    const model = buildIncomeLedgerModel(
+      [
+        row({ incm_sec_cd: 2, acc_date: "20260521", content: "지출" }),
+        row({ incm_sec_cd: 1, acc_date: "20260521", content: "수입" }),
+      ],
+      getName,
+    );
+    expect(model.groups[0].rows.map((r) => r.content)).toEqual(["수입", "지출"]);
   });
 
   it("익명(cust_id=-999)은 상세 셀 공란, 금액은 정상", () => {
