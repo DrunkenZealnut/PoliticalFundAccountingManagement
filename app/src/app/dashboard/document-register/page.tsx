@@ -14,6 +14,7 @@ import { getExpTypeData, PAY_METHODS } from "@/lib/expense-types";
 import { PageGuide } from "@/components/page-guide";
 import { PAGE_GUIDES } from "@/lib/page-guides";
 import { fileToBase64 } from "@/lib/file-utils";
+import { toAccTime } from "@/lib/date-utils";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -29,6 +30,7 @@ interface ParsedEntry {
   acc_sec_cd: number;
   item_sec_cd: number;
   acc_date: string;
+  acc_time: string;
   content: string;
   acc_amt: number;
   cust_id: number;
@@ -105,7 +107,7 @@ export default function DocumentRegisterPage() {
         fileBase64: base64,
         fileType: file.type,
         preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : "",
-        acc_sec_cd: 0, item_sec_cd: 0, acc_date: "", content: "", acc_amt: 0,
+        acc_sec_cd: 0, item_sec_cd: 0, acc_date: "", acc_time: "", content: "", acc_amt: 0,
         cust_id: 0, customerName: "", rcp_yn: "Y", rcp_no: "", bigo: "", providerRegNum: "",
         exp_group1_cd: "", exp_group2_cd: "", exp_group3_cd: "", acc_ins_type: "118",
       });
@@ -187,6 +189,7 @@ export default function DocumentRegisterPage() {
         acc_sec_cd: e.acc_sec_cd, item_sec_cd: e.item_sec_cd, exp_sec_cd: 0,
         cust_id: custId || NO_CUSTOMER_ID,
         acc_date: e.acc_date.replace(/-/g, ""),
+        acc_time: toAccTime(e.acc_time),
         content: e.content, acc_amt: e.acc_amt,
         rcp_yn: e.rcp_yn,
         rcp_no: e.rcp_yn === "Y" ? (e.rcp_no || null) : null,
@@ -285,6 +288,11 @@ export default function DocumentRegisterPage() {
             <Label>{typeLabel}일자</Label>
             <Input type="date" value={entry.acc_date}
               onChange={(e) => updateEntry(entry.id, { acc_date: e.target.value })} />
+          </div>
+          <div>
+            <Label>{typeLabel}시각 <span className="text-xs text-gray-400">(선택)</span></Label>
+            <Input type="time" value={entry.acc_time}
+              onChange={(e) => updateEntry(entry.id, { acc_time: e.target.value })} />
           </div>
           <div>
             <Label>금액</Label>
