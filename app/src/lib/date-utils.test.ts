@@ -19,8 +19,14 @@ describe("fmtTimeInput (HHmm → HH:mm)", () => {
     expect(fmtTimeInput("abcd")).toBe("");
     expect(fmtTimeInput("143")).toBe("");
   });
-  it("CHAR(4) 공백 패딩 방어", () => {
-    expect(fmtTimeInput("1430 ".trimEnd())).toBe("14:30");
+  it("범위 초과(시>23 또는 분>59) → 빈 문자열", () => {
+    expect(fmtTimeInput("2460")).toBe("");
+    expect(fmtTimeInput("2400")).toBe("");
+    expect(fmtTimeInput("1360")).toBe("");
+  });
+  it("CHAR(4) 공백 패딩 방어 (함수 내부 trim 검증)", () => {
+    expect(fmtTimeInput("1430 ")).toBe("14:30");
+    expect(fmtTimeInput(" 1430")).toBe("14:30");
   });
 });
 
@@ -40,6 +46,11 @@ describe("toAccTime (HH:mm → HHmm)", () => {
   it("비정상값 → null", () => {
     expect(toAccTime("99")).toBeNull();
     expect(toAccTime("ab:cd")).toBeNull();
+  });
+  it("범위 초과 → null", () => {
+    expect(toAccTime("24:60")).toBeNull();
+    expect(toAccTime("25:00")).toBeNull();
+    expect(toAccTime("12:75")).toBeNull();
   });
 });
 

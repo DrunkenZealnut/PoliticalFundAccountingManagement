@@ -6,11 +6,14 @@
  * 두 형식을 단일 지점에서 변환하여 수입·지출·수기입력 폼의 중복을 방지한다.
  */
 
+/** HHmm 유효성: 자리수뿐 아니라 범위(00:00~23:59)까지 검증. "2460"·"1360" 등은 불통과. */
+const HHMM_RE = /^(?:[01]\d|2[0-3])[0-5]\d$/;
+
 /** DB 저장형 "HHmm" → input[type=time] 표시형 "HH:mm". 빈값/비정상값은 "". */
 export function fmtTimeInput(hhmm: string | null | undefined): string {
   if (!hhmm) return "";
   const s = hhmm.trim();
-  if (!/^\d{4}$/.test(s)) return "";
+  if (!HHMM_RE.test(s)) return "";
   return `${s.slice(0, 2)}:${s.slice(2, 4)}`;
 }
 
@@ -18,5 +21,5 @@ export function fmtTimeInput(hhmm: string | null | undefined): string {
 export function toAccTime(hm: string | null | undefined): string | null {
   if (!hm) return null;
   const digits = hm.replace(":", "").trim();
-  return /^\d{4}$/.test(digits) ? digits : null;
+  return HHMM_RE.test(digits) ? digits : null;
 }
