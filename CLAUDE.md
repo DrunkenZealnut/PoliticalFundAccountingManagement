@@ -43,7 +43,7 @@ This uses Next.js 16 which has breaking changes from training data. Always read 
 - `acc_ins_type` column is `VARCHAR(5)` (was CHAR(2), widened via `scripts/008`). PAY_METHODS codes are 3 chars ("118", "583").
 - All dates stored as `YYYYMMDD` strings (not DATE type). UI uses `YYYY-MM-DD`, convert on save/display.
 - `customer.org_id` (added via `scripts/011`) scopes counterparties per organization — a same-name counterparty in two orgs is two rows. The anonymous customer (`name='익명'`) is shared with `org_id` NULL. Every customer read/write/match path must filter/set `org_id` (customers API, customer + customer-batch pages, acc-book batch matching, import/export-sqlite).
-- Migrations live in `app/scripts/0NN_*.sql` and are applied **manually via the Supabase SQL editor** (DDL cannot run through the service-role REST client). Latest is `013` (`012` = `delete_org_data` RPC, `013` = `finalize_settlement` RPC).
+- Migrations live in `app/scripts/0NN_*.sql` and are applied **manually via the Supabase SQL editor** (DDL cannot run through the service-role REST client). Latest is `014` (`012` = `delete_org_data` RPC, `013` = `finalize_settlement` RPC, `014` = `acc_book`/`acc_book_bak`에 `acc_time CHAR(4)` 컬럼 추가 — 거래 시각 분 단위, NULL 허용).
 
 ### Source Layout (`app/src/`)
 

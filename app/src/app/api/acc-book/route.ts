@@ -60,6 +60,7 @@ export async function GET(request: NextRequest) {
 
   const { data, error } = await query
     .order("acc_date", { ascending: true })
+    .order("acc_time", { ascending: true, nullsFirst: true })
     .order("acc_sort_num", { ascending: true })
     .limit(100000);
 

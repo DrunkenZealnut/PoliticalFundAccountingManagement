@@ -20,6 +20,7 @@ import { PAGE_GUIDES } from "@/lib/page-guides";
 import { EvidenceFileManager, type PendingFile } from "@/components/evidence/evidence-file-manager";
 import { buildExpenseSummary } from "@/lib/accounting/ledger-summary";
 import { LedgerSummaryHeader } from "@/components/dashboard/LedgerSummaryHeader";
+import { fmtTimeInput, toAccTime } from "@/lib/date-utils";
 import { buildFundingAllocation } from "@/lib/accounting/funding-allocation";
 import { FundingAllocationPanel } from "@/components/dashboard/FundingAllocationPanel";
 
@@ -32,6 +33,7 @@ interface AccBook {
   exp_sec_cd: number;
   cust_id: number;
   acc_date: string;
+  acc_time: string | null;
   content: string;
   acc_amt: number;
   rcp_yn: string;
@@ -91,6 +93,7 @@ export default function ExpensePage() {
     item_sec_cd: 0,
     exp_sec_cd: 0,
     acc_date: "",
+    acc_time: "",
     acc_amt: 0,
     cust_id: 0,
     content: "",
@@ -296,6 +299,7 @@ export default function ExpensePage() {
       item_sec_cd: 0,
       exp_sec_cd: 0,
       acc_date: "",
+      acc_time: "",
       acc_amt: 0,
       cust_id: 0,
       content: "",
@@ -325,6 +329,7 @@ export default function ExpensePage() {
         r.acc_date.length === 8
           ? `${r.acc_date.slice(0, 4)}-${r.acc_date.slice(4, 6)}-${r.acc_date.slice(6, 8)}`
           : r.acc_date,
+      acc_time: fmtTimeInput(r.acc_time),
       acc_amt: r.acc_amt,
       cust_id: r.cust_id,
       content: r.content,
@@ -380,6 +385,7 @@ export default function ExpensePage() {
       exp_sec_cd: form.exp_sec_cd,
       cust_id: form.cust_id || -999,
       acc_date: form.acc_date.replace(/-/g, ""),
+      acc_time: toAccTime(form.acc_time),
       content: form.content,
       acc_amt: form.acc_amt,
       rcp_yn: form.rcp_yn,
@@ -402,6 +408,7 @@ export default function ExpensePage() {
         exp_sec_cd: selected.exp_sec_cd,
         cust_id: selected.cust_id,
         acc_date: selected.acc_date,
+        acc_time: selected.acc_time,
         content: selected.content,
         acc_amt: selected.acc_amt,
         rcp_yn: selected.rcp_yn,
@@ -444,6 +451,7 @@ export default function ExpensePage() {
       exp_sec_cd: selected.exp_sec_cd,
       cust_id: selected.cust_id,
       acc_date: selected.acc_date,
+      acc_time: selected.acc_time,
       content: selected.content,
       acc_amt: selected.acc_amt,
       rcp_yn: selected.rcp_yn,
@@ -472,7 +480,7 @@ export default function ExpensePage() {
         work_kind: 2, acc_book_id: r.acc_book_id, org_id: r.org_id,
         incm_sec_cd: r.incm_sec_cd, acc_sec_cd: r.acc_sec_cd,
         item_sec_cd: r.item_sec_cd, exp_sec_cd: r.exp_sec_cd,
-        cust_id: r.cust_id, acc_date: r.acc_date, content: r.content,
+        cust_id: r.cust_id, acc_date: r.acc_date, acc_time: r.acc_time, content: r.content,
         acc_amt: r.acc_amt, rcp_yn: r.rcp_yn, rcp_no: r.rcp_no,
       });
     }
@@ -737,6 +745,15 @@ export default function ExpensePage() {
               type="date"
               value={form.acc_date}
               onChange={(e) => setForm({ ...form, acc_date: e.target.value })}
+            />
+          </div>
+
+          <div>
+            <Label>지출시각 <span className="text-xs text-gray-400">(선택)</span></Label>
+            <Input
+              type="time"
+              value={form.acc_time}
+              onChange={(e) => setForm({ ...form, acc_time: e.target.value })}
             />
           </div>
 
