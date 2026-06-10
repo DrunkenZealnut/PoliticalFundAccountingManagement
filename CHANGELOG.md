@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.10.1.0] - 2026-06-11
+
+### Fixed
+
+- **선관위 제출파일(SQLite) 생성 오류 수정** — 거래 시각(`acc_time`) 입력 기능 추가 이후 자료백업·제출파일을 만들 때 `table ACC_BOOK has no column named ACC_TIME` 오류로 파일 생성이 전부 실패하던 문제를 고쳤습니다.
+  - 거래 시각은 선관위 PFund2/SQLite 공식 포맷(`ACC_BOOK`)에 없는 앱 전용 항목이라, 제출파일을 만들 때 자동으로 제외해 공식 프로그램과 호환되도록 했습니다. (수입·지출 행 모두 적용)
+  - 회계장부 입력·표시에는 거래 시각이 그대로 유지되며, 공식 제출용 파일에만 빠집니다.
+
 ## [0.10.0.0] - 2026-06-10
 
 ### Changed
