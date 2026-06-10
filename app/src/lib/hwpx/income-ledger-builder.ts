@@ -90,6 +90,15 @@ export interface IncomeLedgerModel {
   groups: LedgerGroup[];
 }
 
+/**
+ * 회계장부에 항상 표시할 표준 계정·과목 조합 (acc_rel 기준).
+ * 거래가 없는 조합도 빈 표(빈 행 1개)로 생성하기 위해 사용한다.
+ */
+export interface LedgerAccountItem {
+  accSecCd: number;
+  itemSecCd: number;
+}
+
 /** 금액 → 천단위 콤마 (음수/0 포함). */
 export function formatAmount(n: number): string {
   return (n || 0).toLocaleString("ko-KR");
@@ -140,14 +149,77 @@ function isAnonymous(row: IncomeLedgerInputRow): boolean {
 
 type GetName = (cvId: number) => string;
 
+/** 거래가 없는 계정·과목의 빈 표용 데이터행(모든 셀 공란). */
+function emptyLedgerRow(): LedgerCellRow {
+  return {
+    date: "",
+    content: "",
+    incomeNow: "",
+    incomeCum: "",
+    expenseNow: "",
+    expenseCum: "",
+    balance: "",
+    name: "",
+    birth: "",
+    addr: "",
+    job: "",
+    tel: "",
+    receiptNo: "",
+    remark: "",
+  };
+}
+
+/**
+ * 한 계정·과목 그룹의 데이터행 셀을 계산한다.
+ * 거래 0건이면 손기입용 빈 행 1개를 반환(거래 없는 계정도 양식 표를 유지).
+ */
+function buildGroupRows(groupRows: IncomeLedgerInputRow[]): LedgerCellRow[] {
+  if (groupRows.length === 0) return [emptyLedgerRow()];
+
+  // 그룹 내 일자순, 동일자는 수입(incm=1) 먼저 (stable sort)
+  const sorted = groupRows
+    .slice()
+    .sort((a, b) => a.acc_date.localeCompare(b.acc_date) || a.incm_sec_cd - b.incm_sec_cd);
+
+  let incCum = 0;
+  let expCum = 0;
+  return sorted.map((r) => {
+    const isIncome = r.incm_sec_cd === 1;
+    if (isIncome) incCum += r.acc_amt || 0;
+    else expCum += r.acc_amt || 0;
+    const anon = isAnonymous(r);
+    return {
+      date: formatLedgerDate(r.acc_date),
+      content: r.content ?? "",
+      incomeNow: isIncome ? formatAmount(r.acc_amt) : "",
+      incomeCum: isIncome ? formatAmount(incCum) : "",
+      expenseNow: isIncome ? "" : formatAmount(r.acc_amt),
+      expenseCum: isIncome ? "" : formatAmount(expCum),
+      balance: formatAmount(incCum - expCum),
+      // 익명은 실명이 들어와도 "익명"으로 정규화(비식별화 + 회계장부 표기 유지)
+      name: anon ? "익명" : (r.customer?.name ?? ""),
+      birth: anon ? "" : formatBirthFromRegNum(r.customer?.reg_num),
+      addr: anon ? "" : joinAddr(r.customer),
+      job: anon ? "" : (r.customer?.job ?? ""),
+      tel: anon ? "" : (r.customer?.tel ?? ""),
+      receiptNo: r.rcp_no ?? "",
+      remark: "",
+    };
+  });
+}
+
 /**
  * 수입·지출행들을 계정+과목 그룹으로 묶어 회계장부 모델로 변환.
  * @param rows 수입·지출행(+customer 상세)
  * @param getName cv_id → 코드명 (codevalue)
+ * @param standardCombos 항상 표시할 표준 계정·과목 조합(acc_rel 기준). 지정 시
+ *   거래가 없는 조합도 빈 표(빈 행 1개)로 생성하고, 전달 순서(=acc_order)를
+ *   그룹 출력 순서로 사용한다. 미지정 시 기존 동작(실거래 그룹만 코드순).
  */
 export function buildIncomeLedgerModel(
   rows: IncomeLedgerInputRow[],
   getName: GetName,
+  standardCombos?: LedgerAccountItem[],
 ): IncomeLedgerModel {
   // 그룹 키 = `${acc_sec_cd}:${item_sec_cd}`
   const groupMap = new Map<string, IncomeLedgerInputRow[]>();
@@ -159,51 +231,41 @@ export function buildIncomeLedgerModel(
   }
 
   // 계정코드 ASC → 과목코드 ASC
-  const sortedKeys = Array.from(groupMap.keys()).sort((a, b) => {
+  const byCode = (a: string, b: string) => {
     const [aa, ai] = a.split(":").map(Number);
     const [ba, bi] = b.split(":").map(Number);
     return aa - ba || ai - bi;
-  });
+  };
 
-  const groups: LedgerGroup[] = sortedKeys.map((key) => {
+  // 출력 그룹 키 순서:
+  //  - standardCombos 지정: 전달 순서(=acc_order) 우선 + 표준에 없는 실거래 조합은 코드순으로 뒤에 추가
+  //  - 미지정: 실거래 그룹만 코드순(기존 동작)
+  const orderedKeys: string[] = [];
+  const seen = new Set<string>();
+  const pushKey = (k: string) => {
+    if (!seen.has(k)) {
+      seen.add(k);
+      orderedKeys.push(k);
+    }
+  };
+  if (standardCombos && standardCombos.length > 0) {
+    for (const c of standardCombos) pushKey(`${c.accSecCd}:${c.itemSecCd}`);
+    Array.from(groupMap.keys())
+      .filter((k) => !seen.has(k))
+      .sort(byCode)
+      .forEach(pushKey);
+  } else {
+    Array.from(groupMap.keys()).sort(byCode).forEach(pushKey);
+  }
+
+  const groups: LedgerGroup[] = orderedKeys.map((key) => {
     const [accSecCd, itemSecCd] = key.split(":").map(Number);
-    const groupRows = groupMap.get(key)!
-      .slice()
-      // 그룹 내 일자순, 동일자는 수입(incm=1) 먼저 (stable sort)
-      .sort((a, b) => a.acc_date.localeCompare(b.acc_date) || a.incm_sec_cd - b.incm_sec_cd);
-
-    let incCum = 0;
-    let expCum = 0;
-    const cells: LedgerCellRow[] = groupRows.map((r) => {
-      const isIncome = r.incm_sec_cd === 1;
-      if (isIncome) incCum += r.acc_amt || 0;
-      else expCum += r.acc_amt || 0;
-      const anon = isAnonymous(r);
-      return {
-        date: formatLedgerDate(r.acc_date),
-        content: r.content ?? "",
-        incomeNow: isIncome ? formatAmount(r.acc_amt) : "",
-        incomeCum: isIncome ? formatAmount(incCum) : "",
-        expenseNow: isIncome ? "" : formatAmount(r.acc_amt),
-        expenseCum: isIncome ? "" : formatAmount(expCum),
-        balance: formatAmount(incCum - expCum),
-        // 익명은 실명이 들어와도 "익명"으로 정규화(비식별화 + 회계장부 표기 유지)
-        name: anon ? "익명" : (r.customer?.name ?? ""),
-        birth: anon ? "" : formatBirthFromRegNum(r.customer?.reg_num),
-        addr: anon ? "" : joinAddr(r.customer),
-        job: anon ? "" : (r.customer?.job ?? ""),
-        tel: anon ? "" : (r.customer?.tel ?? ""),
-        receiptNo: r.rcp_no ?? "",
-        remark: "",
-      };
-    });
-
     return {
       accSecCd,
       itemSecCd,
       accountName: getName(accSecCd),
       itemName: getName(itemSecCd),
-      rows: cells,
+      rows: buildGroupRows(groupMap.get(key) ?? []),
     };
   });
 

@@ -183,6 +183,71 @@ describe("buildIncomeLedgerModel", () => {
   });
 });
 
+describe("표준 계정·과목 전체 출력 (standardCombos)", () => {
+  // 후보자 org 표준 8조합 중 일부를 단순화 (계정 82/84/85 × 과목 10/11)
+  const COMBOS = [
+    { accSecCd: 82, itemSecCd: 10 },
+    { accSecCd: 82, itemSecCd: 11 },
+    { accSecCd: 84, itemSecCd: 10 },
+    { accSecCd: 85, itemSecCd: 11 },
+  ];
+
+  it("거래 없는 조합도 빈 표(빈 행 1개)로 생성하고 전달 순서를 따른다", () => {
+    // 84:10 에만 거래
+    const model = buildIncomeLedgerModel(
+      [row({ acc_sec_cd: 84, item_sec_cd: 10, acc_amt: 1000 })],
+      getName,
+      COMBOS,
+    );
+    expect(model.groups).toHaveLength(4);
+    expect(model.groups.map((g) => `${g.accSecCd}:${g.itemSecCd}`)).toEqual([
+      "82:10",
+      "82:11",
+      "84:10",
+      "85:11",
+    ]);
+    // 거래 있는 그룹: 정상 데이터행
+    const filled = model.groups[2];
+    expect(filled.rows).toHaveLength(1);
+    expect(filled.rows[0].incomeNow).toBe("1,000");
+    // 거래 없는 그룹: 헤더는 채우고 빈 행 1개(모든 셀 공란)
+    const empty = model.groups[0];
+    expect(empty.accountName).toBe("보조금인 지원금");
+    expect(empty.itemName).toBe("선거비용");
+    expect(empty.rows).toHaveLength(1);
+    expect(empty.rows[0]).toMatchObject({
+      date: "",
+      content: "",
+      incomeNow: "",
+      incomeCum: "",
+      expenseNow: "",
+      expenseCum: "",
+      balance: "",
+      name: "",
+    });
+  });
+
+  it("표준 조합에 없지만 거래가 있는 조합은 코드순으로 뒤에 추가한다", () => {
+    const model = buildIncomeLedgerModel(
+      [row({ acc_sec_cd: 99, item_sec_cd: 11, acc_amt: 500 })],
+      getName,
+      COMBOS,
+    );
+    expect(model.groups).toHaveLength(5); // 표준 4 + 추가 1
+    expect(model.groups[4]).toMatchObject({ accSecCd: 99, itemSecCd: 11 });
+  });
+
+  it("standardCombos 미지정 시 기존 동작(실거래 그룹만)", () => {
+    const model = buildIncomeLedgerModel([row({ acc_sec_cd: 84, item_sec_cd: 10 })], getName);
+    expect(model.groups).toHaveLength(1);
+  });
+
+  it("빈 배열 standardCombos 는 기존 동작으로 취급", () => {
+    const model = buildIncomeLedgerModel([row({ acc_sec_cd: 84, item_sec_cd: 10 })], getName, []);
+    expect(model.groups).toHaveLength(1);
+  });
+});
+
 describe("토큰 매핑", () => {
   it("rowTokens 는 14개 셀 토큰을 모두 채운다 (비고 포함)", () => {
     const model = buildIncomeLedgerModel([row({})], getName);
