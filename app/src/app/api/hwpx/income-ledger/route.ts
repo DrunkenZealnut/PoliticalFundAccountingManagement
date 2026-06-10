@@ -73,6 +73,41 @@ export async function POST(request: NextRequest) {
     return errorResponse("FORBIDDEN", "해당 기관에 대한 권한이 없습니다.", 403);
   }
 
+  // 0. 기관 유형(org_sec_cd) — acc_rel 표준 계정·과목 조합 조회에 사용.
+  const { data: org, error: orgErr } = await supabase
+    .from("organ")
+    .select("org_sec_cd")
+    .eq("org_id", orgId)
+    .maybeSingle();
+  if (orgErr) {
+    return errorResponse("QUERY_FAILED", "기관 정보 조회에 실패했습니다.", 500, { detail: orgErr.message });
+  }
+  const orgSecCd = Number(org?.org_sec_cd);
+
+  // 0b. 표준 계정·과목 조합 (acc_rel). 거래가 없는 계정·과목도 빈 표(빈 행 1개)로
+  //     생성하기 위해, 해당 기관 유형의 input_yn='Y' 행에서 (acc_sec_cd,item_sec_cd)
+  //     유니크 조합을 acc_order 순으로 추린다. 조회 실패/없음이면 기존 동작(실거래만).
+  let standardCombos: { accSecCd: number; itemSecCd: number }[] | undefined;
+  if (Number.isFinite(orgSecCd) && orgSecCd > 0) {
+    const { data: accRels, error: arErr } = await supabase
+      .from("acc_rel")
+      .select("acc_sec_cd, item_sec_cd, acc_order")
+      .eq("org_sec_cd", orgSecCd)
+      .eq("input_yn", "Y")
+      .order("acc_order", { ascending: true });
+    if (arErr) {
+      return errorResponse("QUERY_FAILED", "계정·과목 구성 조회에 실패했습니다.", 500, { detail: arErr.message });
+    }
+    const seenCombo = new Set<string>();
+    standardCombos = [];
+    for (const r of accRels ?? []) {
+      const key = `${r.acc_sec_cd}:${r.item_sec_cd}`;
+      if (seenCombo.has(key)) continue;
+      seenCombo.add(key);
+      standardCombos.push({ accSecCd: r.acc_sec_cd, itemSecCd: r.item_sec_cd });
+    }
+  }
+
   // 1. 수입·지출행 + customer 상세 (org 스코프 강제). 서식 7은 수입·지출부이므로
   //    incm_sec_cd 필터 없이 모두 조회 → 계정·과목 그룹 내에서 수입·지출을 합산.
   const { data: rows, error: rowsErr } = await supabase
@@ -96,8 +131,12 @@ export async function POST(request: NextRequest) {
   const nameMap = new Map<number, string>((cvs ?? []).map((c) => [c.cv_id, c.cv_name]));
   const getName = (id: number) => nameMap.get(id) ?? String(id);
 
-  // 3. 뷰모델
-  const model = buildIncomeLedgerModel((rows ?? []) as unknown as IncomeLedgerInputRow[], getName);
+  // 3. 뷰모델 (표준 계정·과목 조합 전달 → 거래 없는 계정도 빈 표로 생성)
+  const model = buildIncomeLedgerModel(
+    (rows ?? []) as unknown as IncomeLedgerInputRow[],
+    getName,
+    standardCombos,
+  );
 
   // 4. 템플릿 로드 → section 렌더 → 재패키징
   let template: Buffer;

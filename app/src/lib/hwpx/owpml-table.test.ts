@@ -127,6 +127,26 @@ describe("renderIncomeLedgerSection", () => {
     expect(out).not.toMatch(/\{\{[^}]+\}\}/);
   });
 
+  it("표준 계정·과목 조합이면 거래 없는 계정도 빈 표(빈 행 1개)로 생성한다", () => {
+    const combos = [
+      { accSecCd: 84, itemSecCd: 10 }, // 거래 있음
+      { accSecCd: 85, itemSecCd: 10 }, // 거래 없음 → 빈 표
+    ];
+    const model = buildIncomeLedgerModel(
+      [row({ acc_sec_cd: 84, item_sec_cd: 10, content: "거래있음" })],
+      getName,
+      combos,
+    );
+    const out = renderIncomeLedgerSection(TEMPLATE_SECTION, model);
+    expect((out.match(/<hp:tbl\b/g) ?? []).length).toBe(2); // 표 2개
+    expect(out).toContain("후보자 자산");
+    expect(out).toContain("후원회 기부금"); // 거래 없는 계정도 헤더 표시
+    expect(out).toContain("거래있음");
+    // 두 표 모두 rowCnt=2 (헤더행 1 + 데이터행 1; 빈 계정도 빈 행 1개)
+    expect([...out.matchAll(/rowCnt="(\d+)"/g)].map((m) => m[1])).toEqual(["2", "2"]);
+    expect(out).not.toMatch(/\{\{[^}]+\}\}/); // 잔여 토큰 없음
+  });
+
   it("GROUP 마커가 없으면 에러", () => {
     expect(() => renderIncomeLedgerSection("<hp:sec></hp:sec>", buildIncomeLedgerModel([row({})], getName))).toThrow();
   });

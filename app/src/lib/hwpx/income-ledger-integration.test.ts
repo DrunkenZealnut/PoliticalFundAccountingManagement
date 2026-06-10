@@ -8,7 +8,11 @@ import { join } from "node:path";
 import JSZip from "jszip";
 import { repackageSection } from "./generate";
 import { renderIncomeLedgerSection } from "./owpml-table";
-import { buildIncomeLedgerModel, type IncomeLedgerInputRow } from "./income-ledger-builder";
+import {
+  buildIncomeLedgerModel,
+  type IncomeLedgerInputRow,
+  type LedgerAccountItem,
+} from "./income-ledger-builder";
 
 const TEMPLATE = join(process.cwd(), "public/hwpx-templates/form-7-fill.hwpx");
 const SECTION = "Contents/section0.xml";
@@ -25,11 +29,14 @@ function row(p: Partial<IncomeLedgerInputRow>): IncomeLedgerInputRow {
   };
 }
 
-async function generate(rows: IncomeLedgerInputRow[]): Promise<Uint8Array> {
+async function generate(
+  rows: IncomeLedgerInputRow[],
+  standardCombos?: LedgerAccountItem[],
+): Promise<Uint8Array> {
   const template = new Uint8Array(readFileSync(TEMPLATE));
   const zip = await JSZip.loadAsync(template);
   const section = await zip.file(SECTION)!.async("string");
-  const model = buildIncomeLedgerModel(rows, getName);
+  const model = buildIncomeLedgerModel(rows, getName, standardCombos);
   const newSection = renderIncomeLedgerSection(section, model);
   return repackageSection(template, newSection);
 }
@@ -104,6 +111,31 @@ describe("income-ledger 통합 (실제 form-7-fill.hwpx)", () => {
     const sec = await readSection(bytes);
     expect((sec.match(/<hp:tbl\b/g) ?? []).length).toBe(1);
     expect(sec).not.toMatch(/\{\{[^}]+\}\}/);
+    assertBalanced(sec);
+  });
+
+  it("표준 계정·과목 8조합 — 거래 없는 계정도 빈 표로 모두 생성한다", async () => {
+    // 후보자 org 표준 8조합 (계정 82/83/84/85 × 과목 10/11), acc_order 순
+    const COMBOS: LedgerAccountItem[] = [
+      { accSecCd: 82, itemSecCd: 10 }, { accSecCd: 82, itemSecCd: 11 },
+      { accSecCd: 83, itemSecCd: 10 }, { accSecCd: 83, itemSecCd: 11 },
+      { accSecCd: 84, itemSecCd: 10 }, { accSecCd: 84, itemSecCd: 11 },
+      { accSecCd: 85, itemSecCd: 10 }, { accSecCd: 85, itemSecCd: 11 },
+    ];
+    // 거래는 84:10 한 조합에만 존재 → 나머지 7조합은 빈 표
+    const bytes = await generate(
+      [row({ acc_sec_cd: 84, item_sec_cd: 10, acc_amt: 30000, content: "유일거래" })],
+      COMBOS,
+    );
+    const sec = await readSection(bytes);
+    // 8개 표 모두 생성
+    expect((sec.match(/<hp:tbl\b/g) ?? []).length).toBe(8);
+    // 표 id 8개 모두 고유
+    const ids = [...sec.matchAll(/<hp:tbl\b[^>]*\bid="(\d+)"/g)].map((m) => m[1]);
+    expect(new Set(ids).size).toBe(8);
+    expect(sec).toContain("유일거래");
+    expect(sec).not.toMatch(/\{\{[^}]+\}\}/);
+    expect(sec).not.toMatch(/<!--LEDGER:/);
     assertBalanced(sec);
   });
 
