@@ -450,6 +450,24 @@ export function normalizeOfficialExpenseRow(
   return out;
 }
 
+/**
+ * PFund2/선관위 공식 ACC_BOOK 포맷에 없는 앱 전용 확장 컬럼 제거.
+ *
+ * `acc_time`(거래 시각 HHmm, scripts/014에서 추가한 CHAR(4))은 앱 전용 컬럼으로
+ * 공식 SQLite 스키마(ACC_BOOK/ACC_BOOK_BAK DDL)에는 존재하지 않는다. fetch가
+ * `SELECT *`라 이 컬럼이 따라오는데, insertRows가 컬럼명을 그대로 대문자화(ACC_TIME)해
+ * INSERT하면 "table ACC_BOOK has no column named ACC_TIME"로 export 전체가 실패한다.
+ * CUSTOMER.org_id를 export 시 제거하는 것과 동일한 앱↔공식 포맷 정렬 처리.
+ */
+export function stripAppOnlyAccBookColumns(
+  row: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!("acc_time" in row)) return row;
+  const rest = { ...row };
+  delete rest.acc_time;
+  return rest;
+}
+
 async function fetchTable(
   table: string,
   orgFilter?: { col: string; orgId: number },
@@ -718,12 +736,12 @@ export async function GET(request: NextRequest) {
     //   full → 전체
     // 공식 포맷 정규화: 지출 행의 3자리 acc_ins_type(지출방법)을 EXP_TYPE_CD로 이동하고
     // ACC_INS_TYPE(CHAR(2))을 비워, 선관위 프로그램이 지출부를 정상 로드하도록 한다.
-    const finalAccBook = filterByExportOrgId(remapOrgId(accBook, orgIdMap)).map(
-      normalizeOfficialExpenseRow,
-    );
-    const finalAccBookBak = filterByExportOrgId(remapOrgId(accBookBak, orgIdMap)).map(
-      normalizeOfficialExpenseRow,
-    );
+    const finalAccBook = filterByExportOrgId(remapOrgId(accBook, orgIdMap))
+      .map(normalizeOfficialExpenseRow)
+      .map(stripAppOnlyAccBookColumns);
+    const finalAccBookBak = filterByExportOrgId(remapOrgId(accBookBak, orgIdMap))
+      .map(normalizeOfficialExpenseRow)
+      .map(stripAppOnlyAccBookColumns);
     insertRows(db, "ACC_BOOK", finalAccBook);
     insertRows(db, "ACC_BOOK_BAK", finalAccBookBak);
 
