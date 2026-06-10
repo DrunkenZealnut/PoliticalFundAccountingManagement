@@ -31,7 +31,7 @@
 
 ### 2.1 Component Diagram
 
-```
+```text
 제출서류 페이지(22-2 "데이터채움")
         │ POST {orgId, formId:"22-2"}
         ▼
@@ -48,7 +48,7 @@ form-22-2-fill.hwpx (make-form-22-2-fill.py 산출, 15토큰)
 
 ### 2.2 Data Flow
 
-```
+```text
 acc_book 지출행 → [선거비용 필터] → [자금원 4분류 가산] → FundingBreakdown
   → office(=전액)/total(=office)/연락소계(=0) → 15 토큰 → 셀 치환 → hwpx
 ```
@@ -267,7 +267,7 @@ if (formId === "22-4") {
 
 ### 11.1 File Structure
 
-```
+```text
 app/
 ├─ scripts/make-form-22-2-fill.py                         (신규)
 ├─ public/hwpx-templates/form-22-2-fill.hwpx              (신규: 스크립트 산출)

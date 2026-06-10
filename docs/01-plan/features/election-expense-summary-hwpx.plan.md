@@ -166,7 +166,7 @@
 
 ### 6.3 Folder/Module Touch Points
 
-```
+```text
 app/
 ├─ public/hwpx-templates/form-22-2-fill.hwpx   (신규: make 스크립트 산출)
 ├─ scripts/make-form-22-2-fill.py              (신규)

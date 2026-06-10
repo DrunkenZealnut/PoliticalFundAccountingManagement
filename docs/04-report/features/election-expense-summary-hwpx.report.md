@@ -155,7 +155,7 @@
 
 ### 2. 기술 의사결정 — 22-1↔22-2 자금원 분류 정합성 아키텍처
 
-**💡 배운 점**: 22-2의 자금원 4분류("후보자자산"/82, "후원회기부금"/85, "보조금"/84, "보조금외"/83)가 22-1과 반대 순서([Design 참조](docs/02-design/features/election-expense-summary-hwpx.design.md#316-기타-자금원-처리-⚠-정합성-핵심))로 정의되어 있음을 발견. 이를 코드에 명시화(Design 문서 § 3.4 기타흡수 규칙)로 기록하며:
+**💡 배운 점**: 22-2 표의 열 순서(후보자자산/후원회기부금/보조금/보조금외)와 `acc_sec_cd` 코드 번호 순서(82=보조금, 83=보조금외, 84=후보자자산, 85=후원회기부금 — `funding-source.ts`)가 서로 다르다는 점에 주의([Design 참조](docs/02-design/features/election-expense-summary-hwpx.design.md#316-기타-자금원-처리-⚠-정합성-핵심)). 분류는 코드 번호가 아닌 `classifyFundingSource` SSOT로 일원화(Design 문서 § 3.4 기타흡수 규칙)하며:
 - `classifyExpenseCategory(itemName)` vs `getName(item_sec_cd)` 혼용 위험 식별 (메모리 `election-item-classification-ssot` 준수)
 - 미분류 자금원(기타) 선거비용을 **보조금외에 흡수**하는 규칙으로 22-1 합계와 항상 일치 보장
 - 단위 테스트 TC-4(기타 흡수)와 TC-7(교차검증)으로 이 규칙 잠금
@@ -260,7 +260,7 @@ export function electionExpenseSummaryTokens(
 
 ### 토큰 맵 (15개)
 
-```
+```text
 ROW_PREFIXES = {2: "합계", 3: "사무소", 4: "연락소계"}
 COL_SUFFIXES = {2: "계", 3: "후보자자산", 4: "후원회기부금", 5: "보조금", 6: "보조금외"}
 
@@ -273,11 +273,11 @@ COL_SUFFIXES = {2: "계", 3: "후보자자산", 4: "후원회기부금", 5: "보
 // lib/accounting/funding-source.ts
 classifyFundingSource(code: number, name: string): "후보자자산" | "후원회기부금" | "보조금" | "보조금외" | "기타"
 
-// 코드 매핑
-82 → "후보자자산"
-85 → "후원회기부금"
-84 → "보조금"
+// 코드 매핑 (FUNDING_SOURCE_BY_ACC_SEC_CD)
+82 → "보조금"
 83 → "보조금외"
+84 → "후보자자산"
+85 → "후원회기부금"
 other → "기타" (→ 보조금외에 흡수)
 ```
 
