@@ -49,8 +49,10 @@ export interface HwpxFormDef {
    * 지정 시 `fields` 는 비고(반복 토큰은 표 내부에서 별도 처리) — 토큰 정합성 검사 제외.
    *  - "income-ledger": 수입내역 → 수입계정별 회계장부 (POST /api/hwpx/income-ledger)
    *  - "accounting-report": 수입·지출·재산 → 회계보고서 22-1/22-3/22-4 (POST /api/hwpx/accounting-report)
+   *  - "reimbursement": 보전 체크 선거비용 → 선거비용 보전청구서 서식 43 (POST /api/hwpx/reimbursement-claim).
+   *    표(자금원 청구액)는 자동 집계, 일부 텍스트(선거구명·수령계좌 등)는 `fields` 수동 입력(하이브리드).
    */
-  dataFill?: "income-ledger" | "accounting-report";
+  dataFill?: "income-ledger" | "accounting-report" | "reimbursement";
 }
 
 /* ------------------------------------------------------------------ */
@@ -85,6 +87,11 @@ const REG: Record<string, FieldMeta> = {
   지출계좌_예금주: { label: "지출계좌 예금주", type: "text", source: { from: "manual" } },
   지출계좌_금융기관: { label: "지출계좌 금융기관", type: "text", source: { from: "manual" } },
   지출계좌_번호: { label: "지출계좌 번호", type: "account", source: { from: "manual" } },
+  // 선거비용 보전청구서(서식 43) 전용 텍스트 항목
+  선거구명: { label: "선거구명", type: "text", source: { from: "manual" }, required: true },
+  수령_금융기관: { label: "수령계좌 금융기관", type: "text", source: { from: "manual" } },
+  수령_예금주: { label: "수령계좌 예금주", type: "text", source: { from: "manual" } },
+  수령_계좌번호: { label: "수령계좌 번호", type: "account", source: { from: "manual" } },
 };
 
 function fields(...tokens: string[]): HwpxFormField[] {
@@ -199,7 +206,7 @@ export const HWPX_FORM_DEFS: readonly HwpxFormDef[] = [
   { id: "23-11", label: "후원회 회계보고서(잔여재산 인계·인수서)", category: "회계보고서", template: "form-23-11.hwpx", orgScope: "supporter", fields: [] },
   { id: "37-2", label: "정치자금영수증 발급신청서", category: "정치자금영수증", template: "form-37-2.hwpx", orgScope: "supporter", fields: [] },
   { id: "38", label: "정치자금영수증 발행·반납대장", category: "정치자금영수증", template: "form-38.hwpx", orgScope: "supporter", fields: [] },
-  { id: "43", label: "선거비용 보전청구서", category: "보전·청구", template: "form-43.hwpx", orgScope: "candidate", fields: [] },
+  { id: "43", label: "선거비용 보전청구서", category: "보전·청구", template: "form-43-fill.hwpx", orgScope: "candidate", fields: fields("선거명", "선거구명", "후보자명", "수령_금융기관", "수령_예금주", "수령_계좌번호", "선관위명"), dataFill: "reimbursement" },
   { id: "44", label: "점자형선거공보 등 부담비용 지급청구서", category: "보전·청구", template: "form-44.hwpx", orgScope: "candidate", fields: [] },
 ];
 
