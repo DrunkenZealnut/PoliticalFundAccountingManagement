@@ -6,6 +6,7 @@ const nextConfig: NextConfig = {
     "/api/hwpx/generate": ["./public/hwpx-templates/**"],
     "/api/hwpx/income-ledger": ["./public/hwpx-templates/**"],
     "/api/hwpx/accounting-report": ["./public/hwpx-templates/**"],
+    "/api/hwpx/reimbursement-claim": ["./public/hwpx-templates/**"],
   },
 };
 

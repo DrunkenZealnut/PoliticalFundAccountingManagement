@@ -47,11 +47,34 @@ describe("HWPX_FORM_DEFS ↔ 템플릿 토큰 정합성", () => {
 describe("dataFill 서식(회계장부) 템플릿 정합성", () => {
   const dataFillDefs = HWPX_FORM_DEFS.filter((d) => d.dataFill);
 
-  it("dataFill 서식은 fields 가 비어 있다(반복 토큰은 표 내부 처리)", () => {
-    for (const def of dataFillDefs) {
+  it("회계장부·회계보고서 dataFill 서식은 fields 가 비어 있다(반복 토큰은 표 내부 처리)", () => {
+    // reimbursement(서식 43)는 표 자동 채움 + 일부 텍스트 수동 입력 하이브리드 → fields 허용
+    for (const def of dataFillDefs.filter((d) => d.dataFill !== "reimbursement")) {
       expect(def.fields, `${def.id}`).toEqual([]);
     }
   });
+
+  for (const def of dataFillDefs.filter((d) => d.dataFill === "reimbursement")) {
+    it(`${def.id}: 청구내역 표 토큰 + 본문 토큰이 템플릿에 존재하고 fields 토큰도 일치`, async () => {
+      const inTemplate = await templateTokens(def.template);
+      const required = [
+        // 청구내역 표(자금원 4행 × 사무소/합계 = 8)
+        "후보자자산_사무소", "후보자자산_합계",
+        "후원회기부금_사무소", "후원회기부금_합계",
+        "정당의지원금_사무소", "정당의지원금_합계",
+        "합계_사무소", "합계_합계",
+        // 본문 텍스트
+        "선거명", "선거구명", "후보자명", "보전청구총액_한글", "보전청구총액_숫자",
+        "수령_금융기관", "수령_예금주", "수령_계좌번호", "선관위명",
+      ];
+      const missing = required.filter((t) => !inTemplate.has(t));
+      expect(missing, `템플릿 누락 토큰: ${missing.join(", ")}`).toEqual([]);
+      // 수동 입력 fields 토큰은 모두 템플릿에 존재해야 한다
+      for (const f of def.fields) {
+        expect(inTemplate.has(f.token), `fields 토큰이 템플릿에 없음: ${f.token}`).toBe(true);
+      }
+    });
+  }
 
   for (const def of dataFillDefs.filter((d) => d.dataFill === "income-ledger")) {
     it(`${def.id}: 템플릿에 회계장부 반복 토큰 + GROUP/ROW 마커가 존재`, async () => {

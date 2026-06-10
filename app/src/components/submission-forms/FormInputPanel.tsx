@@ -22,6 +22,7 @@ interface Props {
 const DATA_FILL_ENDPOINT: Record<NonNullable<HwpxFormDef["dataFill"]>, string> = {
   "income-ledger": "/api/hwpx/income-ledger",
   "accounting-report": "/api/hwpx/accounting-report",
+  "reimbursement": "/api/hwpx/reimbursement-claim",
 };
 
 /** dataFill 서식 → 안내문구·버튼 라벨. */
@@ -33,6 +34,10 @@ const DATA_FILL_TEXT: Record<NonNullable<HwpxFormDef["dataFill"]>, { desc: strin
   "accounting-report": {
     desc: "입력된 수입·지출·재산 데이터로 회계보고서를 자동 생성합니다.",
     button: "데이터로 회계보고서 생성",
+  },
+  "reimbursement": {
+    desc: "보전 체크(보전 대상)된 선거비용을 자금원별로 집계해 선거비용 보전청구서를 채웁니다. 선거구명·수령계좌 등은 아래에 입력하세요.",
+    button: "보전청구서 채워 받기",
   },
 };
 
@@ -76,6 +81,16 @@ export default function FormInputPanel({ def, prefill }: Props) {
   const setField = (token: string, v: string) =>
     setValues((prev) => ({ ...prev, [token]: v }));
 
+  /** def.fields 값을 전송 payload 로 — 날짜 필드는 한글 표기로 변환. (두 생성 핸들러 공통) */
+  const buildFieldValues = (): Record<string, string> => {
+    const out: Record<string, string> = {};
+    for (const f of def.fields) {
+      const raw = values[f.token] ?? "";
+      out[f.token] = f.type === "date" && raw ? fmtKoreanDate(raw) : raw;
+    }
+    return out;
+  };
+
   /** POST → 실패 시 메시지 throw → 성공 시 .hwpx 다운로드. (두 생성 핸들러 공통) */
   async function postAndDownload(endpoint: string, payload: unknown) {
     setBusy(true);
@@ -103,26 +118,60 @@ export default function FormInputPanel({ def, prefill }: Props) {
       setError(`필수 항목을 입력하세요: ${missingRequired.join(", ")}`);
       return;
     }
-    // 날짜 필드는 한글 표기로 변환하여 전송
-    const payload: Record<string, string> = {};
-    for (const f of def.fields) {
-      const raw = values[f.token] ?? "";
-      payload[f.token] = f.type === "date" && raw ? fmtKoreanDate(raw) : raw;
-    }
-    await postAndDownload("/api/hwpx/generate", { formId: def.id, values: payload });
+    await postAndDownload("/api/hwpx/generate", { formId: def.id, values: buildFieldValues() });
   }
 
-  /** dataFill 서식: DB 데이터로 표/행을 채워 생성 (토큰 입력 없음). */
+  /** dataFill 서식: DB 데이터로 표/행을 채워 생성. 하이브리드(서식 43)는 수동 텍스트도 전송. */
   async function handleGenerateLedger() {
     if (!def.dataFill) return;
     if (!orgId) {
       setError("사용기관을 먼저 선택하세요.");
       return;
     }
+    // 하이브리드 서식(수동 입력 필드 보유): 필수 항목 검증
+    if (def.fields.length > 0 && missingRequired.length > 0) {
+      setError(`필수 항목을 입력하세요: ${missingRequired.join(", ")}`);
+      return;
+    }
     setError(null);
     // formId 는 accounting-report 가 서식 분기에 사용(income-ledger 는 무시)
-    await postAndDownload(DATA_FILL_ENDPOINT[def.dataFill], { orgId, formId: def.id });
+    const payload: Record<string, unknown> = { orgId, formId: def.id };
+    if (def.fields.length > 0) payload.values = buildFieldValues();
+    await postAndDownload(DATA_FILL_ENDPOINT[def.dataFill], payload);
   }
+
+  /** 입력 필드 1개 렌더 (일반 폼 + dataFill 하이브리드 공용). */
+  const renderField = (f: HwpxFormField) => (
+    <div key={f.token} className="flex flex-col gap-1.5">
+      <Label htmlFor={f.token} className="flex items-center gap-1.5 text-sm">
+        {f.label}
+        {f.required && <span className="text-destructive">*</span>}
+        {isAuto(f) ? (
+          <Badge variant="secondary" className="h-4 px-1.5 text-[10px]">자동</Badge>
+        ) : (
+          <Badge variant="outline" className="h-4 px-1.5 text-[10px]">수동</Badge>
+        )}
+      </Label>
+      {f.type === "textarea" ? (
+        <Textarea
+          id={f.token}
+          value={values[f.token] ?? ""}
+          onChange={(e) => setField(f.token, e.target.value)}
+          rows={2}
+          maxLength={maxLenFor(f.type)}
+        />
+      ) : (
+        <Input
+          id={f.token}
+          type={f.type === "date" ? "date" : "text"}
+          inputMode={f.type === "tel" || f.type === "account" ? "numeric" : undefined}
+          value={values[f.token] ?? ""}
+          onChange={(e) => setField(f.token, e.target.value)}
+          maxLength={maxLenFor(f.type)}
+        />
+      )}
+    </div>
+  );
 
   // dataFill 서식(회계장부 등): 토큰 입력 폼 대신 데이터 채움 액션을 노출
   if (def.dataFill) {
@@ -136,6 +185,9 @@ export default function FormInputPanel({ def, prefill }: Props) {
           {DATA_FILL_TEXT[def.dataFill].desc}{" "}
           다운로드한 .hwpx 파일을 한글에서 열어 확인·인쇄·날인 후 제출하세요.
         </p>
+        {def.fields.length > 0 && (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">{def.fields.map(renderField)}</div>
+        )}
         {error && (
           <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>
         )}
@@ -162,39 +214,7 @@ export default function FormInputPanel({ def, prefill }: Props) {
         </p>
       )}
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        {def.fields.map((f) => (
-          <div key={f.token} className="flex flex-col gap-1.5">
-            <Label htmlFor={f.token} className="flex items-center gap-1.5 text-sm">
-              {f.label}
-              {f.required && <span className="text-destructive">*</span>}
-              {isAuto(f) ? (
-                <Badge variant="secondary" className="h-4 px-1.5 text-[10px]">자동</Badge>
-              ) : (
-                <Badge variant="outline" className="h-4 px-1.5 text-[10px]">수동</Badge>
-              )}
-            </Label>
-            {f.type === "textarea" ? (
-              <Textarea
-                id={f.token}
-                value={values[f.token] ?? ""}
-                onChange={(e) => setField(f.token, e.target.value)}
-                rows={2}
-                maxLength={maxLenFor(f.type)}
-              />
-            ) : (
-              <Input
-                id={f.token}
-                type={f.type === "date" ? "date" : "text"}
-                inputMode={f.type === "tel" || f.type === "account" ? "numeric" : undefined}
-                value={values[f.token] ?? ""}
-                onChange={(e) => setField(f.token, e.target.value)}
-                maxLength={maxLenFor(f.type)}
-              />
-            )}
-          </div>
-        ))}
-      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">{def.fields.map(renderField)}</div>
 
       {error && (
         <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>
