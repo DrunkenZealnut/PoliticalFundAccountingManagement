@@ -5,6 +5,10 @@ import JSZip from "jszip";
 import { HWPX_FORM_DEFS } from "./form-fields";
 import { LEDGER_GROUP_TOKENS, LEDGER_ROW_TOKENS } from "./income-ledger-builder";
 import { buildReportSummaryModel, summaryTokens } from "./report-summary-builder";
+import {
+  buildElectionExpenseSummaryModel,
+  electionExpenseSummaryTokens,
+} from "./election-expense-summary-builder";
 
 async function templateTokens(template: string): Promise<Set<string>> {
   const bytes = new Uint8Array(readFileSync(join(process.cwd(), "public/hwpx-templates", template)));
@@ -85,6 +89,16 @@ describe("dataFill 서식(회계장부) 템플릿 정합성", () => {
   it("22-1: 총괄표 셀 토큰이 summaryTokens 키와 1:1", async () => {
     const inTemplate = await templateTokens("form-22-1-fill.hwpx");
     const keys = Object.keys(summaryTokens(buildReportSummaryModel([], () => "")));
+    expect(keys.filter((t) => !inTemplate.has(t)), "템플릿에 없는 빌더 토큰").toEqual([]);
+    expect([...inTemplate].filter((t) => !keys.includes(t)), "빌더에 없는 템플릿 토큰").toEqual([]);
+  });
+
+  // 22-2 선거비용 집계표 = 고정 셀 치환. 템플릿 토큰 ↔ electionExpenseSummaryTokens 키 1:1
+  it("22-2: 집계표 셀 토큰이 electionExpenseSummaryTokens 키와 1:1", async () => {
+    const inTemplate = await templateTokens("form-22-2-fill.hwpx");
+    const keys = Object.keys(
+      electionExpenseSummaryTokens(buildElectionExpenseSummaryModel([], () => "")),
+    );
     expect(keys.filter((t) => !inTemplate.has(t)), "템플릿에 없는 빌더 토큰").toEqual([]);
     expect([...inTemplate].filter((t) => !keys.includes(t)), "빌더에 없는 템플릿 토큰").toEqual([]);
   });

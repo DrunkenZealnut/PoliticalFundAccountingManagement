@@ -14,6 +14,11 @@ import {
   summaryTokens,
   type ReportSummaryInputRow,
 } from "./report-summary-builder";
+import {
+  buildElectionExpenseSummaryModel,
+  electionExpenseSummaryTokens,
+  type ElectionExpenseSummaryInputRow,
+} from "./election-expense-summary-builder";
 
 const SECTION = "Contents/section0.xml";
 const getName = (cv: number) =>
@@ -119,5 +124,46 @@ describe("회계보고서 22-1 통합 (form-22-1-fill.hwpx)", () => {
     expect(bytes[1]).toBe(0x4b);
     expect(bytes[8]).toBe(0); // STORED
     expect(Buffer.from(bytes.slice(30, 38)).toString("utf8")).toBe("mimetype");
+  });
+});
+
+/* ------------------- 22-2 선거비용 지출내역 집계표 ------------------- */
+function expRow(p: Partial<ElectionExpenseSummaryInputRow>): ElectionExpenseSummaryInputRow {
+  return { incm_sec_cd: 2, acc_sec_cd: 84, item_sec_cd: 10, acc_amt: 1000, ...p };
+}
+
+async function gen222(rows: ElectionExpenseSummaryInputRow[]) {
+  const template = new Uint8Array(readFileSync(join(process.cwd(), "public/hwpx-templates/form-22-2-fill.hwpx")));
+  const model = buildElectionExpenseSummaryModel(rows, getName);
+  return generateHwpx(template, electionExpenseSummaryTokens(model));
+}
+
+describe("회계보고서 22-2 통합 (form-22-2-fill.hwpx)", () => {
+  it("선거비용 지출이 자금원 구분별로 집계표 셀에 채워지고 잔여 토큰 0", async () => {
+    const { bytes, unresolved } = await gen222([
+      expRow({ acc_sec_cd: 84, item_sec_cd: 10, acc_amt: 60000000 }), // 후보자자산 선거비용
+      expRow({ acc_sec_cd: 85, item_sec_cd: 10, acc_amt: 2500000 }), // 후원회기부금 선거비용
+      expRow({ acc_sec_cd: 82, item_sec_cd: 10, acc_amt: 2500000 }), // 보조금 선거비용
+      expRow({ incm_sec_cd: 1, acc_sec_cd: 84, item_sec_cd: 10, acc_amt: 90000000 }), // 수입 → 무시
+      expRow({ acc_sec_cd: 84, item_sec_cd: 11, acc_amt: 30000000 }), // 선거비용외 → 무시
+    ]);
+    expect(unresolved).toEqual([]);
+    const sec = await readSection(bytes);
+    expect((sec.match(/<hp:tbl\b/g) ?? []).length).toBe(1);
+    expect(sec).toContain("65,000,000"); // 합계 계 = 사무소 계 (60M+2.5M+2.5M)
+    expect(sec).toContain("60,000,000"); // 후보자자산
+    expect(sec).toContain("2,500,000"); // 후원회기부금/보조금
+    expect(sec).not.toContain("○○연락소"); // placeholder 정리됨
+    expect(sec).not.toMatch(/\{\{[^}]+\}\}/);
+    assertBalanced(sec);
+  });
+
+  it("빈 데이터도 유효한 hwpx (모든 값 0, 잔여 토큰 0)", async () => {
+    const { bytes, unresolved } = await gen222([]);
+    expect(unresolved).toEqual([]);
+    const sec = await readSection(bytes);
+    expect((sec.match(/<hp:tbl\b/g) ?? []).length).toBe(1);
+    expect(sec).not.toMatch(/\{\{[^}]+\}\}/);
+    assertBalanced(sec);
   });
 });

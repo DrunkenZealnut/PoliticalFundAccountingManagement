@@ -1,14 +1,15 @@
 /**
  * POST /api/hwpx/accounting-report
  * 선택 org 의 수입·지출·재산 데이터를 (예비)후보자 회계보고서(공식 서식
- * 22-1 수입·지출보고서 / 22-3 재산명세서 / 22-4 수입·지출부) 레이아웃으로
- * 채운 .hwpx 를 반환한다. (22-2 선거비용 집계표 제외)
+ * 22-1 수입·지출보고서 / 22-2 선거비용 지출내역 집계표 / 22-3 재산명세서 /
+ * 22-4 수입·지출부) 레이아웃으로 채운 .hwpx 를 반환한다.
  *
- * Request:  { orgId: number, formId: "22-1" | "22-3" | "22-4" }
+ * Request:  { orgId: number, formId: "22-1" | "22-2" | "22-3" | "22-4" }
  * Response: 200 application/hwp+zip (attachment) | 4xx/5xx { error }
  *
  * 흐름: 인증·멤버십 가드(income-ledger 동일) → 데이터 조회 → formId 분기:
  *   22-1 buildReportSummaryModel → summaryTokens → generateHwpx(셀 치환)
+ *   22-2 buildElectionExpenseSummaryModel → electionExpenseSummaryTokens → generateHwpx(셀 치환)
  *   22-3 buildEstateModel → renderEstateSection(표 행 복제)
  *   22-4 buildIncomeLedgerModel → renderIncomeLedgerSection(표 행 복제)
  */
@@ -29,6 +30,11 @@ import {
   type ReportSummaryInputRow,
 } from "@/lib/hwpx/report-summary-builder";
 import { buildEstateModel, type EstateInputRow } from "@/lib/hwpx/estate-builder";
+import {
+  buildElectionExpenseSummaryModel,
+  electionExpenseSummaryTokens,
+  type ElectionExpenseSummaryInputRow,
+} from "@/lib/hwpx/election-expense-summary-builder";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -39,11 +45,13 @@ const supabase = createClient(
 /** 지원 서식 → 채움 템플릿. */
 const TEMPLATES: Record<string, string> = {
   "22-1": "form-22-1-fill.hwpx",
+  "22-2": "form-22-2-fill.hwpx",
   "22-3": "form-22-3-fill.hwpx",
   "22-4": "form-22-4-fill.hwpx",
 };
 const FILENAMES: Record<string, string> = {
   "22-1": "예비후보자_회계보고서_수입·지출보고서.hwpx",
+  "22-2": "예비후보자_회계보고서_선거비용지출내역집계표.hwpx",
   "22-3": "예비후보자_회계보고서_재산명세서.hwpx",
   "22-4": "예비후보자_회계보고서_수입·지출부.hwpx",
 };
@@ -143,6 +151,13 @@ export async function POST(request: NextRequest) {
       if (formId === "22-4") {
         const model = buildIncomeLedgerModel((rows ?? []) as unknown as IncomeLedgerInputRow[], getName);
         bytes = await transformSection(template, (section) => renderIncomeLedgerSection(section, model));
+      } else if (formId === "22-2") {
+        // 선거비용 지출내역 집계표: 선거비용 지출을 자금원 구분별 집계 → 고정 셀 토큰 치환
+        const model = buildElectionExpenseSummaryModel(
+          (rows ?? []) as unknown as ElectionExpenseSummaryInputRow[],
+          getName,
+        );
+        ({ bytes } = await generateHwpx(template, electionExpenseSummaryTokens(model)));
       } else {
         // 22-1 총괄표: 고정 셀 토큰 치환
         const model = buildReportSummaryModel((rows ?? []) as unknown as ReportSummaryInputRow[], getName);
