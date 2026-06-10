@@ -183,7 +183,7 @@ export const HWPX_FORM_DEFS: readonly HwpxFormDef[] = [
   { id: "14", label: "선거사무관계자 수당·실비 지급명세서", category: "지급명세서", template: "form-14.hwpx", orgScope: "candidate", fields: [] },
   { id: "17", label: "영수증 등 증빙서류 첩부 및 정리", category: "증빙정리", template: "form-17.hwpx", orgScope: "all", fields: [] },
   { id: "22-1", label: "(예비)후보자 회계보고서(수입·지출보고서)", category: "회계보고서", template: "form-22-1-fill.hwpx", orgScope: "candidate", fields: [], dataFill: "accounting-report" },
-  { id: "22-2", label: "(예비)후보자 회계보고서(선거비용 지출내역 집계표)", category: "회계보고서", template: "form-22-2.hwpx", orgScope: "candidate", fields: [] },
+  { id: "22-2", label: "(예비)후보자 회계보고서(선거비용 지출내역 집계표)", category: "회계보고서", template: "form-22-2-fill.hwpx", orgScope: "candidate", fields: [], dataFill: "accounting-report" },
   { id: "22-3", label: "(예비)후보자 회계보고서(재산명세서)", category: "회계보고서", template: "form-22-3-fill.hwpx", orgScope: "candidate", fields: [], dataFill: "accounting-report" },
   { id: "22-4", label: "(예비)후보자 회계보고서(수입·지출부)", category: "회계보고서", template: "form-22-4-fill.hwpx", orgScope: "candidate", fields: [], dataFill: "accounting-report" },
   { id: "23-1", label: "후원회 회계보고서(제출문서)", category: "회계보고서", template: "form-23-1.hwpx", orgScope: "supporter", fields: [] },
