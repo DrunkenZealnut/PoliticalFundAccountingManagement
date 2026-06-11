@@ -10,6 +10,13 @@
 - **Depends on:** Nothing. Can be done independently.
 - **Added:** 2026-04-01 (eng review of feat/search-total-summary); income-ledger guarded 2026-06-08 (CodeRabbit review of PR #58)
 
+### Require auth on /api/hwpx/generate
+- **What:** Add the standard session + `user_organ` guard to `/api/hwpx/generate` (and audit the other hwpx routes).
+- **Why:** `lib/supabase/middleware.ts` exempts all of `/api`, and the route itself never checks a session — anyone on the internet can POST and generate official-looking 선관위 forms with arbitrary values (no DB access, so no data leak; compute abuse + 위조 보조 위험).
+- **Context:** `app/src/app/api/hwpx/generate/route.ts`. Same class as the acc-book item above; lower severity (no data exposure).
+- **Reference pattern:** `/api/hwpx/income-ledger` already implements the guard (`createSupabaseServer()` → `auth.getUser()` 401 → `user_organ` 403).
+- **Added:** 2026-06-11 (adversarial review of feat/burden-cost-claim-hwpx)
+
 ## P2 - Architecture
 
 ### Unify data access pattern (API route vs direct Supabase)
@@ -28,7 +35,21 @@
 - **Depends on:** Nothing. Can be done independently.
 - **Added:** 2026-04-01 (eng review)
 
+## P2 - Quality
+
+### Fix FormInputPanel prefill race that wipes in-progress input
+- **What:** Merge prefill values into empty fields only (or track dirty fields) instead of `setValues(prefill(def))` on every `[def, prefill]` change.
+- **Why:** `prefill` is a `useCallback` depending on `[organ, orgName, acctName]`. If the organ fetch resolves (or auth store updates) while the user is typing, the effect re-runs and silently wipes ALL entered values. Worst on 서식 44 (37 manual fields — a full 청구금액 table can vanish).
+- **Context:** `app/src/components/hwpx/FormInputPanel.tsx` (`useEffect(() => setValues(prefill(def)), [def, prefill])`). Pre-existing defect affecting every form; exposure maximized by form 44.
+- **Added:** 2026-06-11 (adversarial review of feat/burden-cost-claim-hwpx)
+
 ## P3 - Quality
+
+### 서식 44 입력 품질 Phase 2 (숫자 검증·per-field maxLen·합계 자동계산)
+- **What:** (1) 금액/수량 필드에 숫자 형식 검증(`/^[0-9,]*$/` + `inputMode="numeric"`), (2) `HwpxFormField.maxLen`으로 셀 폭에 맞는 필드별 길이 제한(금액류 ~20자 — 현행 type 기반 200자는 39.8mm 셀에 과대), (3) 총매수(C=A×B)·계 행/열 자동계산 또는 불일치 경고, 격자 입력 UI.
+- **Why:** 현재 25개 금액 + 수량 7개가 자유 텍스트라 "C≠A×B", 계행≠열합, 한글 섞인 금액이 그대로 법정 청구서에 들어갈 수 있고, 장문 입력 시 1쪽 서식이 수쪽으로 변형된다.
+- **Context:** `lib/hwpx/form-fields.ts`(서식 44 def), `api/hwpx/generate/route.ts`(MAX_LEN), `components/hwpx/FormInputPanel.tsx`. Plan 문서 Phase 2(docs/01-plan/features/burden-cost-claim-hwpx.plan.md)와 동일 묶음.
+- **Added:** 2026-06-11 (adversarial review of feat/burden-cost-claim-hwpx)
 
 ### Extract FaqBrowser as a separate component from ChatBubble
 - **What:** Split `ChatBubble.tsx` into `FaqBrowser` (FAQ navigation: 3 state vars, 4 handlers, ~100 lines JSX) and `ChatPanel` (chat messages, input, header).
