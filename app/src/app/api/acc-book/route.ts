@@ -5,12 +5,22 @@ import {
   type CodeValueLike,
   type AccRelLike,
 } from "@/lib/accounting/code-mapping";
+import {
+  needsAnonymousResolve,
+  resolveAnonymousCustId,
+  type AnonymousCustomerClient,
+} from "./anonymous-customer";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
   { db: { schema: "pfam" } }
 );
+
+// resolveAnonymousCustId 는 단위 테스트용 narrow 인터페이스(AnonymousCustomerClient)를
+// 받는다. supabase-js 의 깊은 제네릭 체인을 이 인터페이스에 직접 구조적 매칭하면
+// TS2589(과도한 타입 인스턴스화)가 나므로 경계에서 한 번 좁힌다.
+const anonClient = supabase as unknown as AnonymousCustomerClient;
 
 export async function GET(request: NextRequest) {
   const orgId = request.nextUrl.searchParams.get("orgId");
@@ -92,13 +102,32 @@ export async function POST(request: NextRequest) {
   const { action, ...payload } = body;
 
   if (action === "insert") {
-    const { data, error } = await supabase.from("acc_book").insert(payload.data).select().single();
+    const data0 = payload.data as Record<string, unknown>;
+    // 거래처 미선택(-999/0/null)은 공유 익명 거래처의 실제 cust_id 로 치환.
+    // -999 는 PFund2 호환 센티널일 뿐 Supabase customer 에는 존재하지 않아
+    // 그대로 INSERT 하면 acc_book_cust_id_fkey 위반이 난다.
+    if (needsAnonymousResolve(data0.cust_id)) {
+      try {
+        data0.cust_id = await resolveAnonymousCustId(anonClient);
+      } catch (e) {
+        return NextResponse.json({ error: String(e) }, { status: 500 });
+      }
+    }
+    const { data, error } = await supabase.from("acc_book").insert(data0).select().single();
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     return NextResponse.json(data);
   }
 
   if (action === "update") {
-    const { error } = await supabase.from("acc_book").update(payload.data).eq("acc_book_id", payload.acc_book_id);
+    const data0 = payload.data as Record<string, unknown>;
+    if ("cust_id" in data0 && needsAnonymousResolve(data0.cust_id)) {
+      try {
+        data0.cust_id = await resolveAnonymousCustId(anonClient);
+      } catch (e) {
+        return NextResponse.json({ error: String(e) }, { status: 500 });
+      }
+    }
+    const { error } = await supabase.from("acc_book").update(data0).eq("acc_book_id", payload.acc_book_id);
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     return NextResponse.json({ success: true });
   }
@@ -157,13 +186,12 @@ export async function POST(request: NextRequest) {
     const errors: string[] = [];
 
     // Find or create "익명" customer for anonymous entries
+    // (insert/update 단건 경로와 동일 헬퍼 — org_id IS NULL 공유 익명 정본 사용)
     let anonCustId: number;
-    const { data: anonCust } = await supabase.from("customer").select("cust_id").eq("name", "익명").limit(1);
-    if (anonCust && anonCust.length > 0) {
-      anonCustId = anonCust[0].cust_id;
-    } else {
-      const { data: newAnon } = await supabase.from("customer").insert({ cust_sec_cd: 63, name: "익명", reg_num: "9999" }).select("cust_id").single();
-      anonCustId = (newAnon as { cust_id: number })?.cust_id ?? 0;
+    try {
+      anonCustId = await resolveAnonymousCustId(anonClient);
+    } catch (e) {
+      return NextResponse.json({ error: String(e) }, { status: 500 });
     }
 
     // Safety net: load code/org references once for fallback mapping.
