@@ -16,9 +16,13 @@ export interface LimitCheckResult {
  *   CS_ID=14, CV_ID=117: 익명후원금 1회 한도 (10만원)
  *   CS_ID=13: 기부제한액 (1회/연간 한도)
  *   기명후원금 30만원 초과 시 경고 (이름/주소 공개 대상)
+ *
+ * 과목 분류는 cv_id 하드코딩이 아니라 과목명(getName)으로 판별한다.
+ * 공식 PFund2 v2.6.1(CS_ID=12 후원회 과목): 94=기명후원금, 95=익명후원금, 96=그 밖의 수입.
+ * 정당 과목(CS_ID=3)엔 기명/익명후원금 자체가 없어 명칭 기반이면 자동으로 검증 비대상이 된다.
  */
 export function useDonationLimit() {
-  const { getByCategory } = useCodeValues();
+  const { getByCategory, getName } = useCodeValues();
 
   const checkLimit = useCallback(
     async (params: {
@@ -31,17 +35,18 @@ export function useDonationLimit() {
       const warnings: string[] = [];
       const { orgId, custId, itemSecCd, amount } = params;
 
+      // 과목명으로 후원금 유형 판별 (cv_id 하드코딩 금지 — 코드값 개정에도 견고)
+      const itemName = getName(itemSecCd);
+      const isAnonymous = itemName === "익명후원금";
+      const isNamedDonation = itemName === "기명후원금";
+
       // === 1. 익명후원금 1회 한도 ===
-      // item_sec_cd for 익명후원금 varies by org type (check name)
       // CV_ID=117 = 10만원 limit
       const anonLimitCodes = getByCategory(14); // CS_ID=14: 익명후원금 한도
       const anonLimit = anonLimitCodes.length > 0
         ? parseInt(anonLimitCodes[0].cv_etc || "100000", 10)
         : 100000;
 
-      // 익명후원금 과목 (CV_ID that contains "익명" in name)
-      // Typical: item_sec_cd values for anonymous donations
-      const isAnonymous = itemSecCd === 16 || itemSecCd === 96; // 익명후원금 codes
       if (isAnonymous && Math.abs(amount) > anonLimit) {
         warnings.push(
           `익명후원금 1회 한도(${anonLimit.toLocaleString()}원)를 초과합니다. ` +
@@ -50,7 +55,6 @@ export function useDonationLimit() {
       }
 
       // === 2. 기명후원금 30만원 초과 경고 (공개 대상) ===
-      const isNamedDonation = itemSecCd === 15 || itemSecCd === 95; // 기명후원금 codes
       if (isNamedDonation && Math.abs(amount) > 300000) {
         warnings.push(
           `기명후원금 1회 30만원 초과 시 기부자 정보가 공개됩니다. ` +
@@ -95,7 +99,7 @@ export function useDonationLimit() {
         warnings,
       };
     },
-    [getByCategory]
+    [getByCategory, getName]
   );
 
   return { checkLimit };
