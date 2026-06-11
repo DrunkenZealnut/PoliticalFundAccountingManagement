@@ -369,18 +369,13 @@ export default function IncomePage() {
     }
   }
 
-  // 당비/기명후원금/익명후원금 과목 선택 시 내역 자동 입력
-  // 과목코드: 8=당비, 15=기명후원금, 16=익명후원금 (정당), 95=기명후원금, 96=익명후원금 (후원회)
-  const AUTO_CONTENT_MAP: Record<number, string> = {
-    8: "당비",
-    15: "기명후원금",
-    16: "익명후원금",
-    95: "기명후원금",
-    96: "익명후원금",
-  };
+  // 당비/기명후원금/익명후원금 과목 선택 시 내역 자동 입력.
+  // cv_id 하드코딩 대신 과목명으로 판별 (코드값이 org/선거마다 달라도 명칭은 동일).
+  const AUTO_CONTENT_NAMES = ["당비", "기명후원금", "익명후원금"];
 
   function handleItemChange(v: number) {
-    const autoContent = AUTO_CONTENT_MAP[v];
+    const itemName = getName(v);
+    const autoContent = AUTO_CONTENT_NAMES.includes(itemName) ? itemName : "";
     if (autoContent && !form.content) {
       setForm({ ...form, item_sec_cd: v, content: autoContent });
     } else {
