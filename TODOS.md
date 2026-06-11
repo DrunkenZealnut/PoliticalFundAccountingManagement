@@ -45,6 +45,12 @@
 
 ## P3 - Quality
 
+### 익명 거래처 판정·데이터 정리 (org-metrics dead 조건 + 익명 4중복)
+- **What:** (1) `org-metrics.ts`의 익명 기부 판정 `ANONYMOUS_CUST_ID = -999` 비교를 실제 익명 cust_id(name='익명') 기반으로 교체 — DB에 -999가 존재하지 않아 현재 **항상 false**(익명 기부가 집계에 안 잡힘). (2) customer의 익명 중복 4행(38=org_id 10 묶임/39·65·117=NULL) 정리 — acc_book 참조를 39(정본)로 이관 후 중복 삭제.
+- **Why:** acc_book FK 버그 조사(2026-06-11)에서 발견. 쓰기 경로는 `api/acc-book/anonymous-customer.ts` resolve로 수정됐으나 읽기 판정과 기존 데이터는 별개.
+- **Context:** `app/src/lib/dashboard/org-metrics.ts:75-81`, `pfam.customer`. income-ledger-builder는 reg_num='9999' 폴백이 있어 동작 중.
+- **Added:** 2026-06-11 (investigate: acc_book_cust_id_fkey)
+
 ### 서식 44 입력 품질 Phase 2 (숫자 검증·per-field maxLen·합계 자동계산)
 - **What:** (1) 금액/수량 필드에 숫자 형식 검증(`/^[0-9,]*$/` + `inputMode="numeric"`), (2) `HwpxFormField.maxLen`으로 셀 폭에 맞는 필드별 길이 제한(금액류 ~20자 — 현행 type 기반 200자는 39.8mm 셀에 과대), (3) 총매수(C=A×B)·계 행/열 자동계산 또는 불일치 경고, 격자 입력 UI.
 - **Why:** 현재 25개 금액 + 수량 7개가 자유 텍스트라 "C≠A×B", 계행≠열합, 한글 섞인 금액이 그대로 법정 청구서에 들어갈 수 있고, 장문 입력 시 1쪽 서식이 수쪽으로 변형된다.
