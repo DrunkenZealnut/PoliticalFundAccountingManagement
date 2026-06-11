@@ -5,9 +5,15 @@
  * 미처리 시 `<`, `&` 등이 HWPX를 파손하거나 인젝션을 유발한다.
  */
 
-/** XML 특수문자 escape (& 를 먼저 치환). */
+/**
+ * XML 특수문자 escape (& 를 먼저 치환).
+ * XML 1.0 불법 제어문자(\x00-\x08 \x0B \x0C \x0E-\x1F)는 escape 로도 표현 불가능해
+ * 문서 전체를 파서 거부(한글에서 "손상된 파일")로 만들므로 선제 제거한다.
+ * (\t \n \r 은 XML 1.0 허용 문자라 보존)
+ */
 export function escapeXml(s: string): string {
   return s
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")

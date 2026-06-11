@@ -51,9 +51,34 @@ export async function POST(request: NextRequest) {
     return errorResponse("FORM_NOT_FOUND", `정의되지 않은 서식입니다: ${formId}`, 404);
   }
 
-  // 필수 필드 2차 검증(서버)
+  // 값 타입 검증 — 직접 API 호출로 객체/불리언을 보내면 String() 강제 변환이
+  // "[object Object]" 류 쓰레기를 제출 문서에 주입하므로 사전 거부.
+  const badType = def.fields
+    .filter((f) => values[f.token] !== undefined && typeof values[f.token] !== "string")
+    .map((f) => f.label);
+  if (badType.length > 0) {
+    return errorResponse("INVALID_TYPE", `문자열이 아닌 값입니다: ${badType.join(", ")}`, 422, {
+      fields: badType,
+    });
+  }
+
+  // 토큰 구분자 포함 값 거부 — 잔여 "{{...}}" 는 stripUnresolvedTokens 가 사용자
+  // 입력을 통째로 삭제하고, 다른 필드의 토큰명이면 후속 치환이 그 값으로 바꿔치기
+  // 하는 조용한 문서 손상이 생긴다.
+  const hasBraces = def.fields
+    .filter((f) => /\{\{|\}\}/.test(String(values[f.token] ?? "")))
+    .map((f) => f.label);
+  if (hasBraces.length > 0) {
+    return errorResponse("INVALID_CHARS", `"{{" / "}}" 는 입력할 수 없습니다: ${hasBraces.join(", ")}`, 422, {
+      fields: hasBraces,
+    });
+  }
+
+  // 필수 필드 2차 검증(서버) — zero-width 문자만으로 채운 우회 차단
+  // (U+200B/200C/200D ZW*, U+2060 WJ, U+FEFF BOM, U+2800 점자 공백)
+  const ZERO_WIDTH = /[\u200B\u200C\u200D\u2060\uFEFF\u2800]/g;
   const missing = def.fields
-    .filter((f) => f.required && !String(values[f.token] ?? "").trim())
+    .filter((f) => f.required && !String(values[f.token] ?? "").replace(ZERO_WIDTH, "").trim())
     .map((f) => f.label);
   if (missing.length > 0) {
     return errorResponse("MISSING_REQUIRED", `필수 항목이 비어 있습니다: ${missing.join(", ")}`, 422, {

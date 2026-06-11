@@ -12,6 +12,12 @@ describe("escapeXml", () => {
   it("빈 문자열은 그대로 둔다", () => {
     expect(escapeXml("")).toBe("");
   });
+  it("XML 1.0 불법 제어문자를 제거한다 (한글 '손상된 파일' 방지)", () => {
+    // \x00-\x08 \x0B \x0C \x0E-\x1F 는 escape 로도 표현 불가 — 잔존 시 파서가 문서 거부
+    expect(escapeXml("a\u0000b\u0001c\u000Bd\u000Ce\u001Ff")).toBe("abcdef");
+    // \t \n \r 은 XML 1.0 허용 문자 — 보존
+    expect(escapeXml("a\tb\nc\rd")).toBe("a\tb\nc\rd");
+  });
 });
 
 describe("fmtKoreanDate", () => {

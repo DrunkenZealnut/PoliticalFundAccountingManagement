@@ -60,6 +60,26 @@ export interface HwpxFormDef {
 /* ------------------------------------------------------------------ */
 type FieldMeta = Omit<HwpxFormField, "token">;
 
+/* 서식 44(점자형 선거공보 부담비용 지급청구서) 청구금액 표: 5행 × 5열 = 25 토큰.
+ * 토큰명 `금액_<행>_<열>` 은 form-44-fill.hwpx 템플릿(make-form-44-fill.py)과 1:1. */
+const BURDEN_AMT_ROWS: Record<string, string> = {
+  공보: "점자형 선거공보", 공약서: "점자형 선거공약서", 저장매체: "저장매체",
+  활동보조인: "활동보조인 수당·실비 등", 계: "계",
+};
+const BURDEN_AMT_COLS: Record<string, string> = {
+  계: "계", 점자인쇄비: "점자인쇄비", 한글인쇄료: "한글인쇄료", 운반비: "운반비", 수당: "수당·실비·산재보험료",
+};
+const burdenAmountMetas: Record<string, FieldMeta> = Object.fromEntries(
+  Object.entries(BURDEN_AMT_ROWS).flatMap(([rk, rl]) =>
+    Object.entries(BURDEN_AMT_COLS).map(([ck, cl]): [string, FieldMeta] => [
+      `금액_${rk}_${ck}`,
+      { label: `청구금액 ${rl} · ${cl}`, type: "text", source: { from: "manual" } },
+    ]),
+  ),
+);
+// 한글 키는 정수형 키 재배열 대상이 아니므로 삽입 순서(행 우선 → 열) 그대로 보존된다.
+const BURDEN_AMOUNT_TOKENS = Object.keys(burdenAmountMetas);
+
 const REG: Record<string, FieldMeta> = {
   선거명: { label: "선거명", type: "text", source: { from: "const", value: "제9회 전국동시지방선거" } },
   선거일: { label: "선거일", type: "date", source: { from: "const", value: "2026-06-03" } },
@@ -92,6 +112,21 @@ const REG: Record<string, FieldMeta> = {
   수령_금융기관: { label: "수령계좌 금융기관", type: "text", source: { from: "manual" } },
   수령_예금주: { label: "수령계좌 예금주", type: "text", source: { from: "manual" } },
   수령_계좌번호: { label: "수령계좌 번호", type: "account", source: { from: "manual" } },
+  // 점자형 선거공보 등 부담비용 지급청구서(서식 44) 전용 항목 (RAG 구조)
+  // 선거명_상세: 양식 머리의 구체 선거명 칸(예: ○○구의회 의원선거). 공유 `선거명`
+  // (const "제9회 전국동시지방선거")을 쓰면 무의미한 총선거명이 자동 주입되므로 분리.
+  선거명_상세: { label: "선거명(예: ○○구의회 의원선거)", type: "text", source: { from: "manual" }, required: true },
+  소속정당명: { label: "소속정당명", type: "text", source: { from: "manual" } },
+  // 수령_비고: 수령계좌 표의 1줄 셀 — 개행이 hp:t 에서 뭉개지므로 textarea 가 아닌 text.
+  수령_비고: { label: "수령계좌 비고", type: "text", source: { from: "manual" } },
+  점자공보_부수: { label: "점자형 선거공보 작성·제출 부수(A)", type: "text", source: { from: "manual" } },
+  점자공보_매수: { label: "점자형 선거공보 1부당 매수(B)", type: "text", source: { from: "manual" } },
+  점자공보_총매수: { label: "점자형 선거공보 총매수(C=A×B)", type: "text", source: { from: "manual" } },
+  점자공약서_부수: { label: "점자형 선거공약서 작성·발송 부수(A)", type: "text", source: { from: "manual" } },
+  점자공약서_매수: { label: "점자형 선거공약서 1부당 매수(B)", type: "text", source: { from: "manual" } },
+  점자공약서_총매수: { label: "점자형 선거공약서 총매수(C=A×B)", type: "text", source: { from: "manual" } },
+  저장매체_개수: { label: "저장매체(개)", type: "text", source: { from: "manual" } },
+  ...burdenAmountMetas,
 };
 
 function fields(...tokens: string[]): HwpxFormField[] {
@@ -207,7 +242,15 @@ export const HWPX_FORM_DEFS: readonly HwpxFormDef[] = [
   { id: "37-2", label: "정치자금영수증 발급신청서", category: "정치자금영수증", template: "form-37-2.hwpx", orgScope: "supporter", fields: [] },
   { id: "38", label: "정치자금영수증 발행·반납대장", category: "정치자금영수증", template: "form-38.hwpx", orgScope: "supporter", fields: [] },
   { id: "43", label: "선거비용 보전청구서", category: "보전·청구", template: "form-43-fill.hwpx", orgScope: "candidate", fields: fields("선거명", "선거구명", "후보자명", "수령_금융기관", "수령_예금주", "수령_계좌번호", "선관위명"), dataFill: "reimbursement" },
-  { id: "44", label: "점자형선거공보 등 부담비용 지급청구서", category: "보전·청구", template: "form-44.hwpx", orgScope: "candidate", fields: [] },
+  { id: "44", label: "점자형선거공보 등 부담비용 지급청구서", category: "보전·청구", template: "form-44-fill.hwpx", orgScope: "candidate",
+    fields: fields(
+      "선거명_상세", "소속정당명", "후보자명",
+      "점자공보_부수", "점자공보_매수", "점자공보_총매수",
+      "점자공약서_부수", "점자공약서_매수", "점자공약서_총매수", "저장매체_개수",
+      ...BURDEN_AMOUNT_TOKENS,
+      "수령_예금주", "수령_금융기관", "수령_계좌번호", "수령_비고",
+      "선관위명",
+    ) },
 ];
 
 export function getFormDef(id: string): HwpxFormDef | undefined {
