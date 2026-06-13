@@ -171,6 +171,7 @@ export type Database = {
           acc_time: string | null;
           content: string;
           acc_amt: number;
+          claim_amt: number | null;
           rcp_yn: string;
           rcp_no: string | null;
           rcp_no2: number | null;
@@ -210,6 +211,7 @@ export type Database = {
           acc_time: string | null;
           content: string;
           acc_amt: number;
+          claim_amt: number | null;
           rcp_yn: string;
           rcp_no: string | null;
           rcp_no2: number | null;

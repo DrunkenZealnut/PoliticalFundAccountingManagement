@@ -14,6 +14,7 @@ import {
   type ReimbursementClaimFormData,
 } from "@/lib/excel-template/reimbursement-claim-form";
 import type { ClaimAmounts } from "@/lib/accounting/reimbursement-aggregator";
+import { claimAmount } from "@/lib/accounting/claim-amount";
 
 /* ================================================================== */
 /*  공통 타입                                                          */
@@ -27,6 +28,7 @@ interface ReimbRow {
   acc_date: string;
   content: string;
   acc_amt: number;
+  claim_amt: number | null;
   rcp_yn: string;
   rcp_no: string | null;
   acc_print_ok: string | null;
@@ -121,6 +123,17 @@ function ReimbursementTab() {
   const itemSecCd = electionItem?.cv_id || 0;
   const itemLabel = electionItem?.cv_name || "선거비용";
 
+  // 보전청구액 인라인 편집 상태(acc_book_id → 입력 문자열, ""=NULL=지출액)
+  const [claimEdits, setClaimEdits] = useState<Record<number, string>>({});
+  const setClaim = (id: number, v: string) => setClaimEdits((prev) => ({ ...prev, [id]: v }));
+  /** 행별 유효 청구액(편집값 우선 → claim_amt → acc_amt). 빈칸=지출액. */
+  const effClaim = (r: ReimbRow): number => {
+    const e = claimEdits[r.acc_book_id];
+    if (e === undefined) return claimAmount(r);
+    const digits = e.replace(/[^0-9]/g, "");
+    return digits === "" ? r.acc_amt : Number(digits);
+  };
+
   const handleQuery = useCallback(async () => {
     if (!orgId) return;
     if (!dateFrom || !dateTo) { alert("기간을 입력하세요."); return; }
@@ -128,7 +141,7 @@ function ReimbursementTab() {
     const fromStr = dateFrom.replace(/-/g, "");
     const toStr = dateTo.replace(/-/g, "");
     let query = supabase.from("acc_book")
-      .select("acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_date, content, acc_amt, rcp_yn, rcp_no, acc_print_ok, bigo, exp_group1_cd, exp_group2_cd, exp_group3_cd, customer:cust_id(name, reg_num, addr, job, tel)")
+      .select("acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_date, content, acc_amt, claim_amt, rcp_yn, rcp_no, acc_print_ok, bigo, exp_group1_cd, exp_group2_cd, exp_group3_cd, customer:cust_id(name, reg_num, addr, job, tel)")
       .eq("org_id", orgId).eq("incm_sec_cd", 2)
       .gte("acc_date", fromStr).lte("acc_date", toStr)
       .order("acc_date", { ascending: true }).order("acc_sort_num", { ascending: true });
@@ -140,6 +153,9 @@ function ReimbursementTab() {
     const checked = new Set<number>();
     rows.forEach((r) => { if (r.acc_print_ok === "Y") checked.add(r.acc_book_id); });
     setCheckedIds(checked);
+    const edits: Record<number, string> = {};
+    rows.forEach((r) => { edits[r.acc_book_id] = r.claim_amt != null ? String(r.claim_amt) : ""; });
+    setClaimEdits(edits);
     setLoading(false);
   }, [orgId, supabase, dateFrom, dateTo, accSecCd, itemSecCd]);
 
@@ -155,8 +171,12 @@ function ReimbursementTab() {
     setSaving(true);
     let ok = 0;
     for (const r of records) {
+      const e = claimEdits[r.acc_book_id];
+      const claim = e === undefined
+        ? r.claim_amt
+        : (e.replace(/[^0-9]/g, "") === "" ? null : Number(e.replace(/[^0-9]/g, "")));
       const { error } = await supabase.from("acc_book")
-        .update({ acc_print_ok: checkedIds.has(r.acc_book_id) ? "Y" : "N" })
+        .update({ acc_print_ok: checkedIds.has(r.acc_book_id) ? "Y" : "N", claim_amt: claim })
         .eq("acc_book_id", r.acc_book_id);
       if (!error) ok++;
     }
@@ -167,7 +187,7 @@ function ReimbursementTab() {
   let expCum = 0;
   const rows = records.map((r) => { expCum += r.acc_amt; return { ...r, expCum }; });
   const totalAmt = records.reduce((s, r) => s + r.acc_amt, 0);
-  const checkedTotal = records.filter((r) => checkedIds.has(r.acc_book_id)).reduce((s, r) => s + r.acc_amt, 0);
+  const checkedTotal = records.filter((r) => checkedIds.has(r.acc_book_id)).reduce((s, r) => s + effClaim(r), 0);
 
   return (
     <div className="space-y-4 mt-4">
@@ -198,7 +218,8 @@ function ReimbursementTab() {
       )}
 
       <LedgerTable records={rows} checkedIds={checkedIds} loading={loading} totalAmt={totalAmt} checkedTotal={checkedTotal}
-        onToggle={toggleCheck} onToggleAll={toggleAll} checkLabel="보전" />
+        onToggle={toggleCheck} onToggleAll={toggleAll} checkLabel="보전"
+        claimEditor={{ value: (r) => claimEdits[r.acc_book_id] ?? "", onChange: setClaim }} />
     </div>
   );
 }
@@ -234,7 +255,7 @@ function BurdenCostTab() {
     const toStr = dateTo.replace(/-/g, "");
     // 선거비용외 지출 조회 후 클라이언트에서 부담비용 해당 건만 필터
     let query = supabase.from("acc_book")
-      .select("acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_date, content, acc_amt, rcp_yn, rcp_no, acc_print_ok, bigo, exp_group1_cd, exp_group2_cd, exp_group3_cd, customer:cust_id(name, reg_num, addr, job, tel)")
+      .select("acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_date, content, acc_amt, claim_amt, rcp_yn, rcp_no, acc_print_ok, bigo, exp_group1_cd, exp_group2_cd, exp_group3_cd, customer:cust_id(name, reg_num, addr, job, tel)")
       .eq("org_id", orgId).eq("incm_sec_cd", 2)
       .gte("acc_date", fromStr).lte("acc_date", toStr)
       .order("acc_date", { ascending: true }).order("acc_sort_num", { ascending: true });
@@ -679,7 +700,7 @@ function calcBurdenSummary(records: ReimbRow[], checkedIds: Set<number>): Burden
 /*  공통 수입지출부 테이블                                              */
 /* ================================================================== */
 
-function LedgerTable({ records, checkedIds, loading, totalAmt, checkedTotal, onToggle, onToggleAll, checkLabel }: {
+function LedgerTable({ records, checkedIds, loading, totalAmt, checkedTotal, onToggle, onToggleAll, checkLabel, claimEditor }: {
   records: (ReimbRow & { expCum: number })[];
   checkedIds: Set<number>;
   loading: boolean;
@@ -688,7 +709,10 @@ function LedgerTable({ records, checkedIds, loading, totalAmt, checkedTotal, onT
   onToggle: (id: number) => void;
   onToggleAll: () => void;
   checkLabel: string;
+  /** 지정 시 지출액 옆 "청구액" 편집 컬럼 노출(보전 탭). 미지정 시 14컬럼 유지(부담 탭). */
+  claimEditor?: { value: (r: ReimbRow) => string; onChange: (id: number, v: string) => void };
 }) {
+  const colCount = claimEditor ? 15 : 14;
   return (
     <div className="bg-white rounded-lg border overflow-x-auto">
       <table className="w-full border-collapse">
@@ -704,6 +728,7 @@ function LedgerTable({ records, checkedIds, loading, totalAmt, checkedTotal, onT
             <th rowSpan={2} className={th1}>년월일</th>
             <th rowSpan={2} className={th1}>내 역</th>
             <th colSpan={2} className={th1}>지 출 액</th>
+            {claimEditor && <th rowSpan={2} className={th1}>청구액<br />(보전)</th>}
             <th rowSpan={2} className={th1}>누 계</th>
             <th colSpan={5} className={th1}>지출을 받은 자</th>
             <th rowSpan={2} className={th1}>영수증<br />번호</th>
@@ -721,9 +746,9 @@ function LedgerTable({ records, checkedIds, loading, totalAmt, checkedTotal, onT
         </thead>
         <tbody>
           {loading ? (
-            <tr><td colSpan={14} className="px-3 py-8 text-center text-gray-400">로딩 중...</td></tr>
+            <tr><td colSpan={colCount} className="px-3 py-8 text-center text-gray-400">로딩 중...</td></tr>
           ) : records.length === 0 ? (
-            <tr><td colSpan={14} className="px-3 py-8 text-center text-gray-400">기간을 설정 후 [조회]를 클릭하세요.</td></tr>
+            <tr><td colSpan={colCount} className="px-3 py-8 text-center text-gray-400">기간을 설정 후 [조회]를 클릭하세요.</td></tr>
           ) : records.map((r, i) => {
             const cust = getCust(r);
             const isChecked = checkedIds.has(r.acc_book_id);
@@ -735,6 +760,18 @@ function LedgerTable({ records, checkedIds, loading, totalAmt, checkedTotal, onT
                 <td className={td}>{r.content}</td>
                 <td className={`${tdR} text-red-600`}>{fmt(r.acc_amt)}</td>
                 <td className={`${tdR} text-red-400`}>{fmt(r.expCum)}</td>
+                {claimEditor && (
+                  <td className={tdR}>
+                    <input
+                      type="text" inputMode="numeric"
+                      value={claimEditor.value(r)}
+                      placeholder={fmt(r.acc_amt)}
+                      onChange={(e) => claimEditor.onChange(r.acc_book_id, e.target.value)}
+                      className="w-24 text-right font-mono border border-gray-300 rounded px-1 py-0.5 text-xs"
+                      title="보전청구액(비우면 지출액으로 청구)"
+                    />
+                  </td>
+                )}
                 <td className={`${tdR} font-semibold`}>{fmt(-r.expCum)}</td>
                 <td className={td}>{cust.name}</td>
                 <td className={td}>{cust.regNum}</td>
@@ -752,12 +789,12 @@ function LedgerTable({ records, checkedIds, loading, totalAmt, checkedTotal, onT
             <tr className="bg-gray-100 font-bold">
               <td colSpan={4} className={`${td} text-right`}>합 계</td>
               <td className={`${tdR} text-red-700`}>{fmt(totalAmt)}</td>
-              <td colSpan={9} className={td} />
+              <td colSpan={colCount - 5} className={td} />
             </tr>
             <tr className="bg-blue-50 font-bold">
               <td colSpan={4} className={`${td} text-right text-blue-700`}>{checkLabel} 대상 합계 ({checkedIds.size}건)</td>
               <td className={`${tdR} text-blue-700`}>{fmt(checkedTotal)}</td>
-              <td colSpan={9} className={td} />
+              <td colSpan={colCount - 5} className={td} />
             </tr>
           </tfoot>
         )}

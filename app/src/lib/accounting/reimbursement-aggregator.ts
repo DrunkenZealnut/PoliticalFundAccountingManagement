@@ -4,6 +4,7 @@
 /* ------------------------------------------------------------------ */
 
 import { classifyFundingSource, type FundingSource } from "./funding-source";
+import { claimAmount } from "./claim-amount";
 
 export interface ClaimAmounts {
   후보자자산: number;
@@ -18,6 +19,8 @@ export interface AccBookRow {
   acc_sec_cd: number;
   item_sec_cd: number;
   acc_amt: number;
+  /** 보전청구액(NULL이면 acc_amt 사용). 일할계산 등 실지출과 다른 보전 신청액. */
+  claim_amt?: number | null;
   acc_print_ok: string | null;
   incm_sec_cd: number;
 }
@@ -83,8 +86,10 @@ export function aggregateReimbursementByFundingSource(
       input.accSecCdNames?.[r.acc_sec_cd],
     );
     if (source === "기타") continue;
-    sums[source] += r.acc_amt;
-    sums.합계 += r.acc_amt;
+    // 보전 신청액(claim_amt ?? acc_amt) 합산 — 일할계산 등 반영. 게이트(acc_amt>0)는 실지출 기준 유지.
+    const amt = claimAmount(r);
+    sums[source] += amt;
+    sums.합계 += amt;
     rowCount++;
   }
 

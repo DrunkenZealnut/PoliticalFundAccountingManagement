@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
   // 2. 해당 org의 지출 거래 조회
   const { data: rows, error: rowErr } = await supabase
     .from("acc_book")
-    .select("acc_book_id, acc_sec_cd, item_sec_cd, acc_amt, acc_print_ok, incm_sec_cd")
+    .select("acc_book_id, acc_sec_cd, item_sec_cd, acc_amt, claim_amt, acc_print_ok, incm_sec_cd")
     .eq("org_id", body.orgId)
     .eq("incm_sec_cd", 2);
   if (rowErr) {
