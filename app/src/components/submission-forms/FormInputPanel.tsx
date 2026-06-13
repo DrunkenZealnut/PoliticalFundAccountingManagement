@@ -23,6 +23,7 @@ const DATA_FILL_ENDPOINT: Record<NonNullable<HwpxFormDef["dataFill"]>, string> =
   "income-ledger": "/api/hwpx/income-ledger",
   "accounting-report": "/api/hwpx/accounting-report",
   "reimbursement": "/api/hwpx/reimbursement-claim",
+  "reimbursement-doclist": "/api/hwpx/reimbursement-doclist",
 };
 
 /** dataFill 서식 → 안내문구·버튼 라벨. */
@@ -38,6 +39,10 @@ const DATA_FILL_TEXT: Record<NonNullable<HwpxFormDef["dataFill"]>, { desc: strin
   "reimbursement": {
     desc: "보전 체크(보전 대상)된 선거비용을 자금원별로 집계해 선거비용 보전청구서를 채웁니다. 선거구명·수령계좌 등은 아래에 입력하세요.",
     button: "보전청구서 채워 받기",
+  },
+  "reimbursement-doclist": {
+    desc: "보전 체크된 선거비용 지출을 항목(공직선거법 조항)별로 분류해 첨부서류 점검목록표를 자동 생성합니다. 거래업체·보전청구액·첨부증빙 현황이 항목별로 집계됩니다.",
+    button: "보전 첨부서류목록 생성",
   },
 };
 

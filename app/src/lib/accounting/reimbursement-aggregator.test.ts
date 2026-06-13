@@ -129,6 +129,35 @@ describe("aggregateReimbursementByFundingSource", () => {
     expect(f.후보자자산 + f.후원회기부금 + f.보조금 + f.보조금외).toBe(f.합계);
   });
 
+  it("claim_amt(보전청구액)이 있으면 acc_amt 대신 합산한다 (일할계산)", () => {
+    const result = aggregateReimbursementByFundingSource({
+      rows: [
+        row({ acc_book_id: 1, acc_sec_cd: 84, acc_amt: 965800, claim_amt: 313885 }), // 일할: 청구액
+        row({ acc_book_id: 2, acc_sec_cd: 84, acc_amt: 50000 }),                      // claim 없음 → acc_amt
+      ],
+      electionExpenseItemCds: ELECTION_ITEM_CDS,
+    });
+    expect(result.byFundingSource.후보자자산).toBe(363885); // 313885 + 50000
+    expect(result.byFundingSource.합계).toBe(363885);
+  });
+
+  it("claim_amt=0 은 청구 0원으로 합산(게이트 acc_amt>0이라 행은 포함)", () => {
+    const result = aggregateReimbursementByFundingSource({
+      rows: [row({ acc_book_id: 1, acc_sec_cd: 84, acc_amt: 100000, claim_amt: 0 })],
+      electionExpenseItemCds: ELECTION_ITEM_CDS,
+    });
+    expect(result.rowCount).toBe(1);             // acc_amt>0 게이트 통과
+    expect(result.byFundingSource.합계).toBe(0); // 청구액 0
+  });
+
+  it("claim_amt=null 은 acc_amt fallback", () => {
+    const result = aggregateReimbursementByFundingSource({
+      rows: [row({ acc_book_id: 1, acc_sec_cd: 84, acc_amt: 77000, claim_amt: null })],
+      electionExpenseItemCds: ELECTION_ITEM_CDS,
+    });
+    expect(result.byFundingSource.합계).toBe(77000);
+  });
+
   it("미사용 변수 NON_ELECTION_ITEM_CDS — 통합용", () => {
     expect(NON_ELECTION_ITEM_CDS).toContain(201);
   });

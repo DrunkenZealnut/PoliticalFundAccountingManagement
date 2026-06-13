@@ -142,9 +142,14 @@ function joinAddr(c: LedgerCustomer | null): string {
   return [c.addr, c.addr_detail].map((s) => (s ?? "").trim()).filter(Boolean).join(" ");
 }
 
+/** 익명 고객 여부 (cust_id=-999 또는 reg_num=9999). 회계장부·보전목록 공유 SSOT. */
+export function isAnonymousCustomer(custId: number, regNum: string | null | undefined): boolean {
+  return custId === -999 || (regNum ?? "").replace(/[^0-9]/g, "") === "9999";
+}
+
 /** 익명 고객 여부 (cust_id=-999 또는 reg_num=9999). */
 function isAnonymous(row: IncomeLedgerInputRow): boolean {
-  return row.cust_id === -999 || (row.customer?.reg_num ?? "").replace(/[^0-9]/g, "") === "9999";
+  return isAnonymousCustomer(row.cust_id, row.customer?.reg_num);
 }
 
 type GetName = (cvId: number) => string;

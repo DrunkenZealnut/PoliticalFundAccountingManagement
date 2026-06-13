@@ -19,12 +19,11 @@ import { join } from "node:path";
 import { createSupabaseServer } from "@/lib/supabase/server";
 import { generateHwpx } from "@/lib/hwpx/generate";
 import { getFormDef } from "@/lib/hwpx/form-fields";
+import { claimTableTokens, claimTotalTokens } from "@/lib/hwpx/reimbursement-claim-builder";
 import {
-  buildReimbursementClaimModel,
-  claimTableTokens,
-  claimTotalTokens,
-  type ReimbursementClaimInputRow,
-} from "@/lib/hwpx/reimbursement-claim-builder";
+  aggregateReimbursementByFundingSource,
+  type AccBookRow,
+} from "@/lib/accounting/reimbursement-aggregator";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -97,8 +96,9 @@ export async function POST(request: NextRequest) {
     const [rowsRes, cvRes, organRes] = await Promise.all([
       supabase
         .from("acc_book")
-        .select("incm_sec_cd, acc_sec_cd, item_sec_cd, acc_amt, acc_print_ok")
-        .eq("org_id", orgId),
+        .select("acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_amt, claim_amt, acc_print_ok")
+        .eq("org_id", orgId)
+        .eq("incm_sec_cd", 2),
       supabase.from("codevalue").select("cv_id, cv_name"),
       supabase.from("organ").select("org_name, rep_name").eq("org_id", orgId).maybeSingle(),
     ]);
@@ -108,15 +108,23 @@ export async function POST(request: NextRequest) {
     if (cvRes.error) {
       return errorResponse("QUERY_FAILED", "코드 조회에 실패했습니다.", 500, { detail: cvRes.error.message });
     }
-    const rows = rowsRes.data;
-    const nameMap = new Map<number, string>((cvRes.data ?? []).map((c) => [c.cv_id, c.cv_name]));
-    const getName = (id: number) => nameMap.get(id) ?? String(id);
     const organ = organRes.data;
 
-    const model = buildReimbursementClaimModel(
-      (rows ?? []) as unknown as ReimbursementClaimInputRow[],
-      getName,
-    );
+    // 선거비용 과목(cv_name==="선거비용") + 자금원 코드명 — Excel claim-form/aggregate 와 동일 SSOT
+    const electionExpenseItemCds: number[] = [];
+    const accSecCdNames: Record<number, string> = {};
+    for (const cv of cvRes.data ?? []) {
+      const id = cv.cv_id as number;
+      const name = String(cv.cv_name ?? "");
+      if (name === "선거비용") electionExpenseItemCds.push(id);
+      accSecCdNames[id] = name;
+    }
+
+    const { byFundingSource } = aggregateReimbursementByFundingSource({
+      rows: (rowsRes.data ?? []) as AccBookRow[],
+      electionExpenseItemCds,
+      accSecCdNames,
+    });
 
     // 본문 텍스트 토큰: values 우선(화이트리스트·길이 제한), 핵심 항목은 organ/고정값 fallback
     const textTokens: Record<string, string> = {};
@@ -127,7 +135,7 @@ export async function POST(request: NextRequest) {
     if (!textTokens.선거명) textTokens.선거명 = "제9회 전국동시지방선거";
     if (!textTokens.후보자명) textTokens.후보자명 = organ?.rep_name ?? organ?.org_name ?? "";
 
-    const tokens = { ...claimTableTokens(model), ...claimTotalTokens(model), ...textTokens };
+    const tokens = { ...claimTableTokens(byFundingSource), ...claimTotalTokens(byFundingSource), ...textTokens };
     const { bytes } = await generateHwpx(template, tokens);
 
     return new NextResponse(bytes as unknown as BodyInit, {

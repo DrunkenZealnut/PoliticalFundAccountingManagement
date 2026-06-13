@@ -29,6 +29,14 @@ import {
   type EstateGroup,
   type EstateModel,
 } from "./estate-builder";
+import {
+  doclistGroupTokens,
+  doclistRowTokens,
+  DOCLIST_SUBTOTAL_TOKEN,
+  DOCLIST_TOTAL_TOKEN,
+  type DoclistGroup,
+  type DoclistModel,
+} from "./reimbursement-doclist-builder";
 
 const GROUP_RE = /<!--LEDGER:GROUP_START-->([\s\S]*?)<!--LEDGER:GROUP_END-->/;
 const ROW_RE = /<!--LEDGER:ROW_START-->([\s\S]*?)<!--LEDGER:ROW_END-->/;
@@ -198,5 +206,75 @@ export function renderEstateSection(sectionXml: string, model: EstateModel): str
   });
   // 마커·잔여 토큰 제거
   out = out.replace(/<!--ESTATE:[A-Z_]+-->/g, "");
+  return stripUnresolvedTokens(out).xml;
+}
+
+/* ------------------------------------------------------------------ */
+/*  선거비용 보전 첨부서류 점검목록표 렌더 — 재산명세서(22-3)와 동형     */
+/*                                                                    */
+/*  form-doclist-fill.hwpx 의 표 구조는 재산명세서와 동일(단일 표:      */
+/*  [헤더] + DOCLIST:GROUP[명세행(ROW) + 소계행] + [합계행]). 보전 항목  */
+/*  그룹마다 명세행을 지출 건수만큼 복제하고 c0(보전항목) 셀을           */
+/*  rowSpan(명세n + 소계1) 으로 묶는다. estate 렌더의 검증된 헬퍼        */
+/*  (setC0RowSpan/removeC0Cell/recalcTableRowAddr/setTblAttr)를 재사용.  */
+/* ------------------------------------------------------------------ */
+const DOCLIST_GROUP_RE = /<!--DOCLIST:GROUP_START-->([\s\S]*?)<!--DOCLIST:GROUP_END-->/;
+const DOCLIST_ROW_RE = /<!--DOCLIST:ROW_START-->([\s\S]*?)<!--DOCLIST:ROW_END-->/;
+
+/** 보전 항목 그룹 1개 → 명세행(N) + 소계행 XML. */
+function renderDoclistGroup(rowTemplate: string, subtotalBlock: string, group: DoclistGroup): string {
+  const n = group.rows.length;
+  const firstTpl = setC0RowSpan(rowTemplate, n + 1); // c0(보전항목) rowSpan = 명세n + 소계1
+  const restTpl = removeC0Cell(rowTemplate); // 2번째+ 행: c0 제거(병합에 덮임)
+  const details = group.rows
+    .map((row, i) =>
+      i === 0
+        ? replaceTokens(firstTpl, { ...doclistGroupTokens(group), ...doclistRowTokens(row) })
+        : replaceTokens(restTpl, doclistRowTokens(row)),
+    )
+    .join("");
+  return details + replaceTokens(subtotalBlock, { [DOCLIST_SUBTOTAL_TOKEN]: group.subtotalAmount });
+}
+
+/**
+ * 템플릿 section0.xml 의 DOCLIST:GROUP 영역을 점검목록표 모델로 렌더.
+ * 보전 체크 지출 0건이면 "해당 없음" 1행만 표기. 표 rowAddr/rowCnt 재계산.
+ */
+export function renderDoclistSection(sectionXml: string, model: DoclistModel): string {
+  const gm = sectionXml.match(DOCLIST_GROUP_RE);
+  if (!gm) throw new Error("템플릿에 DOCLIST:GROUP 마커가 없습니다");
+  const groupBlock = gm[1];
+  const rm = groupBlock.match(DOCLIST_ROW_RE);
+  if (!rm) throw new Error("템플릿에 DOCLIST:ROW 마커가 없습니다");
+  const rowTemplate = rm[1];
+  const subtotalBlock = groupBlock.replace(DOCLIST_ROW_RE, "");
+
+  // 0건: "해당 없음" 단일 그룹(명세행 1개, 소계 0)으로 빈 표 유지
+  const groups: DoclistGroup[] =
+    model.groups.length > 0
+      ? model.groups
+      : [
+          {
+            key: "none",
+            itemName: "해당 없음",
+            law: "",
+            rows: [{ date: "", vendor: "", content: "", amount: "", evidence: "" }],
+            subtotalAmount: "0",
+          },
+        ];
+
+  const groupsXml = groups.map((g) => renderDoclistGroup(rowTemplate, subtotalBlock, g)).join("");
+
+  let out = sectionXml.replace(DOCLIST_GROUP_RE, groupsXml);
+  // 합계행(GROUP 밖) 치환
+  out = replaceTokens(out, { [DOCLIST_TOTAL_TOKEN]: model.totalAmount });
+  // 표 전체 rowAddr 재계산 + rowCnt 동기화
+  out = out.replace(/<hp:tbl\b[\s\S]*?<\/hp:tbl>/, (tbl) => {
+    const recalced = recalcTableRowAddr(tbl);
+    const trCount = (recalced.match(/<hp:tr\b/g) ?? []).length;
+    return setTblAttr(recalced, "rowCnt", trCount);
+  });
+  // 마커·잔여 토큰 제거
+  out = out.replace(/<!--DOCLIST:[A-Z_]+-->/g, "");
   return stripUnresolvedTokens(out).xml;
 }

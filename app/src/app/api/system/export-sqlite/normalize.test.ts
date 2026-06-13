@@ -89,8 +89,28 @@ describe("stripAppOnlyAccBookColumns", () => {
     expect("acc_time" in out).toBe(false);
   });
 
-  it("acc_time 키가 없는 행은 동일 참조로 그대로 둔다", () => {
-    const row = { acc_book_id: 3, content: "기부금" };
+  it("claim_amt 컬럼을 제거한다 (공식 ACC_BOOK 포맷엔 없음, scripts/015)", () => {
+    const out = stripAppOnlyAccBookColumns({
+      acc_book_id: 1, acc_amt: 100000, claim_amt: 50000, content: "현수막",
+    });
+    expect("claim_amt" in out).toBe(false);
+    expect(out.acc_amt).toBe(100000); // 실지출 acc_amt 는 보존(공식 컬럼)
+  });
+
+  it("acc_time 없이 claim_amt 만 있어도 제거한다 (early-return 두 컬럼 검사)", () => {
+    const out = stripAppOnlyAccBookColumns({ acc_book_id: 2, claim_amt: 12345 });
+    expect("claim_amt" in out).toBe(false);
+  });
+
+  it("acc_time·claim_amt 둘 다 제거한다", () => {
+    const out = stripAppOnlyAccBookColumns({ acc_book_id: 3, acc_time: "1430", claim_amt: 999, acc_amt: 1000 });
+    expect("acc_time" in out).toBe(false);
+    expect("claim_amt" in out).toBe(false);
+    expect(out.acc_amt).toBe(1000);
+  });
+
+  it("acc_time·claim_amt 키가 없는 행은 동일 참조로 그대로 둔다", () => {
+    const row = { acc_book_id: 4, content: "기부금" };
     expect(stripAppOnlyAccBookColumns(row)).toBe(row);
   });
 

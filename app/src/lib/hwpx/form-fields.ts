@@ -51,8 +51,10 @@ export interface HwpxFormDef {
    *  - "accounting-report": 수입·지출·재산 → 회계보고서 22-1/22-3/22-4 (POST /api/hwpx/accounting-report)
    *  - "reimbursement": 보전 체크 선거비용 → 선거비용 보전청구서 서식 43 (POST /api/hwpx/reimbursement-claim).
    *    표(자금원 청구액)는 자동 집계, 일부 텍스트(선거구명·수령계좌 등)는 `fields` 수동 입력(하이브리드).
+   *  - "reimbursement-doclist": 보전 체크 선거비용 → 보전 항목(공직선거법 조항)별 첨부서류
+   *    점검목록표 (POST /api/hwpx/reimbursement-doclist). 표·행 자동 채움(수동 입력 없음).
    */
-  dataFill?: "income-ledger" | "accounting-report" | "reimbursement";
+  dataFill?: "income-ledger" | "accounting-report" | "reimbursement" | "reimbursement-doclist";
 }
 
 /* ------------------------------------------------------------------ */
@@ -242,6 +244,7 @@ export const HWPX_FORM_DEFS: readonly HwpxFormDef[] = [
   { id: "37-2", label: "정치자금영수증 발급신청서", category: "정치자금영수증", template: "form-37-2.hwpx", orgScope: "supporter", fields: [] },
   { id: "38", label: "정치자금영수증 발행·반납대장", category: "정치자금영수증", template: "form-38.hwpx", orgScope: "supporter", fields: [] },
   { id: "43", label: "선거비용 보전청구서", category: "보전·청구", template: "form-43-fill.hwpx", orgScope: "candidate", fields: fields("선거명", "선거구명", "후보자명", "수령_금융기관", "수령_예금주", "수령_계좌번호", "선관위명"), dataFill: "reimbursement" },
+  { id: "보전목록", label: "선거비용 보전 첨부서류목록", category: "보전·청구", template: "form-doclist-fill.hwpx", orgScope: "candidate", fields: [], dataFill: "reimbursement-doclist" },
   { id: "44", label: "점자형선거공보 등 부담비용 지급청구서", category: "보전·청구", template: "form-44-fill.hwpx", orgScope: "candidate",
     fields: fields(
       "선거명_상세", "소속정당명", "후보자명",
