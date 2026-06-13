@@ -58,3 +58,10 @@ nohup.out
 
 # Python venv (hwpx 스킬 도구용)
 .venv/
+
+# 참고 자료·생성물 바이너리 (대용량·개인정보 가능 — 레포 추적 제외)
+# 루트 한정(leading slash)이라 app/public/hwpx-templates/*.hwpx 템플릿은 보호됨
+/RAG/
+/*.hwp
+/*.hwpx
+/*.xlsx
