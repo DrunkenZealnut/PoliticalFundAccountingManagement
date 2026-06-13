@@ -148,11 +148,11 @@ export default function IncomePage() {
     const result = await res.json();
 
     if (result.count === 0) {
-      alert("영수증번호를 일괄 부여할 대상이 없습니다.\n(증빙서첨부=Y이고 번호 미입력인 건)");
+      alert("영수증번호를 일괄 부여할 대상이 없습니다.\n(증빙서첨부=Y인 건)");
       return;
     }
 
-    alert(`${result.count}건에 영수증번호 ${result.startNum}~${result.endNum}을 부여했습니다.`);
+    alert(`${result.count}건에 영수증번호를 계정·과목 형식으로 부여했습니다.`);
     loadRecords(activeFilters);
   }
 

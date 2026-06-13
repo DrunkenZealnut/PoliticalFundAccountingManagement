@@ -19,6 +19,7 @@ import { EmptyState } from "@/components/empty-state";
 import { PAGE_GUIDES } from "@/lib/page-guides";
 import { EvidenceFileManager, type PendingFile } from "@/components/evidence/evidence-file-manager";
 import { buildExpenseSummary } from "@/lib/accounting/ledger-summary";
+import { assignReceiptNumbers } from "@/lib/accounting/receipt-no";
 import { LedgerSummaryHeader } from "@/components/dashboard/LedgerSummaryHeader";
 import { fmtTimeInput, toAccTime } from "@/lib/date-utils";
 import { buildFundingAllocation } from "@/lib/accounting/funding-allocation";
@@ -62,6 +63,7 @@ export default function ExpensePage() {
   const { orgId, orgSecCd, orgType } = useAuth();
   const {
     loading: codesLoading,
+    codeValues,
     getName,
     getAccounts,
     getItems,
@@ -204,13 +206,13 @@ export default function ExpensePage() {
 
   async function handleBatchReceiptGen() {
     if (!orgId) return;
+    // 대상: rcp_yn='Y' 지출 전체 (전체 재생성 → 계정·과목 약자 형식으로 통일)
     const { data: targets } = await supabase
       .from("acc_book")
-      .select("acc_book_id")
+      .select("acc_book_id, acc_sec_cd, item_sec_cd")
       .eq("org_id", orgId)
       .eq("incm_sec_cd", 2)
       .eq("rcp_yn", "Y")
-      .or("rcp_no.is.null,rcp_no.eq.")
       .order("acc_date")
       .order("acc_sort_num");
 
@@ -219,32 +221,26 @@ export default function ExpensePage() {
       return;
     }
 
-    const { data: maxRcp } = await supabase
-      .from("acc_book")
-      .select("rcp_no2")
-      .eq("org_id", orgId)
-      .eq("incm_sec_cd", 2)
-      .not("rcp_no", "is", null)
-      .not("rcp_no", "eq", "")
-      .order("rcp_no2", { ascending: false })
-      .limit(1);
+    // 약자(cv_etc) 조회기 — codevalue SSOT
+    const etcMap = new Map(codeValues.map((c) => [c.cv_id, c.cv_etc]));
+    const getEtc = (cvId: number) => etcMap.get(cvId) ?? null;
+    const assigns = assignReceiptNumbers(targets, getEtc);
 
-    let startNum = 1;
-    if (maxRcp && maxRcp.length > 0 && maxRcp[0].rcp_no2) {
-      startNum = maxRcp[0].rcp_no2 + 1;
-    }
+    if (
+      !confirm(
+        `${assigns.length}건의 영수증번호를 계정·과목 형식(예: 자(비)-01)으로 재생성합니다.`,
+      )
+    )
+      return;
 
-    if (!confirm(`${targets.length}건에 영수증번호 ${startNum}부터 부여합니다.`)) return;
-
-    for (let i = 0; i < targets.length; i++) {
-      const num = startNum + i;
+    for (const a of assigns) {
       await supabase
         .from("acc_book")
-        .update({ rcp_no: String(num), rcp_no2: num })
-        .eq("acc_book_id", targets[i].acc_book_id);
+        .update({ rcp_no: a.rcp_no, rcp_no2: a.rcp_no2 })
+        .eq("acc_book_id", a.acc_book_id);
     }
 
-    alert(`${targets.length}건에 영수증번호를 부여했습니다.`);
+    alert(`${assigns.length}건에 영수증번호를 부여했습니다.`);
     loadRecords(activeFilters);
   }
 
