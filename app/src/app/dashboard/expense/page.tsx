@@ -204,47 +204,22 @@ export default function ExpensePage() {
 
   async function handleBatchReceiptGen() {
     if (!orgId) return;
-    const { data: targets } = await supabase
-      .from("acc_book")
-      .select("acc_book_id")
-      .eq("org_id", orgId)
-      .eq("incm_sec_cd", 2)
-      .eq("rcp_yn", "Y")
-      .or("rcp_no.is.null,rcp_no.eq.")
-      .order("acc_date")
-      .order("acc_sort_num");
-
-    if (!targets || targets.length === 0) {
+    if (!confirm("증빙서첨부=Y이고 번호 미입력인 지출에 계정·과목 조합 영수증번호(예: 자(비)-1)를 부여합니다.\n계속하시겠습니까?")) return;
+    const res = await fetch("/api/acc-book", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "batch_receipt", orgId, incmSecCd: 2 }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(`영수증번호 생성 실패: ${json.error || res.statusText}`);
+      return;
+    }
+    if (!json.count) {
       alert("영수증번호를 일괄 생성할 대상이 없습니다.");
       return;
     }
-
-    const { data: maxRcp } = await supabase
-      .from("acc_book")
-      .select("rcp_no2")
-      .eq("org_id", orgId)
-      .eq("incm_sec_cd", 2)
-      .not("rcp_no", "is", null)
-      .not("rcp_no", "eq", "")
-      .order("rcp_no2", { ascending: false })
-      .limit(1);
-
-    let startNum = 1;
-    if (maxRcp && maxRcp.length > 0 && maxRcp[0].rcp_no2) {
-      startNum = maxRcp[0].rcp_no2 + 1;
-    }
-
-    if (!confirm(`${targets.length}건에 영수증번호 ${startNum}부터 부여합니다.`)) return;
-
-    for (let i = 0; i < targets.length; i++) {
-      const num = startNum + i;
-      await supabase
-        .from("acc_book")
-        .update({ rcp_no: String(num), rcp_no2: num })
-        .eq("acc_book_id", targets[i].acc_book_id);
-    }
-
-    alert(`${targets.length}건에 영수증번호를 부여했습니다.`);
+    alert(`${json.count}건에 영수증번호를 부여했습니다.`);
     loadRecords(activeFilters);
   }
 

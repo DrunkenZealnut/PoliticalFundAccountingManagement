@@ -10,6 +10,7 @@ import {
   resolveAnonymousCustId,
   type AnonymousCustomerClient,
 } from "./anonymous-customer";
+import { assignReceiptNumbers } from "@/lib/accounting/receipt-no";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -146,10 +147,10 @@ export async function POST(request: NextRequest) {
 
   if (action === "batch_receipt") {
     const { orgId: oid, incmSecCd: isc } = payload;
-    // Find targets (rcp_yn=Y, no rcp_no)
+    // 미부여 대상 (rcp_yn=Y, rcp_no 없음) — 계정·과목 포함
     const { data: targets } = await supabase
       .from("acc_book")
-      .select("acc_book_id, rcp_no")
+      .select("acc_book_id, acc_sec_cd, item_sec_cd, rcp_no")
       .eq("org_id", oid).eq("incm_sec_cd", isc).eq("rcp_yn", "Y")
       .or("rcp_no.is.null,rcp_no.eq.")
       .order("acc_date").order("acc_sort_num");
@@ -158,26 +159,28 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ count: 0 });
     }
 
-    // Get max existing receipt number
-    const { data: maxRcp } = await supabase
+    // 기존 부여분 (조합별 max 순번 · 전체 max rcp_no2 산출용)
+    const { data: existing } = await supabase
       .from("acc_book")
       .select("rcp_no, rcp_no2")
       .eq("org_id", oid).eq("incm_sec_cd", isc)
-      .not("rcp_no", "is", null).not("rcp_no", "eq", "")
-      .order("rcp_no2", { ascending: false }).limit(1);
+      .not("rcp_no", "is", null).not("rcp_no", "eq", "");
 
-    let startNum = 1;
-    if (maxRcp?.[0]?.rcp_no) {
-      const parsed = parseInt(maxRcp[0].rcp_no, 10);
-      if (!isNaN(parsed)) startNum = parsed + 1;
+    // 계정·과목 코드명 (약자 매핑용) — acc_sec_cd/item_sec_cd 모두 cv_id
+    const { data: cv } = await supabase.from("codevalue").select("cv_id, cv_name");
+    const nameById: Record<number, string> = {};
+    for (const c of cv ?? []) nameById[c.cv_id as number] = String(c.cv_name ?? "");
+
+    const assignments = assignReceiptNumbers(
+      targets as { acc_book_id: number; acc_sec_cd: number; item_sec_cd: number }[],
+      { acc: nameById, item: nameById },
+      existing ?? [],
+    );
+    for (const a of assignments) {
+      await supabase.from("acc_book").update({ rcp_no: a.rcp_no, rcp_no2: a.rcp_no2 }).eq("acc_book_id", a.acc_book_id);
     }
 
-    for (let i = 0; i < targets.length; i++) {
-      const num = startNum + i;
-      await supabase.from("acc_book").update({ rcp_no: String(num), rcp_no2: num }).eq("acc_book_id", targets[i].acc_book_id);
-    }
-
-    return NextResponse.json({ count: targets.length, startNum, endNum: startNum + targets.length - 1 });
+    return NextResponse.json({ count: assignments.length });
   }
 
   if (action === "batch_insert") {
