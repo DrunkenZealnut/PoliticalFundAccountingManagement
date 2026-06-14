@@ -128,18 +128,18 @@ describe("computeCandidateMetrics", () => {
     expect(m.fundingSources).toHaveLength(0);
   });
 
-  it("Edge: 음수 보정 거래는 합계에 그대로 반영하되 보전 예상액은 acc_amt>0만 합산", () => {
+  it("Edge: 환급(음수) 보전 거래는 보전 예상액에서 차감한다 (aggregator SSOT)", () => {
     const rows = [
       row({ incm_sec_cd: 2, exp_sec_cd: 1, acc_amt: 1000 }),
       row({ incm_sec_cd: 2, exp_sec_cd: 1, acc_amt: -300 }), // 보정(음수) 거래
-      // 보전: 음수는 aggregator의 acc_amt>0 가드로 제외, 양수만 합산
+      // 보전: 양수=청구, 음수=환급/조정 차감 (acc_amt!==0 이면 합산)
       row({ incm_sec_cd: 2, item_sec_cd: 200, acc_sec_cd: 82, acc_print_ok: "Y", acc_amt: 800 }),
       row({ incm_sec_cd: 2, item_sec_cd: 200, acc_sec_cd: 82, acc_print_ok: "Y", acc_amt: -200 }),
     ];
     const m = computeCandidateMetrics(rows, CTX);
-    // electionExpense는 음수 보정 반영 (1000-300+800-200 = 1300, item200도 exp_sec_cd=0이므로 선거비용외)
+    // electionExpense는 음수 보정 반영
     expect(m.electionExpense).toBe(700); // exp_sec_cd>0인 1000-300
-    expect(m.reimbursableEstimate).toBe(800); // 음수 -200 제외, 양수 800만
+    expect(m.reimbursableEstimate).toBe(600); // 800 - 200(환급 차감)
   });
 });
 

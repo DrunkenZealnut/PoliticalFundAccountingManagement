@@ -82,17 +82,30 @@ describe("aggregateReimbursementByFundingSource", () => {
     expect(result.byFundingSource.합계).toBe(0);
   });
 
-  it("음수/0 금액 제외 (취소 거래 등)", () => {
+  it("0원 거래는 제외하고, 환급(음수)은 보전액에서 차감한다", () => {
     const result = aggregateReimbursementByFundingSource({
       rows: [
-        row({ acc_amt: 100000 }),
-        row({ acc_amt: 0 }),
-        row({ acc_amt: -50000 }),
+        row({ acc_book_id: 1, acc_amt: 100000 }),
+        row({ acc_book_id: 2, acc_amt: 0 }),       // 0원 → 제외
+        row({ acc_book_id: 3, acc_amt: -50000 }),  // 환급(음수) → 차감
       ],
       electionExpenseItemCds: ELECTION_ITEM_CDS,
     });
-    expect(result.byFundingSource.합계).toBe(100000);
-    expect(result.rowCount).toBe(1);
+    expect(result.byFundingSource.합계).toBe(50000); // 100000 - 50000
+    expect(result.rowCount).toBe(2);                 // 0원 제외, 양수+음수 2건
+  });
+
+  it("환급(음수)이 원거래와 다른 자금원이면 각 자금원에 반영 — 문자환급 실데이터 케이스", () => {
+    const result = aggregateReimbursementByFundingSource({
+      rows: [
+        row({ acc_book_id: 1, acc_sec_cd: 85, acc_amt: 200000 }),   // 문자충전 — 후원회기부금
+        row({ acc_book_id: 2, acc_sec_cd: 84, acc_amt: -108583 }),  // 문자환급 — 후보자자산
+      ],
+      electionExpenseItemCds: ELECTION_ITEM_CDS,
+    });
+    expect(result.byFundingSource.후원회기부금).toBe(200000);
+    expect(result.byFundingSource.후보자자산).toBe(-108583);
+    expect(result.byFundingSource.합계).toBe(91417); // 200000 - 108583
   });
 
   it("미등록 acc_sec_cd는 이름 폴백으로 분류", () => {
@@ -104,7 +117,7 @@ describe("aggregateReimbursementByFundingSource", () => {
     expect(result.byFundingSource.후원회기부금).toBe(100000);
   });
 
-  it("자금원이 '기타'인 행은 합계에서 제외", () => {
+  it("자금원이 '기타'인 행은 합계에서 제외하고 otherFunding으로 분리(silent drop 방지)", () => {
     const result = aggregateReimbursementByFundingSource({
       rows: [
         row({ acc_sec_cd: 84, acc_amt: 100000 }), // 후보자자산
@@ -114,6 +127,31 @@ describe("aggregateReimbursementByFundingSource", () => {
     });
     expect(result.byFundingSource.합계).toBe(100000);
     expect(result.rowCount).toBe(1);
+    expect(result.otherFundingCount).toBe(1);
+    expect(result.otherFundingAmt).toBe(200000);
+  });
+
+  it("기타 거래의 otherFundingAmt는 claim_amt(보전청구액) 기준으로 누적", () => {
+    const result = aggregateReimbursementByFundingSource({
+      rows: [
+        row({ acc_book_id: 1, acc_sec_cd: 999, acc_amt: 500000, claim_amt: 313885 }), // 기타+일할
+        row({ acc_book_id: 2, acc_sec_cd: 999, acc_amt: 100000 }),                     // 기타+claim없음
+      ],
+      electionExpenseItemCds: ELECTION_ITEM_CDS,
+    });
+    expect(result.byFundingSource.합계).toBe(0);
+    expect(result.rowCount).toBe(0);
+    expect(result.otherFundingCount).toBe(2);
+    expect(result.otherFundingAmt).toBe(413885); // 313885 + 100000
+  });
+
+  it("기타 0건이면 otherFunding 필드는 0 (회귀 없음)", () => {
+    const result = aggregateReimbursementByFundingSource({
+      rows: [row({ acc_sec_cd: 84, acc_amt: 100000 })],
+      electionExpenseItemCds: ELECTION_ITEM_CDS,
+    });
+    expect(result.otherFundingCount).toBe(0);
+    expect(result.otherFundingAmt).toBe(0);
   });
 
   it("4개 자금원의 합 = 합계 (불변식)", () => {
@@ -141,12 +179,12 @@ describe("aggregateReimbursementByFundingSource", () => {
     expect(result.byFundingSource.합계).toBe(363885);
   });
 
-  it("claim_amt=0 은 청구 0원으로 합산(게이트 acc_amt>0이라 행은 포함)", () => {
+  it("claim_amt=0 은 청구 0원으로 합산(acc_amt≠0이라 행 포함)", () => {
     const result = aggregateReimbursementByFundingSource({
       rows: [row({ acc_book_id: 1, acc_sec_cd: 84, acc_amt: 100000, claim_amt: 0 })],
       electionExpenseItemCds: ELECTION_ITEM_CDS,
     });
-    expect(result.rowCount).toBe(1);             // acc_amt>0 게이트 통과
+    expect(result.rowCount).toBe(1);             // acc_amt≠0 이라 행 포함
     expect(result.byFundingSource.합계).toBe(0); // 청구액 0
   });
 
