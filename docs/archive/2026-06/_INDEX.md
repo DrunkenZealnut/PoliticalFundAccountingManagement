@@ -4,6 +4,7 @@
 
 | Feature | Match Rate | 완료일 | 문서 | 비고 |
 |---------|:----------:|--------|------|------|
+| [claim-income-expense-book](claim-income-expense-book/) | 98% | 2026-06-14 | plan · design · analysis · report | 수입계정별 「정치자금 수입·지출부(선거비용)」 xlsx 생성 — 보전청구서 탭에서 보전 체크 선거비용을 자금원(4분류)별 시트로 14컬럼 공식양식 생성. 지출액=claimAmount(일할·환급 반영)로 계정별/총합이 보전관리·청구서·첨부서류목록과 정합(aggregator 교차검증 테스트). PDF 양식(계정명/과목명 2줄·헤더 괄호·합계행·영수증 첨부생략·영수증 일련번호[자금원접두사+결제방법]·작성연월일/회계책임자 푸터) 반영. 순수 모델빌더+ExcelJS 렌더 2계층, SSOT(claim-amount·funding-source) 재사용. 실데이터(오준석후보) 19,439,541 일치. 666 테스트·lint0·build성공 (PR #73 머지, v0.14.0.0) |
 | [multi-evidence-file](multi-evidence-file/) | 100% | 2026-06-01 | plan · design · analysis · report | 지출 증빙파일 다중 첨부·미리보기·Storage 경로 체계화 (PR #43 머지) |
 | [dashboard-org-differentiation](dashboard-org-differentiation/) | 97% | 2026-06-01 | plan · design · analysis · report | 메인 대시보드 orgType별(후보자/후원회) 요약카드·차트 차별화 |
 | [income-account-ledger-hwpx](income-account-ledger-hwpx/) | 99% | 2026-06-08 | plan · design · analysis · report | 수입계정별 회계장부(정치자금 수입·지출부) 데이터 채움 HWPX 생성 — 계정·과목별 수입·지출 통합·잔액 자동계산 (PR #58 머지, v0.4.0.0) |
