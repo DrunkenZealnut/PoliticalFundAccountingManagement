@@ -13,6 +13,11 @@ import {
   generateReimbursementClaimForm,
   type ReimbursementClaimFormData,
 } from "@/lib/excel-template/reimbursement-claim-form";
+import {
+  buildIncomeExpenseBookModel,
+  renderIncomeExpenseBook,
+  type IebInputRow,
+} from "@/lib/excel-template/income-expense-book";
 import type { ClaimAmounts } from "@/lib/accounting/reimbursement-aggregator";
 import { claimAmount } from "@/lib/accounting/claim-amount";
 
@@ -464,10 +469,12 @@ async function fetchClaimAggregate(orgId: number): Promise<AggregateResult | nul
 }
 
 function ClaimFormTab() {
+  const supabase = createSupabaseBrowser();
   const { orgId, orgName } = useAuth();
   const [aggregate, setAggregate] = useState<AggregateResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [downloadingBook, setDownloadingBook] = useState(false);
 
   // 청구서 입력 상태
   const [partyName, setPartyName] = useState("");
@@ -514,6 +521,67 @@ function ClaimFormTab() {
     accountValid &&
     !!submissionDate &&
     !!receivingCommittee;
+
+  /** 수입계정별 정치자금 수입·지출부(선거비용) xlsx — 지출액=최종청구액(claimAmount). */
+  async function handleDownloadBook() {
+    if (!orgId) return;
+    setDownloadingBook(true);
+    try {
+      const [itemsRes, rowsRes, organRes] = await Promise.all([
+        supabase.from("codevalue").select("cv_id, cv_name"),
+        supabase
+          .from("acc_book")
+          .select(
+            "acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_date, content, acc_amt, claim_amt, acc_print_ok, rcp_yn, acc_ins_type, rcp_no, bigo, exp_group1_cd, exp_group2_cd, exp_group3_cd, cust_id, customer:cust_id(name, reg_num, addr, job, tel)",
+          )
+          .eq("org_id", orgId)
+          .eq("incm_sec_cd", 2),
+        supabase.from("organ").select("reg_num, acct_name, candidate_org_name, org_name").eq("org_id", orgId).maybeSingle(),
+      ]);
+      const items = itemsRes.data ?? [];
+      const electionExpenseItemCds: number[] = [];
+      const accSecCdNames: Record<number, string> = {};
+      for (const cv of items) {
+        const id = cv.cv_id as number;
+        const name = String(cv.cv_name ?? "");
+        if (name === "선거비용") electionExpenseItemCds.push(id);
+        accSecCdNames[id] = name;
+      }
+      const model = buildIncomeExpenseBookModel(
+        (rowsRes.data ?? []) as unknown as IebInputRow[],
+        { electionExpenseItemCds, accSecCdNames },
+      );
+      if (model.accounts.length === 0) {
+        alert("보전 체크된 선거비용 지출이 없습니다. 먼저 「선거비용 보전」 탭에서 보전 대상을 체크·저장하세요.");
+        return;
+      }
+      const organ = organRes.data as { reg_num?: string; acct_name?: string; candidate_org_name?: string; org_name?: string } | null;
+      const now = new Date();
+      const writeDate = `${now.getFullYear()}년 ${String(now.getMonth() + 1).padStart(2, "0")}월 ${String(now.getDate()).padStart(2, "0")}일`;
+      const wb = renderIncomeExpenseBook(model, {
+        electionDistrict: organ?.reg_num ?? "",
+        candidateName: candidateName || organ?.candidate_org_name || organ?.acct_name || orgName || "",
+        accountant: organ?.acct_name ?? "",
+        writeDate,
+      });
+      const buffer = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+      a.download = `정치자금수입지출부_선거비용_${candidateName || orgName || "기관"}_${dateStr}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      if (model.otherCount > 0) {
+        alert(`자금원 미분류(기타) ${model.otherCount}건 / ${fmt(model.otherAmt)}원은 합계에서 제외되었습니다.\n「선거비용 보전」 탭에서 해당 거래의 계정(자금원)을 교정하세요.`);
+      }
+    } finally {
+      setDownloadingBook(false);
+    }
+  }
 
   async function handleDownload() {
     if (!aggregate) return;
@@ -572,9 +640,14 @@ function ClaimFormTab() {
           선거비용 보전청구서(서식 1)를 자동 생성합니다. <b>선거비용 보전</b> 탭에서 보전 대상으로 체크된 지출이 자금원별로 자동 집계됩니다.<br />
           청구기한: <b>2026년 6월 15일(월)</b> · 보전금 지급기한: 2026년 7월 31일(금)
         </div>
-        <Button onClick={fetchAggregate} disabled={loading}>
-          {loading ? "집계 중..." : aggregate ? "집계 새로고침" : "보전 대상 집계"}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={fetchAggregate} disabled={loading}>
+            {loading ? "집계 중..." : aggregate ? "집계 새로고침" : "보전 대상 집계"}
+          </Button>
+          <Button variant="outline" onClick={handleDownloadBook} disabled={downloadingBook}>
+            {downloadingBook ? "생성 중..." : "수입·지출부(선거비용) 다운로드 📥"}
+          </Button>
+        </div>
       </div>
 
       {/* 자금원별 집계 결과 */}
