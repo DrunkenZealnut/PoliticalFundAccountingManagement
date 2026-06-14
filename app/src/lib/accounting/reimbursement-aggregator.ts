@@ -42,6 +42,10 @@ export interface AggregateOutput {
   uncheckedCount: number;
   /** 선거비용외(item_sec_cd 미일치)로 제외된 거래 건수 */
   nonElectionCount: number;
+  /** 자금원 "기타"(4분류 미해당)로 합계에서 제외된 보전 체크 거래 건수 — silent drop 방지용 경고 노출 */
+  otherFundingCount: number;
+  /** 위 "기타" 거래들의 보전청구액 합계(claimAmount 기준) — 누락분 표면화 */
+  otherFundingAmt: number;
 }
 
 const EMPTY_AMOUNTS: ClaimAmounts = {
@@ -59,7 +63,7 @@ const EMPTY_AMOUNTS: ClaimAmounts = {
  * 1. incm_sec_cd === 2 (지출)
  * 2. acc_print_ok === 'Y' (보전 체크됨)
  * 3. item_sec_cd ∈ electionExpenseItemCds (선거비용 과목)
- * 4. acc_amt > 0 (양수만)
+ * 4. acc_amt !== 0 (0원 거래만 제외 — 환급/조정 음수는 보전액에서 차감 반영)
  */
 export function aggregateReimbursementByFundingSource(
   input: AggregateInput,
@@ -69,10 +73,13 @@ export function aggregateReimbursementByFundingSource(
   let rowCount = 0;
   let uncheckedCount = 0;
   let nonElectionCount = 0;
+  let otherFundingCount = 0;
+  let otherFundingAmt = 0;
 
   for (const r of input.rows) {
     if (r.incm_sec_cd !== 2) continue;
-    if (r.acc_amt <= 0) continue;
+    // 0원 거래만 제외. 환급/조정(음수) 거래는 보전 신청액에서 차감해야 보전 탭 화면(checkedTotal)과 일치.
+    if (r.acc_amt === 0) continue;
     if (!electionItemSet.has(r.item_sec_cd)) {
       nonElectionCount++;
       continue;
@@ -85,9 +92,14 @@ export function aggregateReimbursementByFundingSource(
       r.acc_sec_cd,
       input.accSecCdNames?.[r.acc_sec_cd],
     );
-    if (source === "기타") continue;
-    // 보전 신청액(claim_amt ?? acc_amt) 합산 — 일할계산 등 반영. 게이트(acc_amt>0)는 실지출 기준 유지.
+    // 보전 신청액(claim_amt ?? acc_amt) 합산 — 일할계산 반영. 양수=청구, 음수=환급/조정 차감.
     const amt = claimAmount(r);
+    if (source === "기타") {
+      // 4분류 합계엔 미포함하되 누락분을 표면화(사용자 결정: 흡수 X, 경고 후 계정 교정 유도)
+      otherFundingCount++;
+      otherFundingAmt += amt;
+      continue;
+    }
     sums[source] += amt;
     sums.합계 += amt;
     rowCount++;
@@ -98,5 +110,7 @@ export function aggregateReimbursementByFundingSource(
     rowCount,
     uncheckedCount,
     nonElectionCount,
+    otherFundingCount,
+    otherFundingAmt,
   };
 }
