@@ -11,7 +11,8 @@
 /*  그룹별 소계(보전청구액 합) + 전체 합계.                             */
 /*                                                                    */
 /*  대상 필터(reimbursement-aggregator 와 동일 조건):                  */
-/*    acc_amt > 0 ∧ acc_print_ok='Y' (지출 incm_sec_cd=2 는 조회 보장). */
+/*    acc_amt !== 0 ∧ acc_print_ok='Y' (0원만 제외, 환급/조정 음수는    */
+/*    보전청구액에서 차감; 지출 incm_sec_cd=2 는 조회 보장).            */
 /*  보전 항목 판별 = reimbursement-item-map(allowlist), 미매핑은 끝의   */
 /*  "기타/미분류" 그룹으로 표기(누락 방지).                             */
 /* ------------------------------------------------------------------ */
@@ -100,8 +101,8 @@ export function buildDoclistModel(
   rows: DoclistInputRow[],
   evidence: Map<number, EvidenceSummary>,
 ): DoclistModel {
-  // 대상 필터: 양수 + 보전 체크
-  const targets = rows.filter((r) => (r.acc_amt || 0) > 0 && r.acc_print_ok === "Y");
+  // 대상 필터: 0원만 제외(환급/조정 음수는 차감 반영) + 보전 체크 — aggregator와 동일 정책
+  const targets = rows.filter((r) => (r.acc_amt || 0) !== 0 && r.acc_print_ok === "Y");
 
   // 보전 항목 key 별 그룹화 (미매핑 → etc)
   const byKey = new Map<string, DoclistInputRow[]>();
