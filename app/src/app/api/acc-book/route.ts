@@ -148,26 +148,35 @@ export async function POST(request: NextRequest) {
   if (action === "batch_receipt") {
     const { orgId: oid, incmSecCd: isc } = payload;
     // 미부여 대상 (rcp_yn=Y, rcp_no 없음) — 계정·과목 포함
-    const { data: targets } = await supabase
+    const { data: targets, error: targetsErr } = await supabase
       .from("acc_book")
       .select("acc_book_id, acc_sec_cd, item_sec_cd, rcp_no")
       .eq("org_id", oid).eq("incm_sec_cd", isc).eq("rcp_yn", "Y")
       .or("rcp_no.is.null,rcp_no.eq.")
       .order("acc_date").order("acc_sort_num");
+    if (targetsErr) {
+      return NextResponse.json({ error: targetsErr.message }, { status: 500 });
+    }
 
     if (!targets || targets.length === 0) {
       return NextResponse.json({ count: 0 });
     }
 
     // 기존 부여분 (조합별 max 순번 · 전체 max rcp_no2 산출용)
-    const { data: existing } = await supabase
+    const { data: existing, error: existingErr } = await supabase
       .from("acc_book")
       .select("rcp_no, rcp_no2")
       .eq("org_id", oid).eq("incm_sec_cd", isc)
       .not("rcp_no", "is", null).not("rcp_no", "eq", "");
+    if (existingErr) {
+      return NextResponse.json({ error: existingErr.message }, { status: 500 });
+    }
 
     // 계정·과목 코드명 (약자 매핑용) — acc_sec_cd/item_sec_cd 모두 cv_id
-    const { data: cv } = await supabase.from("codevalue").select("cv_id, cv_name");
+    const { data: cv, error: cvErr } = await supabase.from("codevalue").select("cv_id, cv_name");
+    if (cvErr) {
+      return NextResponse.json({ error: cvErr.message }, { status: 500 });
+    }
     const nameById: Record<number, string> = {};
     for (const c of cv ?? []) nameById[c.cv_id as number] = String(c.cv_name ?? "");
 
@@ -176,8 +185,23 @@ export async function POST(request: NextRequest) {
       { acc: nameById, item: nameById },
       existing ?? [],
     );
-    for (const a of assignments) {
-      await supabase.from("acc_book").update({ rcp_no: a.rcp_no, rcp_no2: a.rcp_no2 }).eq("acc_book_id", a.acc_book_id);
+    // 행별 update — 실패 건을 즉시 감지(부분 반영 silent 방지).
+    // 단일 사용자 일괄작업이라 동시성 위험은 낮아 RPC 트랜잭션은 도입하지 않음.
+    const results = await Promise.all(
+      assignments.map((a) =>
+        supabase.from("acc_book").update({ rcp_no: a.rcp_no, rcp_no2: a.rcp_no2 }).eq("acc_book_id", a.acc_book_id),
+      ),
+    );
+    const failed = results.filter((r) => r.error);
+    if (failed.length > 0) {
+      return NextResponse.json(
+        {
+          error: failed[0].error?.message ?? "일부 영수증 번호 반영에 실패했습니다.",
+          count: assignments.length - failed.length,
+          failed: failed.length,
+        },
+        { status: 500 },
+      );
     }
 
     return NextResponse.json({ count: assignments.length });
