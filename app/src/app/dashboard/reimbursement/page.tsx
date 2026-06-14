@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
 import { useAuth } from "@/stores/auth";
 import { useCodeValues } from "@/hooks/use-code-values";
@@ -46,6 +46,12 @@ interface ReimbRow {
 }
 
 const fmt = (n: number) => n.toLocaleString("ko-KR");
+
+/** 행별 지출 누계(expCum)를 부여 — 렌더 본문의 let 재할당 회피(react-hooks/immutability) */
+function withExpCum(records: ReimbRow[]): (ReimbRow & { expCum: number })[] {
+  let cum = 0;
+  return records.map((r) => { cum += r.acc_amt; return { ...r, expCum: cum }; });
+}
 const fmtDate = (d: string) =>
   d.length === 8 ? `${d.slice(0, 4)}/${d.slice(4, 6)}/${d.slice(6, 8)}` : d;
 
@@ -67,6 +73,8 @@ const tdR = "border border-gray-300 px-2 py-1 text-xs whitespace-nowrap text-rig
 export default function ReimbursementPage() {
   const { loading: codesLoading } = useCodeValues();
   const [activeTab, setActiveTab] = useState<"reimbursement" | "burden" | "claim">("reimbursement");
+  // 선거비용 보전 탭의 미저장 변경 여부(탭 전환 유실 방지를 위해 상위에서 보유)
+  const [reimbDirty, setReimbDirty] = useState(false);
 
   if (codesLoading) {
     return <div className="flex items-center justify-center h-64 text-gray-400">코드 데이터 로딩 중...</div>;
@@ -77,23 +85,33 @@ export default function ReimbursementPage() {
       activeTab === t ? "border-blue-600 text-blue-700" : "border-transparent text-gray-500 hover:text-gray-700"
     }`;
 
+  // 보전 탭에 미저장 변경이 있으면 다른 탭으로 이동 전 경고(저장 누락으로 인한 금액 불일치 방지)
+  const switchTab = (t: "reimbursement" | "burden" | "claim") => {
+    if (t === activeTab) return;
+    if (activeTab === "reimbursement" && reimbDirty) {
+      if (!window.confirm("저장하지 않은 보전 체크/청구액(일할계산) 변경이 있습니다.\n다른 탭으로 이동하면 변경 내용이 사라지고, 보전청구서에 반영되지 않습니다.\n\n먼저 '보전 대상 저장'을 권장합니다. 무시하고 이동할까요?")) return;
+      setReimbDirty(false);
+    }
+    setActiveTab(t);
+  };
+
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold">보전비용 관리</h2>
 
       <div className="flex border-b">
-        <button className={tabCls("reimbursement")} onClick={() => setActiveTab("reimbursement")}>
-          선거비용 보전
+        <button className={tabCls("reimbursement")} onClick={() => switchTab("reimbursement")}>
+          선거비용 보전{reimbDirty ? " ●" : ""}
         </button>
-        <button className={tabCls("burden")} onClick={() => setActiveTab("burden")}>
+        <button className={tabCls("burden")} onClick={() => switchTab("burden")}>
           부담비용 청구
         </button>
-        <button className={tabCls("claim")} onClick={() => setActiveTab("claim")}>
+        <button className={tabCls("claim")} onClick={() => switchTab("claim")}>
           보전청구서 (서식1)
         </button>
       </div>
 
-      {activeTab === "reimbursement" && <ReimbursementTab />}
+      {activeTab === "reimbursement" && <ReimbursementTab dirty={reimbDirty} setDirty={setReimbDirty} />}
       {activeTab === "burden" && <BurdenCostTab />}
       {activeTab === "claim" && <ClaimFormTab />}
     </div>
@@ -104,7 +122,7 @@ export default function ReimbursementPage() {
 /*  선거비용 보전 탭 (기존 기능)                                        */
 /* ================================================================== */
 
-function ReimbursementTab() {
+function ReimbursementTab({ dirty, setDirty }: { dirty: boolean; setDirty: (d: boolean) => void }) {
   const supabase = createSupabaseBrowser();
   const { orgId, orgSecCd } = useAuth();
   const { getAccounts, getItems } = useCodeValues();
@@ -116,6 +134,25 @@ function ReimbursementTab() {
   const [checkedIds, setCheckedIds] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  // 보전청구서와 동일 SSOT(전체 보전 대상 자금원 집계). 화면 부분합과 구분되는 "청구 기준" 합계.
+  const [claimAgg, setClaimAgg] = useState<AggregateResult | null>(null);
+  const refreshClaimAgg = useCallback(async () => {
+    if (!orgId) return;
+    setClaimAgg(await fetchClaimAggregate(orgId));
+  }, [orgId]);
+  useEffect(() => {
+    if (!orgId) return;
+    let active = true;
+    fetchClaimAggregate(orgId).then((d) => { if (active) setClaimAgg(d); });
+    return () => { active = false; };
+  }, [orgId]);
+  // 미저장 변경이 있으면 브라우저 새로고침/닫기 시 경고(데이터 유실 방지)
+  useEffect(() => {
+    if (!dirty) return;
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [dirty]);
 
   const accountOptions = orgSecCd ? getAccounts(orgSecCd, 2) : [];
   const itemOptions = orgSecCd && accSecCd ? getItems(orgSecCd, 2, accSecCd) : [];
@@ -125,7 +162,7 @@ function ReimbursementTab() {
 
   // 보전청구액 인라인 편집 상태(acc_book_id → 입력 문자열, ""=NULL=지출액)
   const [claimEdits, setClaimEdits] = useState<Record<number, string>>({});
-  const setClaim = (id: number, v: string) => setClaimEdits((prev) => ({ ...prev, [id]: v }));
+  const setClaim = (id: number, v: string) => { setClaimEdits((prev) => ({ ...prev, [id]: v })); setDirty(true); };
   /** 행별 유효 청구액(편집값 우선 → claim_amt → acc_amt). 빈칸=지출액. */
   const effClaim = (r: ReimbRow): number => {
     const e = claimEdits[r.acc_book_id];
@@ -137,6 +174,8 @@ function ReimbursementTab() {
   const handleQuery = useCallback(async () => {
     if (!orgId) return;
     if (!dateFrom || !dateTo) { alert("기간을 입력하세요."); return; }
+    // 미저장 변경이 있으면 재조회로 덮어쓰기 전 경고(일할조정·체크 유실 방지)
+    if (dirty && !window.confirm("저장하지 않은 보전 체크/청구액(일할계산) 변경이 있습니다.\n지금 조회하면 변경 내용이 사라집니다. 먼저 '보전 대상 저장'을 권장합니다.\n\n무시하고 조회할까요?")) return;
     setLoading(true);
     const fromStr = dateFrom.replace(/-/g, "");
     const toStr = dateTo.replace(/-/g, "");
@@ -156,20 +195,24 @@ function ReimbursementTab() {
     const edits: Record<number, string> = {};
     rows.forEach((r) => { edits[r.acc_book_id] = r.claim_amt != null ? String(r.claim_amt) : ""; });
     setClaimEdits(edits);
+    setDirty(false); // 조회로 DB 기준값을 다시 불러왔으므로 미저장 상태 초기화
     setLoading(false);
-  }, [orgId, supabase, dateFrom, dateTo, accSecCd, itemSecCd]);
+  }, [orgId, supabase, dateFrom, dateTo, accSecCd, itemSecCd, dirty, setDirty]);
 
   function toggleCheck(id: number) {
     setCheckedIds((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+    setDirty(true);
   }
   function toggleAll() {
     if (checkedIds.size === records.length) setCheckedIds(new Set());
     else setCheckedIds(new Set(records.map((r) => r.acc_book_id)));
+    setDirty(true);
   }
   async function handleSave() {
     if (!orgId || records.length === 0) return;
     setSaving(true);
     let ok = 0;
+    const failed: { id: number; msg: string }[] = [];
     for (const r of records) {
       const e = claimEdits[r.acc_book_id];
       const claim = e === undefined
@@ -179,13 +222,20 @@ function ReimbursementTab() {
         .update({ acc_print_ok: checkedIds.has(r.acc_book_id) ? "Y" : "N", claim_amt: claim })
         .eq("acc_book_id", r.acc_book_id);
       if (!error) ok++;
+      else failed.push({ id: r.acc_book_id, msg: error.message });
     }
     setSaving(false);
-    alert(`${ok}/${records.length}건 보전 대상 저장 완료`);
+    await refreshClaimAgg(); // 저장 직후 청구 기준 합계 재집계 → 보전청구서 탭과 즉시 일치
+    if (failed.length === 0) {
+      setDirty(false); // 전건 저장 성공 시에만 미저장 플래그 해제
+      alert(`${ok}/${records.length}건 보전 대상 저장 완료`);
+    } else {
+      // 일부라도 실패하면 dirty 유지(유실 방지) + 원인 노출
+      alert(`저장 ${ok}건 완료 / 실패 ${failed.length}건.\n실패 사유: ${failed[0].msg}\n저장되지 않은 변경이 남아 있으니 다시 시도하세요.`);
+    }
   }
 
-  let expCum = 0;
-  const rows = records.map((r) => { expCum += r.acc_amt; return { ...r, expCum }; });
+  const rows = withExpCum(records);
   const totalAmt = records.reduce((s, r) => s + r.acc_amt, 0);
   const checkedTotal = records.filter((r) => checkedIds.has(r.acc_book_id)).reduce((s, r) => s + effClaim(r), 0);
 
@@ -203,16 +253,34 @@ function ReimbursementTab() {
         </div>
         <div className="flex gap-2 pt-4 border-t">
           <Button onClick={handleQuery} disabled={loading}>{loading ? "조회 중..." : "조회"}</Button>
-          <Button onClick={handleSave} disabled={records.length === 0 || saving}>{saving ? "저장 중..." : "보전 대상 저장"}</Button>
+          <Button onClick={handleSave} disabled={records.length === 0 || saving}>
+            {saving ? "저장 중..." : dirty ? "● 보전 대상 저장 (미저장 변경)" : "보전 대상 저장"}
+          </Button>
+          {dirty && <span className="self-center text-xs text-amber-600">저장하지 않으면 청구서에 반영되지 않습니다.</span>}
         </div>
       </div>
 
+      {/* 청구 기준(전체 보전 대상) 합계 — 보전청구서(서식1)·HWPX 서식43과 동일 SSOT */}
+      {claimAgg && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm space-y-1">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-1">
+            <span>📋 <b>보전 금액 (청구 기준·전체)</b>: <b className="text-blue-700 text-base font-mono">{fmt(claimAgg.byFundingSource.합계)}원</b></span>
+            <span className="text-gray-500">보전 체크된 선거비용 {claimAgg.rowCount}건 — 이 값이 보전청구서(서식1) 합계와 동일합니다.</span>
+          </div>
+          {claimAgg.otherFundingCount > 0 && (
+            <div className="text-amber-600">
+              ⚠️ 자금원 미분류(기타) <b>{claimAgg.otherFundingCount}건 / {fmt(claimAgg.otherFundingAmt)}원</b> 합계 제외 — 해당 거래의 계정(자금원)을 후보자자산/후원회기부금/보조금/보조금외 중 하나로 교정하세요.
+            </div>
+          )}
+        </div>
+      )}
+
       {records.length > 0 && (
-        <div className="flex gap-6 text-sm bg-gray-50 rounded p-3">
+        <div className="flex flex-wrap gap-6 text-sm bg-gray-50 rounded p-3">
           <span>총 건수: <b>{records.length}건</b></span>
           <span>총 지출금액: <b className="text-red-600">{fmt(totalAmt)}원</b></span>
-          <span>보전 대상: <b className="text-blue-600">{checkedIds.size}건</b></span>
-          <span>보전 금액: <b className="text-blue-600">{fmt(checkedTotal)}원</b></span>
+          <span>현재 조회분 체크: <b className="text-blue-600">{checkedIds.size}건</b></span>
+          <span>현재 조회분 금액: <b className="text-blue-600">{fmt(checkedTotal)}원</b></span>
           <span>보전 비율: <b>{totalAmt > 0 ? ((checkedTotal / totalAmt) * 100).toFixed(1) : 0}%</b></span>
         </div>
       )}
@@ -291,8 +359,7 @@ function BurdenCostTab() {
   }
 
   const summary = calcBurdenSummary(records, checkedIds);
-  let expCum = 0;
-  const rows = records.map((r) => { expCum += r.acc_amt; return { ...r, expCum }; });
+  const rows = withExpCum(records);
   const totalAmt = records.reduce((s, r) => s + r.acc_amt, 0);
 
   async function handleGenerateForm(formInput: {
@@ -381,6 +448,19 @@ interface AggregateResult {
   rowCount: number;
   uncheckedCount: number;
   nonElectionCount: number;
+  otherFundingCount: number;
+  otherFundingAmt: number;
+}
+
+/** 보전청구서 자금원 집계 API 호출 — 보전 탭/청구서 탭 공용 SSOT */
+async function fetchClaimAggregate(orgId: number): Promise<AggregateResult | null> {
+  const res = await fetch("/api/reimbursement/claim-form/aggregate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ orgId }),
+  });
+  if (!res.ok) return null;
+  return (await res.json()) as AggregateResult;
 }
 
 function ClaimFormTab() {
@@ -414,17 +494,11 @@ function ClaimFormTab() {
     if (!orgId) return;
     setLoading(true);
     try {
-      const res = await fetch("/api/reimbursement/claim-form/aggregate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orgId }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        alert(`집계 실패: ${err.error || res.statusText}`);
+      const data = await fetchClaimAggregate(orgId);
+      if (!data) {
+        alert("집계 실패: 보전 대상 집계를 불러오지 못했습니다.");
         return;
       }
-      const data = (await res.json()) as AggregateResult;
       setAggregate(data);
     } finally {
       setLoading(false);
@@ -535,11 +609,16 @@ function ClaimFormTab() {
               );
             })}
           </div>
-          <div className="text-xs text-gray-500 flex gap-4">
+          <div className="text-xs text-gray-500 flex flex-wrap gap-4">
             <span>📊 집계 거래: <b>{aggregate!.rowCount}건</b></span>
             {aggregate!.uncheckedCount > 0 && (
               <span className="text-amber-600">
                 ⚠️ 보전 미체크 거래 <b>{aggregate!.uncheckedCount}건</b> 제외 — 보전 탭에서 체크 필요
+              </span>
+            )}
+            {aggregate!.otherFundingCount > 0 && (
+              <span className="text-amber-600 w-full">
+                ⚠️ 자금원 미분류(기타) <b>{aggregate!.otherFundingCount}건 / {fmt(aggregate!.otherFundingAmt)}원</b> 합계에서 제외됨 — 해당 거래의 계정(자금원)을 후보자자산/후원회기부금/보조금/보조금외 중 하나로 교정하세요.
               </span>
             )}
           </div>
