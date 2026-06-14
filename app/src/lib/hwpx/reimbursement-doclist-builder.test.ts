@@ -42,19 +42,19 @@ describe("formatEvidence", () => {
 });
 
 describe("buildDoclistModel — 필터/그룹/정렬", () => {
-  it("보전 미체크·음수·0 지출 제외", () => {
+  it("보전 미체크·0원 제외, 환급(음수)은 차감 반영", () => {
     const m = buildDoclistModel(
       [
         row({ acc_book_id: 1, acc_print_ok: "Y", acc_amt: 100000 }),
-        row({ acc_book_id: 2, acc_print_ok: "N", acc_amt: 200000 }), // 미체크
-        row({ acc_book_id: 3, acc_print_ok: "Y", acc_amt: -5000 }), // 음수
-        row({ acc_book_id: 4, acc_print_ok: "Y", acc_amt: 0 }), // 0
+        row({ acc_book_id: 2, acc_print_ok: "N", acc_amt: 200000 }), // 미체크 → 제외
+        row({ acc_book_id: 3, acc_print_ok: "Y", acc_amt: -5000 }), // 환급(음수) → 차감
+        row({ acc_book_id: 4, acc_print_ok: "Y", acc_amt: 0 }), // 0원 → 제외
       ],
       NO_EVIDENCE,
     );
     expect(m.groups).toHaveLength(1);
-    expect(m.groups[0].rows).toHaveLength(1);
-    expect(m.totalAmount).toBe("100,000");
+    expect(m.groups[0].rows).toHaveLength(2); // 양수 + 환급(음수)
+    expect(m.totalAmount).toBe("95,000"); // 100,000 - 5,000
   });
 
   it("보전 항목별 그룹 + REIMB_ITEMS 순서, 거래 없는 항목 생략", () => {
@@ -137,6 +137,20 @@ describe("buildDoclistModel — 필터/그룹/정렬", () => {
     expect(signboard.rows[0].amount).toBe("313,885"); // 청구액 반영(지출액 아님)
     expect(signboard.subtotalAmount).toBe("413,885"); // 313,885 + 100,000
     expect(m.totalAmount).toBe("413,885");
+  });
+
+  it("환급(음수) 거래는 같은 보전항목 소계·합계에서 차감된다 (문자환급 실케이스)", () => {
+    const m = buildDoclistModel(
+      [
+        row({ acc_book_id: 1, exp_group1_cd: "선거사무소", exp_group2_cd: "간판", acc_amt: 200000 }),
+        row({ acc_book_id: 2, exp_group1_cd: "선거사무소", exp_group2_cd: "간판", acc_amt: -108583 }), // 환급(음수)
+      ],
+      NO_EVIDENCE,
+    );
+    const signboard = m.groups.find((g) => g.key === "signboard")!;
+    expect(signboard.rows).toHaveLength(2);
+    expect(signboard.subtotalAmount).toBe("91,417"); // 200,000 - 108,583
+    expect(m.totalAmount).toBe("91,417");
   });
 
   it("빈 입력 → 그룹 0, 합계 0", () => {
