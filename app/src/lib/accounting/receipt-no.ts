@@ -94,3 +94,71 @@ function formatKey(t: ReceiptTarget, codeNames: ReceiptCodeNames): string {
   const i = itemAbbr(codeNames.item[t.item_sec_cd]);
   return `${a}(${i})`;
 }
+
+/** rcp_no가 미부여(null/undefined/공백)인지. */
+function isMissingRcpNo(v: unknown): boolean {
+  return v == null || String(v).trim() === "";
+}
+
+/**
+ * export용 — RCP_NO 미부여(rcp_yn='Y' ∧ rcp_no 빈) acc_book 행에 조합별 영수증번호를 채운다(순수).
+ *
+ * 자료백업(export-sqlite)이 「영수증 일괄생성」 실행 여부와 무관하게 항상 올바른 조합별
+ * 영수증번호를 담도록, insert 직전 행 집합에 적용한다. 빈 RCP_NO로 export되면 윈도우 선관위
+ * 프로그램이 수입지출부 영수증일련번호를 단일 버킷으로 폴백 생성하는 문제를 회피한다.
+ *
+ * - `incm_sec_cd`별 스코프 분리(앱 batch_receipt와 동일 — 수입 1 / 지출 2 순번 독립).
+ * - 정렬 `acc_date → acc_sort_num → acc_book_id`(batch_receipt와 동일).
+ * - **미부여분만** 채번 — 기존(수기/사전) rcp_no는 보존, 조합별 max+1부터 이어서.
+ * - 입력 rows는 변경하지 않고 새 배열을 반환(immutable). 미매칭 행은 원본 그대로 통과.
+ *
+ * @param rows export 직전 acc_book 행(snake_case 키: incm_sec_cd, acc_sec_cd, item_sec_cd,
+ *             rcp_yn, rcp_no, rcp_no2, acc_book_id, acc_date, acc_sort_num).
+ * @param codeNames acc_sec_cd/item_sec_cd → 코드명(약자 매핑용).
+ */
+export function fillExportReceiptNumbers(
+  rows: Record<string, unknown>[],
+  codeNames: ReceiptCodeNames,
+): Record<string, unknown>[] {
+  // incm_sec_cd별 그룹
+  const byIncm = new Map<number, Record<string, unknown>[]>();
+  for (const r of rows) {
+    const incm = Number(r.incm_sec_cd);
+    const list = byIncm.get(incm) ?? [];
+    list.push(r);
+    byIncm.set(incm, list);
+  }
+
+  // acc_book_id → 부여값
+  const assignmentById = new Map<number, ReceiptAssignment>();
+  for (const group of byIncm.values()) {
+    const existing = group
+      .filter((r) => !isMissingRcpNo(r.rcp_no))
+      .map((r) => ({ rcp_no: String(r.rcp_no), rcp_no2: Number(r.rcp_no2) || 0 }));
+
+    const targets: ReceiptTarget[] = group
+      .filter((r) => String(r.rcp_yn ?? "") === "Y" && isMissingRcpNo(r.rcp_no))
+      .sort(
+        (a, b) =>
+          String(a.acc_date ?? "").localeCompare(String(b.acc_date ?? "")) ||
+          (Number(a.acc_sort_num ?? 0) - Number(b.acc_sort_num ?? 0)) ||
+          (Number(a.acc_book_id ?? 0) - Number(b.acc_book_id ?? 0)),
+      )
+      .map((r) => ({
+        acc_book_id: Number(r.acc_book_id),
+        acc_sec_cd: Number(r.acc_sec_cd),
+        item_sec_cd: Number(r.item_sec_cd),
+      }));
+
+    if (targets.length === 0) continue;
+    for (const a of assignReceiptNumbers(targets, codeNames, existing)) {
+      assignmentById.set(a.acc_book_id, a);
+    }
+  }
+
+  if (assignmentById.size === 0) return rows;
+  return rows.map((r) => {
+    const a = assignmentById.get(Number(r.acc_book_id));
+    return a ? { ...r, rcp_no: a.rcp_no, rcp_no2: a.rcp_no2 } : r;
+  });
+}
