@@ -183,6 +183,84 @@ describe("buildIncomeExpenseBookModel", () => {
     expect(asset.rows[1].rcpNo).toBe(""); // rcp_no 없음
   });
 
+  it("T-12 수입 반영: 잔액 = 수입누계 − 지출누계 (양수)", () => {
+    const m = buildIncomeExpenseBookModel(
+      [
+        row({ acc_book_id: 1, acc_sec_cd: 84, incm_sec_cd: 1, acc_date: "20260601", acc_amt: 500000 }), // 수입
+        row({ acc_book_id: 2, acc_sec_cd: 84, incm_sec_cd: 2, acc_date: "20260602", acc_amt: 300000 }), // 지출
+      ],
+      CTX,
+    );
+    const a = m.accounts[0];
+    expect(a.rows).toHaveLength(2);
+    expect(a.rows[0].kind).toBe("income");
+    expect(a.rows[0].incomeNow).toBe(500000);
+    expect(a.rows[0].incomeCum).toBe(500000);
+    expect(a.rows[0].balance).toBe(500000); // 500000 - 0
+    expect(a.rows[1].kind).toBe("expense");
+    expect(a.rows[1].expenseNow).toBe(300000);
+    expect(a.rows[1].incomeCum).toBe(500000); // 수입 누계 유지
+    expect(a.rows[1].balance).toBe(200000); // 500000 - 300000
+    expect(a.incomeTotal).toBe(500000);
+    expect(a.expenseTotal).toBe(300000);
+    expect(m.grandTotal).toBe(300000); // 지출 합계만(보전 청구액)
+  });
+
+  it("T-13 같은 날짜는 수입 먼저 정렬", () => {
+    const m = buildIncomeExpenseBookModel(
+      [
+        row({ acc_book_id: 2, acc_sec_cd: 84, incm_sec_cd: 2, acc_date: "20260601", acc_amt: 100000 }), // 지출
+        row({ acc_book_id: 1, acc_sec_cd: 84, incm_sec_cd: 1, acc_date: "20260601", acc_amt: 300000 }), // 수입
+      ],
+      CTX,
+    );
+    const a = m.accounts[0];
+    expect(a.rows[0].kind).toBe("income");
+    expect(a.rows[0].balance).toBe(300000);
+    expect(a.rows[1].kind).toBe("expense");
+    expect(a.rows[1].balance).toBe(200000);
+  });
+
+  it("T-14 수입만 있고 선거비용 지출 없는 자금원은 시트 생략", () => {
+    const m = buildIncomeExpenseBookModel(
+      [
+        row({ acc_book_id: 1, acc_sec_cd: 85, incm_sec_cd: 1, acc_amt: 200000 }), // 후원회기부금 수입만
+        row({ acc_book_id: 2, acc_sec_cd: 84, incm_sec_cd: 2, acc_amt: 100000 }), // 후보자자산 지출
+      ],
+      CTX,
+    );
+    expect(m.accounts.map((a) => a.source)).toEqual(["후보자자산"]);
+  });
+
+  it("T-15 미분류(기타) 자금원 수입은 무시(경고 아님)", () => {
+    const m = buildIncomeExpenseBookModel(
+      [
+        row({ acc_book_id: 1, acc_sec_cd: 999, incm_sec_cd: 1, acc_amt: 50000 }), // 기타 수입 → 무시
+        row({ acc_book_id: 2, acc_sec_cd: 84, incm_sec_cd: 2, acc_amt: 100000 }), // 지출
+      ],
+      CTX,
+    );
+    const a = m.accounts[0];
+    expect(a.incomeTotal).toBe(0); // 기타 수입 미반영
+    expect(a.rows[0].balance).toBe(-100000); // 수입 없으니 음수
+    expect(m.otherCount).toBe(0); // 수입 기타는 경고 카운트 아님
+  });
+
+  it("T-16 수입 행은 영수증 첨부/생략 집계 제외 + rcpNo 빈칸", () => {
+    const m = buildIncomeExpenseBookModel(
+      [
+        row({ acc_book_id: 1, acc_sec_cd: 84, incm_sec_cd: 1, acc_amt: 500000, rcp_yn: "Y", rcp_no: "9", acc_ins_type: "118" }),
+        row({ acc_book_id: 2, acc_sec_cd: 84, incm_sec_cd: 2, acc_amt: 100000, rcp_yn: "Y", rcp_no: "4", acc_ins_type: "118" }),
+      ],
+      CTX,
+    );
+    const a = m.accounts[0];
+    expect(a.attachedAmt).toBe(100000); // 지출만
+    expect(a.attachedCount).toBe(1);
+    expect(a.rows[0].rcpNo).toBe(""); // 수입 행은 영수증 일련번호 없음
+    expect(a.rows[1].rcpNo).toBe("자(비)-4\n계좌입금");
+  });
+
   it("빈 입력 → 계정 0, 합계 0", () => {
     const m = buildIncomeExpenseBookModel([], CTX);
     expect(m.accounts).toHaveLength(0);
