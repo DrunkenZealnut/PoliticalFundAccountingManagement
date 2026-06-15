@@ -11,6 +11,7 @@ import {
   type CandidateCredentials,
 } from "@/lib/accounting/organ-pair";
 import { computeBalances, type AccBookRow } from "@/lib/accounting/settlement-calc";
+import { fillExportReceiptNumbers } from "@/lib/accounting/receipt-no";
 import { ParityError, ParityErrors } from "@/lib/accounting/parity-errors";
 import {
   PFUND2_ENSURE_ANONYMOUS_CUSTOMER_SQL,
@@ -725,16 +726,29 @@ export async function GET(request: NextRequest) {
         ? rows
         : rows.filter((r) => Number(r.org_id) === targetExportOrgId);
 
-    // ACC_BOOK/ACC_BOOK_BAK 최종 행: 모드별 거래 필터 + 공식 포맷 정규화.
+    // ACC_BOOK/ACC_BOOK_BAK 최종 행: 모드별 거래 필터 + 공식 포맷 정규화 + 영수증번호 자동 채번.
     //   정규화: 지출 행의 3자리 acc_ins_type(지출방법)을 EXP_TYPE_CD로 이동하고 ACC_INS_TYPE
     //   (CHAR(2))을 비워 선관위 프로그램이 지출부를 정상 로드하도록. (수입 행·공식 포맷 행은 무변경.)
+    //   채번: rcp_yn='Y'인데 rcp_no가 빈 행에 조합별 영수증번호(SSOT) 부여 — 빈 RCP_NO로 export 시
+    //   윈도우 프로그램이 수입지출부 영수증일련번호를 단일 버킷으로 폴백 생성하는 문제 회피.
     //   CUSTOMER 선정(참조 cust_id)에 쓰이므로 CUSTOMER insert보다 먼저 계산한다.
-    const finalAccBook = filterByExportOrgId(remapOrgId(accBook, orgIdMap))
-      .map(normalizeOfficialExpenseRow)
-      .map(stripAppOnlyAccBookColumns);
-    const finalAccBookBak = filterByExportOrgId(remapOrgId(accBookBak, orgIdMap))
-      .map(normalizeOfficialExpenseRow)
-      .map(stripAppOnlyAccBookColumns);
+    const cvNameById: Record<number, string> = {};
+    for (const c of codevalue as Record<string, unknown>[]) {
+      cvNameById[Number(c.cv_id)] = String(c.cv_name ?? "");
+    }
+    const exportCodeNames = { acc: cvNameById, item: cvNameById };
+    const finalAccBook = fillExportReceiptNumbers(
+      filterByExportOrgId(remapOrgId(accBook, orgIdMap))
+        .map(normalizeOfficialExpenseRow)
+        .map(stripAppOnlyAccBookColumns),
+      exportCodeNames,
+    );
+    const finalAccBookBak = fillExportReceiptNumbers(
+      filterByExportOrgId(remapOrgId(accBookBak, orgIdMap))
+        .map(normalizeOfficialExpenseRow)
+        .map(stripAppOnlyAccBookColumns),
+      exportCodeNames,
+    );
 
     // Customer — data1/data2 모드는 "거래(ACC_BOOK/ACC_BOOK_BAK)가 참조하는 cust_id"로 선정한다.
     //   org_id 필터는 org_id=NULL(공유)·타 org 참조 거래처를 빠뜨려 FK 고아→수입지출부 누락을
