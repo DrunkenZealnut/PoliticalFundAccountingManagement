@@ -485,9 +485,15 @@ export function selectReferencedCustomers(
 ): Record<string, unknown>[] {
   const ids = new Set<number>();
   for (const rows of rowSets) {
-    for (const r of rows) ids.add(Number(r.cust_id));
+    for (const r of rows) {
+      const id = Number(r.cust_id);
+      if (Number.isFinite(id)) ids.add(id); // NaN(누락/비숫자) 키가 SameValueZero로 오매칭되는 것 방지
+    }
   }
-  return customers.filter((c) => ids.has(Number(c.cust_id)));
+  return customers.filter((c) => {
+    const id = Number(c.cust_id);
+    return Number.isFinite(id) && ids.has(id);
+  });
 }
 
 async function fetchTable(

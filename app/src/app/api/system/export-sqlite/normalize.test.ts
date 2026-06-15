@@ -159,4 +159,15 @@ describe("selectReferencedCustomers", () => {
   it("T-5 빈 거래 → 빈 결과", () => {
     expect(selectReferencedCustomers(customers, [], [])).toEqual([]);
   });
+
+  it("T-6 cust_id 누락/비숫자(NaN)는 매칭 제외 (export 무결성 가드)", () => {
+    const custs = [
+      { cust_id: 11, name: "정상" },
+      { cust_id: null, name: "cust_id 없음" },
+      { cust_id: "abc", name: "비숫자" },
+    ];
+    // 거래에도 cust_id 누락 행이 섞여 있음 → NaN 키가 생기면 안 됨
+    const out = selectReferencedCustomers(custs, [{ cust_id: 11 }, { cust_id: undefined }, {}]);
+    expect(out.map((c) => c.cust_id)).toEqual([11]); // null·"abc" 거래처는 NaN 오매칭 없이 제외
+  });
 });
