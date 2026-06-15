@@ -1,13 +1,18 @@
 /* ------------------------------------------------------------------ */
 /*  정치자금 수입·지출부(보전 비용) — 수입계정(자금원)별 Excel 생성      */
 /*                                                                    */
-/*  보전 체크된 선거비용 지출을 자금원(acc_sec_cd→4분류)별로 묶어        */
-/*  공식 양식(14컬럼)으로 출력. 지출액은 보전 최종청구액                 */
-/*  (claimAmount = claim_amt ?? acc_amt, 환급 음수 차감)를 사용해        */
-/*  계정별/총 합계가 보전관리(aggregator)·보전청구서와 일치한다.         */
+/*  자금원(acc_sec_cd→4분류)별로 수입·지출을 함께 묶어 공식 양식         */
+/*  (14컬럼)으로 출력.                                                  */
+/*   - 수입(incm_sec_cd=1): 해당 자금원의 실제 조달 수입(acc_amt).       */
+/*   - 지출(incm_sec_cd=2): 보전 체크된 선거비용만, 최종청구액           */
+/*     (claimAmount = claim_amt ?? acc_amt, 환급 음수 차감).            */
+/*   - 잔액 = 수입누계 − 지출누계 (수입·지출 행을 날짜순 병합).          */
+/*  계정별/총 지출합계가 보전관리(aggregator)·보전청구서와 일치한다.     */
+/*  (수입은 자금원 전체를 표시하므로 잔액은 실제 통장잔액과 다를 수       */
+/*   있다 — 선거비용외 지출은 이 양식에 포함하지 않기 때문.)             */
 /*                                                                    */
-/*  양식 출처: 정치자금수입지출부(보전비용-후보자산).pdf — 계정명/과목명  */
-/*  2줄, 영수증 첨부분/생략분 행, 작성연월일·회계책임자 푸터 포함.       */
+/*  양식 출처: 정치자금수입지출부_선거비용_오준석_2026.pdf — 계정명/과목  */
+/*  명 2줄, 영수증 첨부분/생략분 행, 작성연월일·회계책임자 푸터 포함.    */
 /*                                                                    */
 /*  2계층: buildIncomeExpenseBookModel(순수) → renderIncomeExpenseBook  */
 /*  (ExcelJS). SSOT: claim-amount, funding-source 공유.                */
@@ -69,8 +74,15 @@ export interface IebMeta {
 export interface IebCellRow {
   date: string;
   content: string;
+  /** 'income'=수입 행, 'expense'=지출 행 */
+  kind: "income" | "expense";
+  /** 수입 금회(수입 행만 >0), 누계 */
+  incomeNow: number;
+  incomeCum: number;
+  /** 지출 금회(지출 행만 >0, =최종청구액), 누계 */
   expenseNow: number;
   expenseCum: number;
+  /** 잔액 = 수입누계 − 지출누계 */
   balance: number;
   name: string;
   regNum: string;
@@ -86,11 +98,14 @@ export interface IebAccount {
   accName: string;
   source: FundingSource;
   rows: IebCellRow[];
+  /** 수입 합계(자금원 실제 조달액) */
+  incomeTotal: number;
+  /** 지출 합계(보전 최종청구액) */
   expenseTotal: number;
-  /** 영수증 첨부분 합계/건수 (rcp_yn==='Y') */
+  /** 영수증 첨부분 합계/건수 (지출 rcp_yn==='Y') */
   attachedAmt: number;
   attachedCount: number;
-  /** 영수증 생략분 합계/건수 */
+  /** 영수증 생략분 합계/건수 (지출) */
   omittedAmt: number;
   omittedCount: number;
 }
@@ -135,84 +150,113 @@ function formatRcpNo(r: IebInputRow, source: FundingSource): string {
 /* ===================== 모델 빌더 (순수) ===================== */
 
 /**
- * 보전 체크 선거비용 거래 → 자금원별 수입·지출부 모델.
+ * 자금원별 수입·지출부 모델.
  *
- * 필터(aggregator·doclist와 동일 모집단):
- *   incm_sec_cd=2 ∧ acc_amt!==0(0원만 제외, 환급 음수 차감) ∧
- *   item_sec_cd ∈ electionExpenseItemCds ∧ acc_print_ok='Y'.
- * 금액: claimAmount(claim_amt ?? acc_amt). 자금원 "기타"는 합계 제외 + 경고.
+ * 수입(incm_sec_cd=1): 자금원 실제 조달 수입 — acc_amt!==0 ∧ 자금원≠기타.
+ *   (보전 체크·과목 필터 없음 — 자금원에 들어온 수입 전부 표시.)
+ * 지출(incm_sec_cd=2): aggregator·doclist와 동일 모집단 —
+ *   acc_amt!==0 ∧ item_sec_cd ∈ electionExpenseItemCds ∧ acc_print_ok='Y',
+ *   금액 = claimAmount(claim_amt ?? acc_amt). 자금원 "기타"는 합계 제외 + 경고.
+ * 잔액 = 수입누계 − 지출누계 (수입·지출 행 날짜순 병합, 같은 날 수입 먼저).
+ * 시트는 보전 청구할 선거비용 지출이 1건 이상인 자금원만 생성.
  */
 export function buildIncomeExpenseBookModel(rows: IebInputRow[], ctx: IebCtx): IebModel {
   const electionSet = new Set(ctx.electionExpenseItemCds);
-  const bySource = new Map<FundingSource, IebInputRow[]>();
+  const expBySource = new Map<FundingSource, IebInputRow[]>();
+  const incBySource = new Map<FundingSource, IebInputRow[]>();
   let otherCount = 0;
   let otherAmt = 0;
 
   for (const r of rows) {
-    if (r.incm_sec_cd !== 2) continue;
     if (r.acc_amt === 0) continue;
-    if (!electionSet.has(r.item_sec_cd)) continue;
-    if (r.acc_print_ok !== "Y") continue;
     const src = classifyFundingSource(r.acc_sec_cd, ctx.accSecCdNames[r.acc_sec_cd]);
-    if (src === "기타") {
-      otherCount++;
-      otherAmt += claimAmount(r);
-      continue;
+    if (r.incm_sec_cd === 1) {
+      if (src === "기타") continue; // 미분류 자금원 수입은 표시 안 함
+      const list = incBySource.get(src) ?? [];
+      list.push(r);
+      incBySource.set(src, list);
+    } else if (r.incm_sec_cd === 2) {
+      if (!electionSet.has(r.item_sec_cd)) continue;
+      if (r.acc_print_ok !== "Y") continue;
+      if (src === "기타") {
+        otherCount++;
+        otherAmt += claimAmount(r);
+        continue;
+      }
+      const list = expBySource.get(src) ?? [];
+      list.push(r);
+      expBySource.set(src, list);
     }
-    const list = bySource.get(src) ?? [];
-    list.push(r);
-    bySource.set(src, list);
   }
 
   const accounts: IebAccount[] = [];
   let grandTotal = 0;
 
   for (const src of SOURCE_ORDER) {
-    const list = bySource.get(src);
-    if (!list || list.length === 0) continue;
-    const sorted = list
-      .slice()
-      .sort((a, b) => a.acc_date.localeCompare(b.acc_date) || a.acc_book_id - b.acc_book_id);
+    const expList = expBySource.get(src);
+    if (!expList || expList.length === 0) continue; // 보전 청구 선거비용 없으면 시트 생략
+    const incList = incBySource.get(src) ?? [];
 
-    let cum = 0;
+    // 수입+지출 병합 — 날짜 → 같은 날 수입 먼저 → acc_book_id
+    type Tagged = { r: IebInputRow; kind: "income" | "expense"; amt: number };
+    const merged: Tagged[] = [
+      ...incList.map((r): Tagged => ({ r, kind: "income", amt: r.acc_amt })),
+      ...expList.map((r): Tagged => ({ r, kind: "expense", amt: claimAmount(r) })),
+    ].sort(
+      (a, b) =>
+        a.r.acc_date.localeCompare(b.r.acc_date) ||
+        (a.kind === b.kind ? 0 : a.kind === "income" ? -1 : 1) ||
+        a.r.acc_book_id - b.r.acc_book_id,
+    );
+
+    let incCum = 0;
+    let expCum = 0;
     let attachedAmt = 0;
     let attachedCount = 0;
     let omittedAmt = 0;
     let omittedCount = 0;
-    const cells: IebCellRow[] = sorted.map((r) => {
-      const amt = claimAmount(r);
-      cum += amt;
-      if ((r.rcp_yn ?? "") === "Y") {
-        attachedAmt += amt;
-        attachedCount++;
+    const cells: IebCellRow[] = merged.map(({ r, kind, amt }) => {
+      if (kind === "income") {
+        incCum += amt;
       } else {
-        omittedAmt += amt;
-        omittedCount++;
+        expCum += amt;
+        if ((r.rcp_yn ?? "") === "Y") {
+          attachedAmt += amt;
+          attachedCount++;
+        } else {
+          omittedAmt += amt;
+          omittedCount++;
+        }
       }
       const anon = isAnonymousCustomer(r.cust_id ?? -1, r.customer?.reg_num);
       return {
         date: formatLedgerDate(r.acc_date),
         content: formatContent(r),
-        expenseNow: amt,
-        expenseCum: cum,
-        balance: -cum,
+        kind,
+        incomeNow: kind === "income" ? amt : 0,
+        incomeCum: incCum,
+        expenseNow: kind === "expense" ? amt : 0,
+        expenseCum: expCum,
+        balance: incCum - expCum,
         name: anon ? "익명" : (r.customer?.name ?? ""),
         regNum: anon ? "" : (r.customer?.reg_num ?? ""),
         addr: anon ? "" : (r.customer?.addr ?? ""),
         job: anon ? "" : (r.customer?.job ?? ""),
         tel: anon ? "" : (r.customer?.tel ?? ""),
-        rcpNo: formatRcpNo(r, src),
+        rcpNo: kind === "expense" ? formatRcpNo(r, src) : "",
         bigo: r.bigo ?? "",
       };
     });
 
-    const expenseTotal = cum;
-    const accName = ctx.accSecCdNames[sorted[0].acc_sec_cd] ?? src;
+    const expenseTotal = expCum;
+    const incomeTotal = incCum;
+    const accName = ctx.accSecCdNames[expList[0].acc_sec_cd] ?? src;
     accounts.push({
-      acc_sec_cd: sorted[0].acc_sec_cd,
+      acc_sec_cd: expList[0].acc_sec_cd,
       accName,
       source: src,
       rows: cells,
+      incomeTotal,
       expenseTotal,
       attachedAmt,
       attachedCount,
@@ -338,11 +382,13 @@ export function renderIncomeExpenseBook(model: IebModel, meta: IebMeta = {}): Ex
     for (const row of acc.rows) {
       cell(ws, rn, 1, row.date);
       cell(ws, rn, 2, row.content, { align: "left" });
-      cell(ws, rn, 3, ""); // 수입 금회
-      cell(ws, rn, 4, 0, { align: "right", numFmt: AMOUNT_FMT }); // 수입 누계
-      cell(ws, rn, 5, row.expenseNow, { align: "right", numFmt: AMOUNT_FMT }); // 지출 금회 = 최종청구액
+      // 수입 금회(수입 행만), 누계
+      cell(ws, rn, 3, row.kind === "income" ? row.incomeNow : "", { align: "right", numFmt: AMOUNT_FMT });
+      cell(ws, rn, 4, row.incomeCum, { align: "right", numFmt: AMOUNT_FMT });
+      // 지출 금회(지출 행만 = 최종청구액), 누계
+      cell(ws, rn, 5, row.kind === "expense" ? row.expenseNow : "", { align: "right", numFmt: AMOUNT_FMT });
       cell(ws, rn, 6, row.expenseCum, { align: "right", numFmt: AMOUNT_FMT });
-      cell(ws, rn, 7, row.balance, { align: "right", numFmt: AMOUNT_FMT });
+      cell(ws, rn, 7, row.balance, { align: "right", numFmt: AMOUNT_FMT }); // 잔액 = 수입누계 − 지출누계
       cell(ws, rn, 8, row.name);
       cell(ws, rn, 9, row.regNum);
       cell(ws, rn, 10, row.addr, { align: "left" });
@@ -353,15 +399,15 @@ export function renderIncomeExpenseBook(model: IebModel, meta: IebMeta = {}): Ex
       rn++;
     }
 
-    // 합계 행: 수입 0/0, 지출 금회/누계=합계, 잔액=-합계, 거래처 "--", 영수증 "N건"
+    // 합계 행: 수입 금회/누계=수입합계, 지출 금회/누계=지출합계, 잔액=수입-지출, 거래처 "--", 영수증 "N건"
     const totalCount = acc.attachedCount + acc.omittedCount;
     ws.mergeCells(rn, 1, rn, 2);
     cell(ws, rn, 1, "합  계", { bold: true, bg: SUM_BG });
-    cell(ws, rn, 3, 0, { align: "right", numFmt: AMOUNT_FMT, bg: SUM_BG });
-    cell(ws, rn, 4, 0, { align: "right", numFmt: AMOUNT_FMT, bg: SUM_BG });
+    cell(ws, rn, 3, acc.incomeTotal, { bold: true, align: "right", numFmt: AMOUNT_FMT, bg: SUM_BG });
+    cell(ws, rn, 4, acc.incomeTotal, { bold: true, align: "right", numFmt: AMOUNT_FMT, bg: SUM_BG });
     cell(ws, rn, 5, acc.expenseTotal, { bold: true, align: "right", numFmt: AMOUNT_FMT, bg: SUM_BG });
     cell(ws, rn, 6, acc.expenseTotal, { bold: true, align: "right", numFmt: AMOUNT_FMT, bg: SUM_BG });
-    cell(ws, rn, 7, -acc.expenseTotal, { bold: true, align: "right", numFmt: AMOUNT_FMT, bg: SUM_BG });
+    cell(ws, rn, 7, acc.incomeTotal - acc.expenseTotal, { bold: true, align: "right", numFmt: AMOUNT_FMT, bg: SUM_BG });
     for (let c = 8; c <= 12; c++) cell(ws, rn, c, "--", { bg: SUM_BG });
     cell(ws, rn, 13, `${totalCount}건`, { bg: SUM_BG });
     cell(ws, rn, 14, "", { bg: SUM_BG });

@@ -535,7 +535,7 @@ function ClaimFormTab() {
             "acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_date, content, acc_amt, claim_amt, acc_print_ok, rcp_yn, acc_ins_type, rcp_no, bigo, exp_group1_cd, exp_group2_cd, exp_group3_cd, cust_id, customer:cust_id(name, reg_num, addr, job, tel)",
           )
           .eq("org_id", orgId)
-          .eq("incm_sec_cd", 2),
+          .in("incm_sec_cd", [1, 2]), // 수입(자금원 조달)+지출(보전 선거비용) 모두 — 잔액 산출용
         supabase.from("organ").select("reg_num, acct_name, candidate_org_name, org_name").eq("org_id", orgId).maybeSingle(),
       ]);
       const items = itemsRes.data ?? [];
