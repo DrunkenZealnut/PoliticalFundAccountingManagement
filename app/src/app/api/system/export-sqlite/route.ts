@@ -469,6 +469,27 @@ export function stripAppOnlyAccBookColumns(
   return rest;
 }
 
+/**
+ * data1/data2 export용 CUSTOMER 선정 — 거래(ACC_BOOK/ACC_BOOK_BAK)가 실제 참조하는
+ * cust_id 집합으로 필터한다.
+ *
+ * 기존 org_id 필터(`org_id === targetExportOrgId`)는 거래가 참조하는 org_id=NULL(공유)·
+ * 타 org 거래처를 빠뜨려 ACC_BOOK이 `ACC_BOOK_FK3 REFERENCES CUSTOMER`를 못 채우는 FK
+ * 고아 행을 만든다. 윈도우 선관위(PFund2)는 정치자금수입지출부에서 거래처(수입제공자/
+ * 지출받은자)를 join할 때 고아 행을 드롭 → 계정별 수입·지출이 누락된다. 참조 기준으로
+ * 선정하면 NULL·타org 참조 거래처까지 포함돼 참조무결성이 보장된다(익명 -999는 별도 보장).
+ */
+export function selectReferencedCustomers(
+  customers: Record<string, unknown>[],
+  ...rowSets: Record<string, unknown>[][]
+): Record<string, unknown>[] {
+  const ids = new Set<number>();
+  for (const rows of rowSets) {
+    for (const r of rows) ids.add(Number(r.cust_id));
+  }
+  return customers.filter((c) => ids.has(Number(c.cust_id)));
+}
+
 async function fetchTable(
   table: string,
   orgFilter?: { col: string; orgId: number },
@@ -690,15 +711,34 @@ export async function GET(request: NextRequest) {
         : organRows;
     insertRows(db, "ORGAN", filteredOrganRows, true);
 
-    // Customer — data1/data2 모드면 해당 export org 거래처만 (org_id 종속 테이블과 동일 필터).
-    //   remapOrgId로 supabase org_id → export ORG_ID(1/2) 변환 후 targetExportOrgId와 비교.
-    //   익명(org_id NULL)·타 org 거래처는 자연히 제외(PFund2 -999는 ENSURE_ANONYMOUS로 별도 보장).
+    // org_id 종속 테이블 공용 필터 (data1→ORG_ID=1, data2→ORG_ID=2, full/master→통과).
+    //   ESTATE/OPINION/SUM_REPT/COL_ORGAN/ALARM이 ORGAN(ORG_ID)과 매핑돼야 PFund2 무결성 가정 성립.
+    //   CUSTOMER 참조 cust_id 산출(아래)보다 먼저 정의해야 하므로 위로 끌어올림.
+    const filterByExportOrgId = <T extends Record<string, unknown>>(rows: T[]): T[] =>
+      targetExportOrgId === null
+        ? rows
+        : rows.filter((r) => Number(r.org_id) === targetExportOrgId);
+
+    // ACC_BOOK/ACC_BOOK_BAK 최종 행: 모드별 거래 필터 + 공식 포맷 정규화.
+    //   정규화: 지출 행의 3자리 acc_ins_type(지출방법)을 EXP_TYPE_CD로 이동하고 ACC_INS_TYPE
+    //   (CHAR(2))을 비워 선관위 프로그램이 지출부를 정상 로드하도록. (수입 행·공식 포맷 행은 무변경.)
+    //   CUSTOMER 선정(참조 cust_id)에 쓰이므로 CUSTOMER insert보다 먼저 계산한다.
+    const finalAccBook = filterByExportOrgId(remapOrgId(accBook, orgIdMap))
+      .map(normalizeOfficialExpenseRow)
+      .map(stripAppOnlyAccBookColumns);
+    const finalAccBookBak = filterByExportOrgId(remapOrgId(accBookBak, orgIdMap))
+      .map(normalizeOfficialExpenseRow)
+      .map(stripAppOnlyAccBookColumns);
+
+    // Customer — data1/data2 모드는 "거래(ACC_BOOK/ACC_BOOK_BAK)가 참조하는 cust_id"로 선정한다.
+    //   org_id 필터는 org_id=NULL(공유)·타 org 참조 거래처를 빠뜨려 FK 고아→수입지출부 누락을
+    //   유발하므로 참조 기준으로 교체. 익명(-999)은 ENSURE_ANONYMOUS로 별도 보장.
     // org_id는 PFund2 CUSTOMER DDL에 없으므로 insert 전 제거 (011 마이그레이션 대응).
     const remappedCustomer = remapOrgId(customer, orgIdMap);
     const exportCustomer =
       targetExportOrgId === null
         ? remappedCustomer
-        : remappedCustomer.filter((c) => Number(c.org_id) === targetExportOrgId);
+        : selectReferencedCustomers(remappedCustomer, finalAccBook, finalAccBookBak);
     const exportCustIds = new Set(exportCustomer.map((c) => Number(c.cust_id)));
     insertRows(
       db,
@@ -721,28 +761,8 @@ export async function GET(request: NextRequest) {
     // PFund2 표준 익명 customer (CUST_ID=-999) 보장. 상세는 pfund2-constants.ts
     db.run(PFUND2_ENSURE_ANONYMOUS_CUSTOMER_SQL);
 
-    // org_id 종속 테이블 공용 필터:
-    //   data1 → ORG_ID=1만, data2 → ORG_ID=2만, full/master → 통과
-    // ESTATE는 ORGAN(ORG_ID) FK 보유. OPINION/SUM_REPT/COL_ORGAN/ALARM도 ORG_ID가
-    // ORGAN과 매핑되어야 PFund2가 무결성 가정으로 정상 동작.
-    const filterByExportOrgId = <T extends Record<string, unknown>>(rows: T[]): T[] =>
-      targetExportOrgId === null
-        ? rows
-        : rows.filter((r) => Number(r.org_id) === targetExportOrgId);
-
-    // ACC_BOOK: mode별 거래 필터
-    //   master → 0건 (이미 isMasterMode가 fetch 단에서 [] 반환)
-    //   data1 → export ORG_ID=1 거래만
-    //   data2 → export ORG_ID=2 거래만
-    //   full → 전체
-    // 공식 포맷 정규화: 지출 행의 3자리 acc_ins_type(지출방법)을 EXP_TYPE_CD로 이동하고
-    // ACC_INS_TYPE(CHAR(2))을 비워, 선관위 프로그램이 지출부를 정상 로드하도록 한다.
-    const finalAccBook = filterByExportOrgId(remapOrgId(accBook, orgIdMap))
-      .map(normalizeOfficialExpenseRow)
-      .map(stripAppOnlyAccBookColumns);
-    const finalAccBookBak = filterByExportOrgId(remapOrgId(accBookBak, orgIdMap))
-      .map(normalizeOfficialExpenseRow)
-      .map(stripAppOnlyAccBookColumns);
+    // ACC_BOOK/ACC_BOOK_BAK insert — finalAccBook*는 CUSTOMER 선정을 위해 위에서 선계산함.
+    //   (master → 0건, data1/data2 → 해당 export ORG_ID 거래만, full → 전체)
     insertRows(db, "ACC_BOOK", finalAccBook);
     insertRows(db, "ACC_BOOK_BAK", finalAccBookBak);
 

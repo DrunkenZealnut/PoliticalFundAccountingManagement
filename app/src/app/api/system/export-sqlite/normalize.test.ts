@@ -7,7 +7,7 @@ vi.hoisted(() => {
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "test-anon-key";
 });
 
-import { normalizeOfficialExpenseRow, stripAppOnlyAccBookColumns } from "./route";
+import { normalizeOfficialExpenseRow, stripAppOnlyAccBookColumns, selectReferencedCustomers } from "./route";
 
 /**
  * 지출부 미표시 버그 회귀 테스트.
@@ -118,5 +118,45 @@ describe("stripAppOnlyAccBookColumns", () => {
     const row = { acc_book_id: 4, acc_time: "0900" };
     stripAppOnlyAccBookColumns(row);
     expect(row.acc_time).toBe("0900"); // 원본 유지
+  });
+});
+
+/**
+ * 수입·지출 누락 회귀 테스트 (data1/data2 export 거래처 FK 고아).
+ * 원인: CUSTOMER를 org_id로 필터 → 거래가 참조하는 org_id=NULL(공유)·타 org 거래처가
+ *   빠져 ACC_BOOK이 FK 고아 → 윈도우 PFund2가 수입지출부 거래처 join 시 그 행 드롭
+ *   → 계정별 수입/지출 누락.
+ * 수정: 거래(ACC_BOOK/ACC_BOOK_BAK)가 참조하는 cust_id 기준으로 CUSTOMER 선정.
+ */
+describe("selectReferencedCustomers", () => {
+  const customers = [
+    { cust_id: 11, org_id: 11, name: "org11 거래처" },
+    { cust_id: 42, org_id: 9, name: "오준석(타org)" },
+    { cust_id: 182, org_id: null, name: "양지기획(공유 NULL)" },
+    { cust_id: 999, org_id: 11, name: "미참조 거래처" },
+  ];
+
+  it("T-1 거래가 참조하는 cust_id만 포함한다", () => {
+    const out = selectReferencedCustomers(customers, [{ cust_id: 11 }]);
+    expect(out.map((c) => c.cust_id)).toEqual([11]);
+  });
+
+  it("T-2 org_id 무관(NULL·타org) 참조 거래처도 포함한다", () => {
+    const out = selectReferencedCustomers(customers, [{ cust_id: 42 }, { cust_id: 182 }]);
+    expect(out.map((c) => c.cust_id).sort((a, b) => a - b)).toEqual([42, 182]);
+  });
+
+  it("T-3 어떤 거래도 참조 안 한 거래처는 제외한다", () => {
+    const out = selectReferencedCustomers(customers, [{ cust_id: 11 }, { cust_id: 42 }]);
+    expect(out.some((c) => c.cust_id === 999)).toBe(false);
+  });
+
+  it("T-4 acc_book + acc_book_bak 참조 합집합", () => {
+    const out = selectReferencedCustomers(customers, [{ cust_id: 11 }], [{ cust_id: 182 }]);
+    expect(out.map((c) => c.cust_id).sort((a, b) => a - b)).toEqual([11, 182]);
+  });
+
+  it("T-5 빈 거래 → 빈 결과", () => {
+    expect(selectReferencedCustomers(customers, [], [])).toEqual([]);
   });
 });
