@@ -43,7 +43,7 @@ This uses Next.js 16 which has breaking changes from training data. Always read 
 - `acc_ins_type` column is `VARCHAR(5)` (was CHAR(2), widened via `scripts/008`). PAY_METHODS codes are 3 chars ("118", "583").
 - All dates stored as `YYYYMMDD` strings (not DATE type). UI uses `YYYY-MM-DD`, convert on save/display.
 - `customer.org_id` (added via `scripts/011`) scopes counterparties per organization — a same-name counterparty in two orgs is two rows. The anonymous customer (`name='익명'`) is shared with `org_id` NULL. Every customer read/write/match path must filter/set `org_id` (customers API, customer + customer-batch pages, acc-book batch matching, import/export-sqlite). **Anonymous `cust_id` gotcha**: clients send the PFund2-compat sentinel `cust_id=-999` for "no counterparty", but Supabase `customer` has no `-999` row (import-sqlite remaps cust_id), so inserting it raises `acc_book_cust_id_fkey`. `api/acc-book/anonymous-customer.ts` (`needsAnonymousResolve`/`resolveAnonymousCustId`) resolves `-999/0/null` to the shared 익명 정본's real cust_id server-side on insert/update/batch_insert. (Read-side `org-metrics.ts` still compares against `-999` — a dead condition tracked in TODOS.)
-- Migrations live in `app/scripts/0NN_*.sql` and are applied **manually via the Supabase SQL editor** (DDL cannot run through the service-role REST client). Latest is `014` (`012` = `delete_org_data` RPC, `013` = `finalize_settlement` RPC, `014` = `acc_book`/`acc_book_bak`에 `acc_time CHAR(4)` 컬럼 추가 — 거래 시각 분 단위, NULL 허용).
+- Migrations live in `app/scripts/0NN_*.sql` and are applied **manually via the Supabase SQL editor** (DDL cannot run through the service-role REST client). Latest is `015` (`012` = `delete_org_data` RPC, `013` = `finalize_settlement` RPC, `014` = `acc_book`/`acc_book_bak`에 `acc_time CHAR(4)` 컬럼 추가 — 거래 시각 분 단위, NULL 허용; `015` = `acc_book`에 `claim_amt` 컬럼 추가 — 보전 최종청구액, 일할계산·환급 반영). When adding migrations that touch `acc_book`/`acc_book_bak`, audit the export-sqlite route (see SQLite gotchas below — app-only columns must be stripped).
 
 ### Source Layout (`app/src/`)
 
@@ -98,6 +98,25 @@ The `useCodeValues()` hook (via `useSyncExternalStore`) provides code lookups fe
 - `getAccounts(orgSecCd, incmSecCd)` — valid accounts for org type + income/expense
 - `getItems(orgSecCd, incmSecCd, accSecCd)` — valid subjects for a given account
 - Hierarchical validation chain: `orgSecCd → incmSecCd → accSecCd → itemSecCd → expSecCd` (driven by `acc_rel` table)
+
+### Account/Item Code Structure (acc_sec_cd / item_sec_cd)
+
+`acc_book.acc_sec_cd` (계정) and `item_sec_cd` (과목) are both `codevalue.cv_id`. Their numeric ranges differ by org family and **encode meaning** — much business logic (funding-source, settlement, receipt numbering, donation limits) branches on these literal codes, so they are effectively constants:
+
+- **후보자 계정** (`acc_sec_cd`, codeset `cs_id=10`): `82`=보조금, `83`=보조금외지원금, `84`=후보자등자산, `85`=후원회기부금 (these 4 are the funding sources — see `funding-source.ts FUNDING_SOURCE_BY_ACC_SEC_CD`). 후보자 **과목** (`cs_id=11`): `86`=선거비용, `87`=선거비용외정치자금.
+- **후원회 계정** (`acc_sec_cd`, `cs_id=1`): `1`=수입, `2`=지출 — i.e. the 후원회 `acc_sec_cd` **directly encodes income(1) vs expense(2)**, unlike 후보자 where income/expense both use 82–85 and are distinguished by `incm_sec_cd`. 후원회 **과목** (`cs_id=12`): 수입 `94`=기명후원금/`95`=익명후원금/`96`=그밖의수입, 지출 `97`=기부금/`98`=후원금모금경비/`99`=인건비_기본경비/`100`=사무소설치운영비_기본경비/`101`=그밖의경비.
+- Official donation 과목 codes: `94`=기명/`95`=익명/`96`=그밖의수입 (do NOT hardcode the inverse — a real bug had 95=기명 swapped; classify by 과목명 via `getName`, not cv_id).
+
+### Receipt Number (영수증번호) Channel
+
+`acc_book` carries two receipt fields: `rcp_no` (display string, e.g. `자(비)-1`) and `rcp_no2` (integer, for sort/dedup/maxRcpNo). The channel for both is the pure SSOT `lib/accounting/receipt-no.ts`, shared by **two consumers**: `api/acc-book` `batch_receipt` (「영수증 일괄생성」, via `assignReceiptNumbers`) and `api/system/export-sqlite` (via `fillExportReceiptNumbers`, fills missing `rcp_yn='Y'` rows at export so the Windows program doesn't fall back to a single bucket).
+
+The display format branches **by `acc_sec_cd` alone** (no `incm_sec_cd` needed) in `formatKey`:
+- 후보 자금원 (82–85): 선거비용 → `{계정약자}(비)-n` (자/후/보/외); 선거비용외 → `{계정약자}-n` (no parenthetical).
+- 후원회 지출 (`acc_sec_cd===2`): `{과목약자}-n` (기/모/인/사/그 — `supporterExpenseAbbr`: 후원금모금경비→모, else first char).
+- 후원회 수입 (`acc_sec_cd===1`)·기타: legacy fallback `{계정약자}({과목약자})-n`.
+
+Combination sequence (`{prefix}-n`) is per-key, per-`incm_sec_cd` scope, continuing from existing max. Only missing numbers are assigned — existing `rcp_no` is preserved, and historical values are **not** retroactively re-numbered.
 
 ### Excel Export Patterns
 
