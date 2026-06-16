@@ -1,30 +1,55 @@
 /* ------------------------------------------------------------------ */
 /*  영수증 일련번호 채번 규칙 SSOT                                       */
 /*                                                                    */
-/*  영수증번호(rcp_no, 표시값)를 계정(자금원)·과목 약자 + 조합별 순번    */
-/*  으로 생성한다. 예: "자(비)-1"(후보자자산·선거비용 1번).             */
-/*  - 계정 약자: 84자/85후/82보/83외, 그 외 코드명 첫 글자 폴백.        */
-/*  - 과목 약자: 선거비용→비, 선거비용외→비외, 그 외 첫 글자 폴백.       */
-/*  - 순번: 동일 (계정약자,과목약자) 조합별 1부터(기존 조합 max+1 이어서).*/
+/*  영수증번호(rcp_no, 표시값)를 계정 계열별 3-스킴으로 생성한다.        */
+/*  스킴 판정은 acc_sec_cd 하나로 한다(실데이터 검증: 후보=82~85,        */
+/*  후원회 수입=1·지출=2). incm_sec_cd 불필요.                          */
+/*                                                                    */
+/*  ┌ 스킴 A — 후보 자금원 계정(acc_sec_cd ∈ {82,83,84,85})            */
+/*  │   선거비용(86)   → "{계정약자}(비)-n"   예: 자(비)-1             */
+/*  │   선거비용외(87) → "{계정약자}-n"       예: 자-1 (괄호 없음)      */
+/*  │   계정약자: 84자/85후/82보/83외.                                 */
+/*  ├ 스킴 B — 후원회 지출 계정(acc_sec_cd === 2)                       */
+/*  │   "{과목약자}-n"  예: 기-1/모-1/인-1/사-1/그-1                    */
+/*  │   과목약자(97~101): 기부금기·후원금모금경비모·인건비인·          */
+/*  │   사무소설치운영비사·그밖의경비그 (모금 포함→모, 그 외 첫 글자).  */
+/*  └ 스킴 C — 후원회 수입(acc_sec_cd === 1)·기타 → 현행 폴백 유지       */
+/*      "{계정약자}({과목약자})-n"  예: 수(기)-1                        */
+/*                                                                    */
+/*  - 순번: 동일 키(prefix) 조합별 1부터(기존 조합 max+1 이어서).       */
 /*  rcp_no2(정수)는 정렬·중복방지·maxRcpNo 호환용 전체 순번으로 유지.    */
 /*                                                                    */
-/*  소비처: api/acc-book batch_receipt, expense/income 일괄생성.        */
+/*  소비처: api/acc-book batch_receipt, system/export-sqlite,          */
+/*  expense/income 일괄생성. (acc_sec_cd 기반 분기라 소비처 무변경.)    */
 /* ------------------------------------------------------------------ */
 
 /** 계정(자금원) 약자 — 후보자계정(cs_id=10) 4분류 + 코드명 첫 글자 폴백. */
 const ACC_ABBR: Record<number, string> = { 84: "자", 85: "후", 82: "보", 83: "외" };
+
+/** 후보 자금원 계정(cs_id=10) — 스킴 A 판정. funding-source SSOT와 동일 키. */
+const CANDIDATE_FUND_ACC = new Set([82, 83, 84, 85]);
 
 export function accountAbbr(accSecCd: number, accName?: string): string {
   return ACC_ABBR[accSecCd] ?? (accName?.trim()?.[0] ?? "");
 }
 
 /** 과목 약자 — 선거비용→비, 선거비용외(정치자금)→비외, 그 외 코드명 첫 글자 폴백.
- *  실제 코드명이 "선거비용외정치자금"(87)이라 includes로 매칭하되 "선거비용외"를 먼저 검사. */
+ *  실제 코드명이 "선거비용외정치자금"(87)이라 includes로 매칭하되 "선거비용외"를 먼저 검사.
+ *  스킴 A 선거비용("비")·스킴 C 폴백에서 사용. (선거비용외는 formatKey가 괄호 없이 처리.) */
 export function itemAbbr(itemName: string | undefined | null): string {
   const n = (itemName ?? "").trim();
   if (n.includes("선거비용외")) return "비외";
   if (n.includes("선거비용")) return "비";
   return n ? n[0] : "";
+}
+
+/** 후원회 지출 과목 약자(스킴 B) — 후원금모금경비만 '모'(첫글자 '후' 아님), 그 외 첫 글자.
+ *  실코드명 99/100은 "_기본경비" 접미사가 붙으나 첫 글자(인/사)는 동일. */
+export function supporterExpenseAbbr(itemName: string | undefined | null): string {
+  const n = (itemName ?? "").trim();
+  if (!n) return "";
+  if (n.includes("모금")) return "모";
+  return n[0];
 }
 
 /** 영수증번호 = "{계정약자}({과목약자})-{순번}". */
@@ -90,9 +115,25 @@ export function assignReceiptNumbers(
 }
 
 function formatKey(t: ReceiptTarget, codeNames: ReceiptCodeNames): string {
-  const a = accountAbbr(t.acc_sec_cd, codeNames.acc[t.acc_sec_cd]);
-  const i = itemAbbr(codeNames.item[t.item_sec_cd]);
-  return `${a}(${i})`;
+  const accName = codeNames.acc[t.acc_sec_cd];
+  const itemName = codeNames.item[t.item_sec_cd];
+
+  // 스킴 A — 후보 자금원 계정(82/83/84/85)
+  if (CANDIDATE_FUND_ACC.has(t.acc_sec_cd)) {
+    const a = accountAbbr(t.acc_sec_cd, accName); // 자/후/보/외
+    const it = itemName ?? "";
+    if (it.includes("선거비용외")) return a; // 선거비용외 → 괄호 제거 (자-)
+    if (it.includes("선거비용")) return `${a}(비)`; // 선거비용 → 자(비)-
+    return `${a}(${itemAbbr(itemName)})`; // 방어 폴백(후보 기타 과목)
+  }
+
+  // 스킴 B — 후원회 지출 계정(acc_sec_cd=2 '지출')
+  if (t.acc_sec_cd === 2) {
+    return supporterExpenseAbbr(itemName); // 기/모/인/사/그
+  }
+
+  // 스킴 C — 후원회 수입(1)·기타 → 현행 폴백 유지
+  return `${accountAbbr(t.acc_sec_cd, accName)}(${itemAbbr(itemName)})`;
 }
 
 /** rcp_no가 미부여(null/undefined/공백)인지. */
