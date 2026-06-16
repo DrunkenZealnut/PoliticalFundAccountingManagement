@@ -88,6 +88,8 @@ export default function IncomeExpenseBookPage() {
       .gte("acc_date", fromStr)
       .lte("acc_date", toStr)
       .order("acc_date", { ascending: true })
+      .order("acc_time", { ascending: true, nullsFirst: true })
+      .order("incm_sec_cd", { ascending: true }) // 같은 시각이면 수입(1)을 지출(2)보다 먼저 — 잔액 음수 방지
       .order("acc_sort_num", { ascending: true });
 
     if (accSecCd) query = query.eq("acc_sec_cd", accSecCd);
