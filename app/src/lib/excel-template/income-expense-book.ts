@@ -22,6 +22,7 @@ import { claimAmount } from "@/lib/accounting/claim-amount";
 import { classifyFundingSource, type FundingSource } from "@/lib/accounting/funding-source";
 import { formatLedgerDate, isAnonymousCustomer } from "@/lib/hwpx/income-ledger-builder";
 import { PAY_METHODS } from "@/lib/expense-types";
+import { compareAccDateTime } from "@/lib/accounting/acc-book-sort";
 
 /* ===================== 타입 ===================== */
 
@@ -29,6 +30,7 @@ export interface IebInputRow {
   acc_book_id: number;
   incm_sec_cd: number;
   acc_date: string; // YYYYMMDD
+  acc_time?: string | null; // HHmm, 거래 시각(분 단위, NULL 허용)
   content: string | null;
   acc_amt: number;
   claim_amt?: number | null;
@@ -197,14 +199,14 @@ export function buildIncomeExpenseBookModel(rows: IebInputRow[], ctx: IebCtx): I
     if (!expList || expList.length === 0) continue; // 보전 청구 선거비용 없으면 시트 생략
     const incList = incBySource.get(src) ?? [];
 
-    // 수입+지출 병합 — 날짜 → 같은 날 수입 먼저 → acc_book_id
+    // 수입+지출 병합 — 날짜 → 거래 시각 → 같은 시각이면 수입 먼저 → acc_book_id
     type Tagged = { r: IebInputRow; kind: "income" | "expense"; amt: number };
     const merged: Tagged[] = [
       ...incList.map((r): Tagged => ({ r, kind: "income", amt: r.acc_amt })),
       ...expList.map((r): Tagged => ({ r, kind: "expense", amt: claimAmount(r) })),
     ].sort(
       (a, b) =>
-        a.r.acc_date.localeCompare(b.r.acc_date) ||
+        compareAccDateTime(a.r, b.r) ||
         (a.kind === b.kind ? 0 : a.kind === "income" ? -1 : 1) ||
         a.r.acc_book_id - b.r.acc_book_id,
     );

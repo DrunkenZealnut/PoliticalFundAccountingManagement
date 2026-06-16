@@ -185,10 +185,10 @@ function ReimbursementTab({ dirty, setDirty }: { dirty: boolean; setDirty: (d: b
     const fromStr = dateFrom.replace(/-/g, "");
     const toStr = dateTo.replace(/-/g, "");
     let query = supabase.from("acc_book")
-      .select("acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_date, content, acc_amt, claim_amt, rcp_yn, rcp_no, acc_print_ok, bigo, exp_group1_cd, exp_group2_cd, exp_group3_cd, customer:cust_id(name, reg_num, addr, job, tel)")
+      .select("acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_date, acc_time, content, acc_amt, claim_amt, rcp_yn, rcp_no, acc_print_ok, bigo, exp_group1_cd, exp_group2_cd, exp_group3_cd, customer:cust_id(name, reg_num, addr, job, tel)")
       .eq("org_id", orgId).eq("incm_sec_cd", 2)
       .gte("acc_date", fromStr).lte("acc_date", toStr)
-      .order("acc_date", { ascending: true }).order("acc_sort_num", { ascending: true });
+      .order("acc_date", { ascending: true }).order("acc_time", { ascending: true, nullsFirst: true }).order("acc_sort_num", { ascending: true });
     if (accSecCd) query = query.eq("acc_sec_cd", accSecCd);
     if (itemSecCd) query = query.eq("item_sec_cd", itemSecCd);
     const { data } = await query;
@@ -328,10 +328,10 @@ function BurdenCostTab() {
     const toStr = dateTo.replace(/-/g, "");
     // 선거비용외 지출 조회 후 클라이언트에서 부담비용 해당 건만 필터
     let query = supabase.from("acc_book")
-      .select("acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_date, content, acc_amt, claim_amt, rcp_yn, rcp_no, acc_print_ok, bigo, exp_group1_cd, exp_group2_cd, exp_group3_cd, customer:cust_id(name, reg_num, addr, job, tel)")
+      .select("acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_date, acc_time, content, acc_amt, claim_amt, rcp_yn, rcp_no, acc_print_ok, bigo, exp_group1_cd, exp_group2_cd, exp_group3_cd, customer:cust_id(name, reg_num, addr, job, tel)")
       .eq("org_id", orgId).eq("incm_sec_cd", 2)
       .gte("acc_date", fromStr).lte("acc_date", toStr)
-      .order("acc_date", { ascending: true }).order("acc_sort_num", { ascending: true });
+      .order("acc_date", { ascending: true }).order("acc_time", { ascending: true, nullsFirst: true }).order("acc_sort_num", { ascending: true });
     if (nonElectionItem) query = query.eq("item_sec_cd", nonElectionItem.cv_id);
     const { data } = await query;
     const rows = ((data || []) as unknown as ReimbRow[]).filter(isBurdenCostRow);
@@ -532,7 +532,7 @@ function ClaimFormTab() {
         supabase
           .from("acc_book")
           .select(
-            "acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_date, content, acc_amt, claim_amt, acc_print_ok, rcp_yn, acc_ins_type, rcp_no, bigo, exp_group1_cd, exp_group2_cd, exp_group3_cd, cust_id, customer:cust_id(name, reg_num, addr, job, tel)",
+            "acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_date, acc_time, content, acc_amt, claim_amt, acc_print_ok, rcp_yn, acc_ins_type, rcp_no, bigo, exp_group1_cd, exp_group2_cd, exp_group3_cd, cust_id, customer:cust_id(name, reg_num, addr, job, tel)",
           )
           .eq("org_id", orgId)
           .in("incm_sec_cd", [1, 2]), // 수입(자금원 조달)+지출(보전 선거비용) 모두 — 잔액 산출용

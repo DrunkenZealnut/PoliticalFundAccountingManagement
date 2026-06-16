@@ -15,6 +15,8 @@
 /*  React/Next 비의존 → 단위 테스트 가능.                              */
 /* ------------------------------------------------------------------ */
 
+import { compareAccDateTime } from "@/lib/accounting/acc-book-sort";
+
 /** form-7 표의 셀 토큰명 (form-7-fill.hwpx 템플릿의 {{토큰}}과 일치). */
 export const LEDGER_GROUP_TOKENS = {
   account: "계정명",
@@ -51,6 +53,7 @@ export interface LedgerCustomer {
 /** acc_book 행(수입/지출) + customer 상세 (전용 조회 결과). */
 export interface IncomeLedgerInputRow {
   acc_date: string; // YYYYMMDD
+  acc_time?: string | null; // HHmm, 거래 시각(분 단위, NULL 허용)
   incm_sec_cd: number; // 1=수입, 2=지출
   acc_sec_cd: number;
   item_sec_cd: number;
@@ -181,10 +184,10 @@ function emptyLedgerRow(): LedgerCellRow {
 function buildGroupRows(groupRows: IncomeLedgerInputRow[]): LedgerCellRow[] {
   if (groupRows.length === 0) return [emptyLedgerRow()];
 
-  // 그룹 내 일자순, 동일자는 수입(incm=1) 먼저 (stable sort)
+  // 그룹 내 일자 → 거래 시각(acc_time)순, 동일 시각은 수입(incm=1) 먼저 (stable sort)
   const sorted = groupRows
     .slice()
-    .sort((a, b) => a.acc_date.localeCompare(b.acc_date) || a.incm_sec_cd - b.incm_sec_cd);
+    .sort((a, b) => compareAccDateTime(a, b) || a.incm_sec_cd - b.incm_sec_cd);
 
   let incCum = 0;
   let expCum = 0;

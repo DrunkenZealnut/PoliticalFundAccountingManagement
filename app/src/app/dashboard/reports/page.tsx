@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PageGuide } from "@/components/page-guide";
 import { PAGE_GUIDES } from "@/lib/page-guides";
+import { compareAccDateTime } from "@/lib/accounting/acc-book-sort";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -23,6 +24,7 @@ interface AccRecord {
   exp_sec_cd: number;
   cust_id: number;
   acc_date: string;
+  acc_time: string | null;
   content: string;
   acc_amt: number;
   rcp_yn: string;
@@ -612,8 +614,9 @@ function buildLedgerSheet(
   ws.getColumn(13).width = 8;  // 영수증번호
 
   // Sort records by date
-  const sorted = [...sheetRecords].sort((a, b) =>
-    a.acc_date.localeCompare(b.acc_date) || (a.incm_sec_cd - b.incm_sec_cd),
+  // 거래일 → 거래 시각(acc_time) → 같은 시각이면 수입(1) 먼저
+  const sorted = [...sheetRecords].sort(
+    (a, b) => compareAccDateTime(a, b) || a.incm_sec_cd - b.incm_sec_cd,
   );
 
   // Data rows

@@ -126,7 +126,7 @@ export default function ExpensePage() {
       .eq("org_id", orgId).eq("incm_sec_cd", 2);
     if (filters) query = applyFiltersToQuery(query, filters);
 
-    const { data } = await query.order("acc_date").order("acc_sort_num").limit(100000);
+    const { data } = await query.order("acc_date").order("acc_time", { ascending: true, nullsFirst: true }).order("acc_sort_num").limit(100000);
     const recs = data || [];
     setRecords(recs);
     setFilteredTotal({ amount: recs.reduce((s: number, r: AccBook) => s + r.acc_amt, 0), count: recs.length });
@@ -164,7 +164,7 @@ export default function ExpensePage() {
     const sb = createSupabaseBrowser();
     Promise.all([
       sb.from("acc_book").select("*, customer:cust_id(name)").eq("org_id", orgId).eq("incm_sec_cd", 2)
-        .order("acc_date").order("acc_sort_num").limit(100000),
+        .order("acc_date").order("acc_time", { ascending: true, nullsFirst: true }).order("acc_sort_num").limit(100000),
       sb.from("acc_book").select("incm_sec_cd, acc_amt, acc_sec_cd, item_sec_cd").eq("org_id", orgId).limit(100000),
     ]).then(([recRes, sumRes]) => {
       const recs = recRes.data || [];
