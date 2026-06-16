@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   accountAbbr,
   itemAbbr,
+  supporterExpenseAbbr,
   formatReceiptNo,
   assignReceiptNumbers,
   fillExportReceiptNumbers,
@@ -10,8 +11,19 @@ import {
 } from "./receipt-no";
 
 const NAMES: ReceiptCodeNames = {
-  acc: { 84: "후보자등자산", 85: "후원회기부금", 82: "보조금", 83: "보조금외지원금", 99: "기타계정" },
-  item: { 86: "선거비용", 87: "선거비용외정치자금", 50: "후원회기부금" },
+  acc: {
+    1: "수입", // 후원회 수입 계정
+    2: "지출", // 후원회 지출 계정
+    84: "후보자등자산", 85: "후원회기부금", 82: "보조금", 83: "보조금외지원금", 99: "기타계정",
+  },
+  item: {
+    86: "선거비용", 87: "선거비용외정치자금", 50: "후원회기부금",
+    // 후원회 수입 과목(cs_id=12)
+    94: "기명후원금", 95: "익명후원금", 96: "그밖의수입",
+    // 후원회 지출 과목(cs_id=12) — 실코드명(99/100은 "_기본경비" 접미사)
+    97: "기부금", 98: "후원금모금경비", 99: "인건비_기본경비",
+    100: "사무소설치운영비_기본경비", 101: "그밖의경비",
+  },
 };
 
 describe("receipt-no 약자", () => {
@@ -40,6 +52,15 @@ describe("receipt-no 약자", () => {
 
   it("T-5 formatReceiptNo", () => {
     expect(formatReceiptNo("자", "비", 1)).toBe("자(비)-1");
+  });
+
+  it("T-10 supporterExpenseAbbr — 후원회 지출 과목 약자(모금→모, 그 외 첫 글자)", () => {
+    expect(supporterExpenseAbbr("기부금")).toBe("기");
+    expect(supporterExpenseAbbr("후원금모금경비")).toBe("모"); // 첫글자 '후' 아님
+    expect(supporterExpenseAbbr("인건비_기본경비")).toBe("인");
+    expect(supporterExpenseAbbr("사무소설치운영비_기본경비")).toBe("사");
+    expect(supporterExpenseAbbr("그밖의경비")).toBe("그");
+    expect(supporterExpenseAbbr(null)).toBe("");
   });
 });
 
@@ -75,14 +96,65 @@ describe("assignReceiptNumbers", () => {
     expect(out.map((r) => r.rcp_no2)).toEqual([6, 7]);
   });
 
-  it("T-9 선거비용외 → 자(비외)-1", () => {
+  it("T-9 [스킴 A] 후보 선거비용외 → 자-1 (괄호 제거)", () => {
     const out = assignReceiptNumbers([t(1, 84, 87)], NAMES, []);
-    expect(out[0].rcp_no).toBe("자(비외)-1");
+    expect(out[0].rcp_no).toBe("자-1");
   });
 
   it("수입 과목(첫 글자 폴백) 조합", () => {
     const out = assignReceiptNumbers([t(1, 85, 50)], NAMES, []);
     expect(out[0].rcp_no).toBe("후(후)-1"); // 후원회기부금 계정(후) + 후원회기부금 과목(후)
+  });
+});
+
+describe("스킴별 키 생성 (assignReceiptNumbers)", () => {
+  const t = (id: number, acc: number, item: number): ReceiptTarget => ({ acc_book_id: id, acc_sec_cd: acc, item_sec_cd: item });
+
+  it("A-1 후보 선거비용 84/85/82/83 → 자(비)/후(비)/보(비)/외(비)", () => {
+    const out = assignReceiptNumbers(
+      [t(1, 84, 86), t(2, 85, 86), t(3, 82, 86), t(4, 83, 86)],
+      NAMES,
+      [],
+    );
+    expect(out.map((r) => r.rcp_no)).toEqual(["자(비)-1", "후(비)-1", "보(비)-1", "외(비)-1"]);
+  });
+
+  it("A-2 후보 선거비용외 84/85/82/83 → 자/후/보/외 (괄호 없음)", () => {
+    const out = assignReceiptNumbers(
+      [t(1, 84, 87), t(2, 85, 87), t(3, 82, 87), t(4, 83, 87)],
+      NAMES,
+      [],
+    );
+    expect(out.map((r) => r.rcp_no)).toEqual(["자-1", "후-1", "보-1", "외-1"]);
+  });
+
+  it("A-3 선거비용/외 혼합 → 키 분리·조합별 독립 순번", () => {
+    const out = assignReceiptNumbers(
+      [t(1, 84, 86), t(2, 84, 87), t(3, 84, 86), t(4, 84, 87)],
+      NAMES,
+      [],
+    );
+    // 자(비): 1·2 / 자: 1·2 (키가 달라 순번 독립)
+    expect(out.map((r) => r.rcp_no)).toEqual(["자(비)-1", "자-1", "자(비)-2", "자-2"]);
+  });
+
+  it("B-1 후원회 지출 97/98/99/100/101 → 기/모/인/사/그", () => {
+    const out = assignReceiptNumbers(
+      [t(1, 2, 97), t(2, 2, 98), t(3, 2, 99), t(4, 2, 100), t(5, 2, 101)],
+      NAMES,
+      [],
+    );
+    expect(out.map((r) => r.rcp_no)).toEqual(["기-1", "모-1", "인-1", "사-1", "그-1"]);
+  });
+
+  it("B-2 후원금모금경비(98) → 모-1 (첫글자 '후' 회귀가드)", () => {
+    const out = assignReceiptNumbers([t(1, 2, 98), t(2, 2, 98)], NAMES, []);
+    expect(out.map((r) => r.rcp_no)).toEqual(["모-1", "모-2"]);
+  });
+
+  it("C-1 후원회 수입(acc=1) 94/95 → 현행 폴백 유지 수(기)/수(익)", () => {
+    const out = assignReceiptNumbers([t(1, 1, 94), t(2, 1, 95)], NAMES, []);
+    expect(out.map((r) => r.rcp_no)).toEqual(["수(기)-1", "수(익)-1"]);
   });
 });
 
@@ -108,13 +180,13 @@ describe("fillExportReceiptNumbers (export 자동 채번)", () => {
     acc_sort_num: extra.acc_sort_num ?? id,
   });
 
-  // Fund_Data_1(송파) 재현: 11건 지출(자(비외)×1·보(비)×5·보(비외)×1·자(비)×4).
-  it("TC-1 재현: 4조합 혼합 지출 → 조합별 순번", () => {
+  // Fund_Data_1(송파) 재현: 11건 지출(자[선거비용외]×1·보(비)×5·보[선거비용외]×1·자(비)×4).
+  it("TC-1 재현: 4조합 혼합 지출 → 조합별 순번 (선거비용외 괄호 제거)", () => {
     const rows = [
-      row(2, 2, 84, 87, "Y"), // 자(비외)
+      row(2, 2, 84, 87, "Y"), // 자 (선거비용외)
       row(5, 2, 82, 86, "Y"), // 보(비)
       row(6, 2, 82, 86, "Y"), // 보(비)
-      row(10, 2, 82, 87, "Y"), // 보(비외)
+      row(10, 2, 82, 87, "Y"), // 보 (선거비용외)
       row(12, 2, 82, 86, "Y"), // 보(비)
       row(13, 2, 84, 86, "Y"), // 자(비)
       row(15, 2, 84, 86, "Y"), // 자(비)
@@ -125,13 +197,28 @@ describe("fillExportReceiptNumbers (export 자동 채번)", () => {
     ];
     const out = fillExportReceiptNumbers(rows, NAMES);
     const byId = Object.fromEntries(out.map((r) => [r.acc_book_id, r.rcp_no]));
-    expect(byId[2]).toBe("자(비외)-1");
+    expect(byId[2]).toBe("자-1"); // 선거비용외 괄호 제거
     expect([byId[5], byId[6], byId[12], byId[18], byId[19]]).toEqual([
       "보(비)-1", "보(비)-2", "보(비)-3", "보(비)-4", "보(비)-5",
     ]);
-    expect(byId[10]).toBe("보(비외)-1");
+    expect(byId[10]).toBe("보-1"); // 선거비용외 괄호 제거
     expect([byId[13], byId[15], byId[17], byId[20]]).toEqual([
       "자(비)-1", "자(비)-2", "자(비)-3", "자(비)-4",
+    ]);
+  });
+
+  it("TC-8 후원회 지출(acc=2) export 채번 → 기/모/인/사/그", () => {
+    const rows = [
+      row(1, 2, 2, 97, "Y"), // 기부금
+      row(2, 2, 2, 98, "Y"), // 후원금모금경비 → 모
+      row(3, 2, 2, 99, "Y"), // 인건비
+      row(4, 2, 2, 100, "Y"), // 사무소설치운영비
+      row(5, 2, 2, 101, "Y"), // 그밖의경비
+    ];
+    const out = fillExportReceiptNumbers(rows, NAMES);
+    const byId = Object.fromEntries(out.map((r) => [r.acc_book_id, r.rcp_no]));
+    expect([byId[1], byId[2], byId[3], byId[4], byId[5]]).toEqual([
+      "기-1", "모-1", "인-1", "사-1", "그-1",
     ]);
   });
 
