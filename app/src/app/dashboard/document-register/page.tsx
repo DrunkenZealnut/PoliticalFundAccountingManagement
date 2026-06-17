@@ -15,6 +15,8 @@ import { PageGuide } from "@/components/page-guide";
 import { PAGE_GUIDES } from "@/lib/page-guides";
 import { fileToBase64 } from "@/lib/file-utils";
 import { toAccTime } from "@/lib/date-utils";
+import { FundingDraftPreview } from "@/components/dashboard/FundingDraftPreview";
+import type { AsOfRow } from "@/lib/accounting/funding-balance-asof";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -61,6 +63,7 @@ export default function DocumentRegisterPage() {
 
   const [tab, setTab] = useState(searchParams.get("tab") || "expense");
   const [entries, setEntries] = useState<ParsedEntry[]>([]);
+  const [allRows, setAllRows] = useState<AsOfRow[]>([]); // 자금원 잔액 가드용(후보자)
   const [saving, setSaving] = useState(false);
   const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
   const [activeEntryId, setActiveEntryId] = useState<number | null>(null);
@@ -78,6 +81,14 @@ export default function DocumentRegisterPage() {
   useEffect(() => {
     return () => { entriesRef.current.forEach((e) => { if (e.preview) URL.revokeObjectURL(e.preview); }); };
   }, []);
+  // 자금원 잔액 가드: 후보자 org 전체 거래 로드(읽기 전용, API 경유)
+  useEffect(() => {
+    if (!orgId || orgType !== "candidate") return;
+    fetch(`/api/acc-book?orgId=${orgId}`)
+      .then((r) => r.json())
+      .then((d) => { if (Array.isArray(d.records)) setAllRows(d.records as AsOfRow[]); })
+      .catch(() => { /* 가드는 보조 기능 — 실패해도 입력 흐름 유지 */ });
+  }, [orgId, orgType]);
 
   function clearEntries() {
     setEntries((prev) => {
@@ -319,6 +330,21 @@ export default function DocumentRegisterPage() {
             </div>
           )}
         </div>
+
+        {orgType === "candidate" && isExpense && (
+          <div className="mt-3">
+            <FundingDraftPreview
+              rows={allRows}
+              draft={{
+                acc_sec_cd: entry.acc_sec_cd,
+                acc_amt: entry.acc_amt,
+                acc_date: entry.acc_date ? entry.acc_date.replace(/-/g, "") : "99999999",
+                acc_time: toAccTime(entry.acc_time),
+              }}
+              getName={getName}
+            />
+          </div>
+        )}
 
         {/* Row 3: 내역 + 증빙 */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

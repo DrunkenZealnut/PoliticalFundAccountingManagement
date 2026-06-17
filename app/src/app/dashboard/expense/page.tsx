@@ -23,6 +23,8 @@ import { LedgerSummaryHeader } from "@/components/dashboard/LedgerSummaryHeader"
 import { fmtTimeInput, toAccTime } from "@/lib/date-utils";
 import { buildFundingAllocation } from "@/lib/accounting/funding-allocation";
 import { FundingAllocationPanel } from "@/components/dashboard/FundingAllocationPanel";
+import { FundingDraftPreview } from "@/components/dashboard/FundingDraftPreview";
+import type { AsOfRow } from "@/lib/accounting/funding-balance-asof";
 
 interface AccBook {
   acc_book_id: number;
@@ -55,6 +57,9 @@ interface FundingRow {
   acc_amt: number;
   acc_sec_cd: number;
   item_sec_cd: number;
+  acc_date: string;
+  acc_time: string | null;
+  acc_book_id: number;
 }
 
 export default function ExpensePage() {
@@ -131,7 +136,7 @@ export default function ExpensePage() {
     setRecords(recs);
     setFilteredTotal({ amount: recs.reduce((s: number, r: AccBook) => s + r.acc_amt, 0), count: recs.length });
 
-    const { data: allData } = await sb.from("acc_book").select("incm_sec_cd, acc_amt, acc_sec_cd, item_sec_cd").eq("org_id", orgId).limit(100000);
+    const { data: allData } = await sb.from("acc_book").select("incm_sec_cd, acc_amt, acc_sec_cd, item_sec_cd, acc_date, acc_time, acc_book_id").eq("org_id", orgId).limit(100000);
     if (allData) {
       setAllRows(allData as FundingRow[]);
       const inc = allData.filter((r) => r.incm_sec_cd === 1).reduce((s, r) => s + r.acc_amt, 0);
@@ -165,7 +170,7 @@ export default function ExpensePage() {
     Promise.all([
       sb.from("acc_book").select("*, customer:cust_id(name)").eq("org_id", orgId).eq("incm_sec_cd", 2)
         .order("acc_date").order("acc_time", { ascending: true, nullsFirst: true }).order("acc_sort_num").limit(100000),
-      sb.from("acc_book").select("incm_sec_cd, acc_amt, acc_sec_cd, item_sec_cd").eq("org_id", orgId).limit(100000),
+      sb.from("acc_book").select("incm_sec_cd, acc_amt, acc_sec_cd, item_sec_cd, acc_date, acc_time, acc_book_id").eq("org_id", orgId).limit(100000),
     ]).then(([recRes, sumRes]) => {
       const recs = recRes.data || [];
       setRecords(recs);
@@ -605,6 +610,22 @@ export default function ExpensePage() {
             </Button>
           </HelpTooltip>
         </div>
+
+        {orgType === "candidate" && (
+          <div className="mb-4">
+            <FundingDraftPreview
+              rows={allRows as AsOfRow[]}
+              draft={{
+                acc_sec_cd: form.acc_sec_cd,
+                acc_amt: form.acc_amt,
+                acc_date: form.acc_date ? form.acc_date.replace(/-/g, "") : "99999999",
+                acc_time: toAccTime(form.acc_time),
+                excludeAccBookId: selected?.acc_book_id,
+              }}
+              getName={getName}
+            />
+          </div>
+        )}
 
         {/* 1행: 계정 + 과목 + (경비구분) + 지출유형1 + 지출유형2 + 지출유형3 */}
         {(() => {
