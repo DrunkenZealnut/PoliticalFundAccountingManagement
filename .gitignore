@@ -65,3 +65,8 @@ nohup.out
 /*.hwp
 /*.hwpx
 /*.xlsx
+
+# 백업·검증 산출물 (프로덕션 금융데이터 덤프·일회용 — 추적 제외)
+/backups/
+/.playwright-mcp/
+/verify-*.png
