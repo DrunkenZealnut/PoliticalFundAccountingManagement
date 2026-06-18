@@ -33,8 +33,8 @@ Thumbs.db
 # Local data (DB/Excel working files, contains personal data)
 /data/
 
-# Legacy Windows program (entire folder)
-중앙선거관리위원회_정치자금회계관리2/
+# Legacy Windows program / 선관위 참고자료 (대용량 설치파일·샘플·PDF — 모든 버전 폴더 추적 제외)
+중앙선거관리위원회_정치자금회계관리*/
 .vercel
 
 # Dropbox/iCloud sync duplicate files (" 2" suffix)
