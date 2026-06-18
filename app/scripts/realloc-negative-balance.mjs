@@ -147,11 +147,20 @@ function buildReport(wb, res, srcExpenseBefore) {
 }
 
 async function main() {
-  const { data: rows, error } = await supabase
-    .from("acc_book")
-    .select("acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_date, acc_time, acc_amt, content, rcp_no, bigo, cust_id, customer:cust_id(name, reg_num, addr, job, tel)")
-    .eq("org_id", orgId).limit(100000);
-  if (error) { console.error("조회 실패:", error.message); process.exit(1); }
+  // 페이징 — 재배분/총액보존/최저잔액 검증 정확도 위해 전체 행 확보
+  const pageSize = 5000;
+  const rows = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from("acc_book")
+      .select("acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_date, acc_time, acc_amt, content, rcp_no, bigo, cust_id, customer:cust_id(name, reg_num, addr, job, tel)")
+      .eq("org_id", orgId)
+      .order("acc_book_id", { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (error) { console.error("조회 실패:", error.message); process.exit(1); }
+    rows.push(...data);
+    if (data.length < pageSize) break;
+  }
   console.log(`조회 ${rows.length}행 (org_id=${orgId})`);
 
   const srcExpenseBefore = {};

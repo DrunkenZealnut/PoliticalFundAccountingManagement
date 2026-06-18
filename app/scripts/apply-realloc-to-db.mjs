@@ -15,7 +15,7 @@ const won=n=>Number(n).toLocaleString("ko-KR");
 
 function cmp(a,b){ if(a.acc_date!==b.acc_date) return a.acc_date<b.acc_date?-1:1; const ta=a.acc_time??"",tb=b.acc_time??""; if(ta===tb)return 0; return ta<tb?-1:1; }
 function reallocate(rows){
-  const priority=[84,83,82]; const sorted=[...rows].sort((a,b)=>cmp(a,b)||a.acc_book_id-b.acc_book_id);
+  const priority=[84,83,82]; const sorted=[...rows].sort((a,b)=>cmp(a,b)||a.incm_sec_cd-b.incm_sec_cd||a.acc_book_id-b.acc_book_id);
   const avail=new Map(); const get=s=>avail.get(s)??0; const out=[];
   for(const r of sorted){
     if(r.incm_sec_cd===1){ avail.set(r.acc_sec_cd,get(r.acc_sec_cd)+r.acc_amt); out.push({r,parts:[{src:r.acc_sec_cd,amt:r.acc_amt}]}); continue; }
@@ -66,7 +66,16 @@ console.log(`\n⚠ claim_amt(보전청구액) 보유 행: UPDATE중 ${claimUpdat
 
 if(!APPLY){ console.log("\n(DRY-RUN — 실제 변경 없음. 실행하려면 --apply)"); process.exit(0); }
 
+// claim_amt(보전청구액) 행이 재배분/분할 대상이면 보전 금액 복제 위험 → 분배 규칙 확정 전 --apply 차단
+if(claimUpdates.length || claimSplits.length){
+  console.error(`\n중단: claim_amt 보유 행이 재배분 대상입니다 (UPDATE ${claimUpdates.length}, 분할 ${claimSplits.length}). 보전 금액 분배 규칙을 먼저 적용한 뒤 --apply 하세요.`);
+  process.exit(1);
+}
+
 // === APPLY ===
+// ⚠ 한계: 아래 UPDATE/INSERT는 개별 요청이라 원자적이지 않다(트랜잭션/RPC 미사용). 중간 실패 시
+//   부분 반영이 남을 수 있으므로 반드시 사전 백업(backups/acc_book_org11_*.json) 후 실행하고,
+//   실패하면 백업으로 복구한다. 원자성이 필요하면 서버측 RPC 일괄 처리로 확장할 것.
 console.log("\n적용 중...");
 let nU=0,nI=0;
 for(const u of updates){ const upd={acc_sec_cd:u.newSrc, acc_amt:u.newAmt}; if(u.newSrc!==u.row.acc_sec_cd){ upd.rcp_no=null; upd.rcp_no2=null; } const {error}=await sb.from("acc_book").update(upd).eq("acc_book_id",u.row.acc_book_id); if(error){console.error(`UPDATE #${u.row.acc_book_id} 실패:`,error.message);process.exit(1);} nU++; }
@@ -74,8 +83,8 @@ for(const i of inserts){ const row={...i.base}; delete row.acc_book_id; row.acc_
 console.log(`완료: UPDATE ${nU}, INSERT ${nI}`);
 // 검증
 const { data: after } = await sb.from("acc_book").select("incm_sec_cd,acc_sec_cd,acc_date,acc_time,acc_amt,acc_book_id").eq("org_id",ORG);
-const sorted=[...after].sort((a,b)=>cmp(a,b)||a.acc_book_id-b.acc_book_id);
+const sorted=[...after].sort((a,b)=>cmp(a,b)||a.incm_sec_cd-b.incm_sec_cd||a.acc_book_id-b.acc_book_id);
 const bal={},min={};
-for(const r of sorted){const s=r.acc_sec_cd; bal[s]=(bal[s]??0)+(r.incm_sec_cd===1?r.acc_amt:-r.acc_amt); min[s]=Math.min(min[s]??0,bal[s]);}
+for(const r of sorted){const s=r.acc_sec_cd; bal[s]=(bal[s]??0)+(r.incm_sec_cd===1?r.acc_amt:-r.acc_amt); min[s]=min[s]===undefined?bal[s]:Math.min(min[s],bal[s]);}
 console.log("적용 후 자금원별 최저잔액:");
 for(const s of [84,85,83,82]) if(min[s]!==undefined) console.log(`  ${SRC[s]}: 최저 ${won(min[s])} ${min[s]<0?"⚠":"✓"}`);

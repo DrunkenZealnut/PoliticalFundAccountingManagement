@@ -160,7 +160,7 @@ export function reallocateFundSources(
 
 ### 4.3 스크립트 흐름 (`scripts/realloc-negative-balance.mjs`)
 
-```
+```text
 1) loadEnv(.env.local) → createClient(URL, SERVICE_ROLE_KEY)   // read-only
 2) org 확정: organ.org_name ILIKE '%오준석%' AND org_sec_cd=90 → org_id (복수면 사용자 확인)
 3) SELECT * , customer:cust_id(...) FROM acc_book WHERE org_id=? (84·85 포함 전 자금원)
@@ -219,7 +219,7 @@ export function reallocateFundSources(
 
 ### 9.1 알고리즘 (N-source 캐스케이드, 음수 0 보장)
 
-```
+```text
 정렬: 전 행 compareAccDateTime → acc_book_id
 상태: avail[src] (자금원별 running 가용액)
 overflow 우선순위 P = [84, 83, 82] (후보자자산 우선 = 후보자 부담, 그다음 정당지원금, 보조금)

@@ -70,13 +70,20 @@ async function main() {
     console.log(`→ 선택: org_id=${orgId} (${cand.org_name}, org_sec_cd=${cand.org_sec_cd})\n`);
   }
 
-  // 2) acc_book 조회 (read-only)
-  const { data: rows, error } = await supabase
-    .from("acc_book")
-    .select("acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_date, acc_time, acc_amt, content")
-    .eq("org_id", orgId)
-    .limit(100000);
-  if (error) { console.error("acc_book 조회 실패:", error.message); process.exit(1); }
+  // 2) acc_book 조회 (read-only, 페이징 — 진단 정확도 위해 전체 행 확보)
+  const pageSize = 5000;
+  const rows = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from("acc_book")
+      .select("acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_date, acc_time, acc_amt, content")
+      .eq("org_id", orgId)
+      .order("acc_book_id", { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (error) { console.error("acc_book 조회 실패:", error.message); process.exit(1); }
+    rows.push(...data);
+    if (data.length < pageSize) break;
+  }
   console.log(`총 ${rows.length}행 (org_id=${orgId})`);
 
   // 3) 자금원별 시간순 잔액 추이

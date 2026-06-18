@@ -25,7 +25,10 @@ const exp = (id: number, src: number, date: string, amt: number) =>
 
 /** 출력 행에서 자금원별 시간순 최저잔액 계산(음수 0 검증용). */
 function minBalances(res: ReallocResult): Record<number, number> {
-  const sorted = [...res.rows].sort((a, b) => compareAccDateTime(a, b) || a.acc_book_id - b.acc_book_id);
+  // production(fund-realloc) 정렬과 동일 tie-break: 동시각 수입(1) 먼저
+  const sorted = [...res.rows].sort(
+    (a, b) => compareAccDateTime(a, b) || a.incm_sec_cd - b.incm_sec_cd || a.acc_book_id - b.acc_book_id,
+  );
   const bal: Record<number, number> = {};
   const min: Record<number, number> = {};
   for (const r of sorted) {
@@ -143,5 +146,16 @@ describe("reallocateFundSources", () => {
     expect(res.shortfalls).toHaveLength(1);
     expect(res.shortfalls[0]).toMatchObject({ accSecCd: 85, shortAmt: 200 });
     expect(minBalances(res)[85]).toBe(-200);
+  });
+
+  it("T14: 동시각 수입·지출 tie-break — 수입(1)을 지출(2)보다 먼저 처리(음수 방지)", () => {
+    // 같은 날·동일 시각(null)에서 지출(id=1)이 수입(id=2)보다 acc_book_id가 작다.
+    // acc_book_id 단독 tie-break면 지출이 먼저 처리돼 85가 일시 음수→shortfall.
+    // incm_sec_cd 우선 tie-break면 수입이 먼저라 shortfall·재배분 0. (CLAUDE.md 잔액누계 규칙)
+    const rows = [exp(1, 85, "20260501", 500), inc(2, 85, "20260501", 500)];
+    const res = reallocateFundSources(rows);
+    expect(res.shortfalls).toEqual([]);
+    expect(res.redistributions).toEqual([]);
+    expect(minBalances(res)[85]).toBeGreaterThanOrEqual(0);
   });
 });

@@ -84,7 +84,10 @@ export function reallocateFundSources(
 ): ReallocResult {
   const priority = opts.overflowPriority ?? DEFAULT_PRIORITY;
   const sorted = [...rows].sort(
-    (a, b) => compareAccDateTime(a, b) || a.acc_book_id - b.acc_book_id,
+    (a, b) =>
+      compareAccDateTime(a, b) ||
+      a.incm_sec_cd - b.incm_sec_cd || // 동시각·미입력: 수입(1) 먼저 처리 → 잔액 음수 방지 (CLAUDE.md tie-break SSOT 규칙)
+      a.acc_book_id - b.acc_book_id,
   );
 
   const avail = new Map<number, number>();

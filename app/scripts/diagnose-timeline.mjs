@@ -34,15 +34,24 @@ const cmp = (a, b) => a.acc_date !== b.acc_date ? (a.acc_date < b.acc_date ? -1 
   : (a.acc_book_id ?? 0) - (b.acc_book_id ?? 0);
 
 async function main() {
-  const { data: rows, error } = await supabase
-    .from("acc_book")
-    .select("acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_date, acc_time, acc_amt, content, cust_id, customer:cust_id(name)")
-    .eq("org_id", orgId)
-    .in("acc_sec_cd", [84, 85])
-    .limit(100000);
-  if (error) { console.error(error.message); process.exit(1); }
+  // 서버측 acc_date<=until 필터 + 페이징 — limit 후 클라 필터 시 until 이전 거래 누락 방지
+  const pageSize = 5000;
+  const rows = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from("acc_book")
+      .select("acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_date, acc_time, acc_amt, content, cust_id, customer:cust_id(name)")
+      .eq("org_id", orgId)
+      .in("acc_sec_cd", [84, 85])
+      .lte("acc_date", until)
+      .order("acc_book_id", { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (error) { console.error(error.message); process.exit(1); }
+    rows.push(...data);
+    if (data.length < pageSize) break;
+  }
 
-  const tl = rows.filter((r) => r.acc_date <= until).sort(cmp);
+  const tl = [...rows].sort(cmp);
   console.log(`org_id=${orgId}  84·85 거래 (≤ ${until})  ${tl.length}행`);
   console.log("날짜      시각  자금원 구분  " + "금액".padStart(11) + "  bal84".padStart(13) + "  bal85".padStart(13) + "  합산".padStart(13) + "  내역/거래처");
   let b84 = 0, b85 = 0;

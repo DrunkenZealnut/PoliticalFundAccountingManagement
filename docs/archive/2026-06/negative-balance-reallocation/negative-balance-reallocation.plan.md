@@ -151,7 +151,7 @@
 
 ### 6.3 알고리즘 (그리디, 시간순)
 
-```
+```text
 정렬: 84·85 전 거래를 compareAccDateTime(acc_date→acc_time→acc_book_id)
 상태: avail[84], avail[85] (running 가용액)
 각 거래 t 순회:
@@ -174,7 +174,7 @@
 
 ### 6.4 산출물
 
-```
+```text
 app/scripts/realloc-negative-balance.mjs   # read-only 조회 + 재배분 호출 + ExcelJS 계정별 시트
 app/src/lib/accounting/fund-realloc.ts      # 순수: 시간순 추적 + 그리디 재배분 (입력 rows → {시트별 행, 재배분내역, 부족경고})
 app/src/lib/accounting/fund-realloc.test.ts # 단위 테스트
