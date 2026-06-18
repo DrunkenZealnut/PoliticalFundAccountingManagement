@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { PageGuide } from "@/components/page-guide";
 import { PAGE_GUIDES } from "@/lib/page-guides";
 import { compareAccDateTime } from "@/lib/accounting/acc-book-sort";
+import { buildReportCombos, type AccItemCombo } from "@/lib/excel-template/report-combos";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -664,6 +665,13 @@ function buildLedgerSheet(
     rowIdx++;
   }
 
+  // 거래 0 계정·과목: 손기입용 빈 행 1개 (양식 완전성)
+  if (sorted.length === 0) {
+    for (let c = 1; c <= COLS; c++) ws.getRow(rowIdx).getCell(c).value = null;
+    applyDataCellStyle(ws, rowIdx, 1, COLS, [3, 4, 5, 6, 7]);
+    rowIdx++;
+  }
+
   const totalCount = sorted.length;
 
   /* 합계 row */
@@ -897,15 +905,26 @@ export default function ReportsPage() {
         }
       }
 
-      const combos = Array.from(comboMap.values())
-        .filter((c) => {
-          if (!selectedAccounts.has(c.accSecCd)) return false;
-          if (!selectedIncomeItems.has(c.itemSecCd) && !selectedExpenseItems.has(c.itemSecCd)) return false;
-          return true;
-        })
-        .sort(
-          (a, b) => a.accSecCd - b.accSecCd || a.itemSecCd - b.itemSecCd,
-        );
+      // 표준 계정×과목 조합(acc_rel) — 거래 0이어도 빈 양식으로 출력 (서식7 패턴)
+      const standardCombos: AccItemCombo[] = [];
+      const stdSeen = new Set<string>();
+      for (const incm of [1, 2] as const) {
+        if (!orgSecCd) break;
+        for (const acc of getAccounts(orgSecCd, incm)) {
+          for (const item of getItems(orgSecCd, incm, acc.cv_id)) {
+            const k = `${acc.cv_id}-${item.cv_id}`;
+            if (!stdSeen.has(k)) {
+              stdSeen.add(k);
+              standardCombos.push({ accSecCd: acc.cv_id, itemSecCd: item.cv_id });
+            }
+          }
+        }
+      }
+      const combos = buildReportCombos(
+        standardCombos,
+        Array.from(comboMap.values()),
+        { selectedAccounts, selectedIncomeItems, selectedExpenseItems },
+      );
 
       // Track which account covers we have already added
       const addedAccCovers = new Set<number>();
