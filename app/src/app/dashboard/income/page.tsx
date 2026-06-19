@@ -513,6 +513,13 @@ export default function IncomePage() {
             />
           </HelpTooltip>
 
+          {orgType === "candidate" && form.item_sec_cd > 0 && (
+            <p className="md:col-span-4 -mt-1 text-xs text-gray-500">
+              💡 수입의 과목(선거비용/선거비용외)은 결산 시 <b>과목배분</b>으로 실제 지출에 맞게 자동 정합됩니다. 대략
+              선택해도 (계정×과목) 잔액은 마감 시 음수 없이 맞춰집니다.
+            </p>
+          )}
+
           <div>
             <HelpTooltip id="income.date">
               <Label>수입일자</Label>
