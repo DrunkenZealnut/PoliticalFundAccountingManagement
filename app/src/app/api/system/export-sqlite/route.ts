@@ -13,6 +13,11 @@ import {
 import { computeBalances, type AccBookRow } from "@/lib/accounting/settlement-calc";
 import { fillExportReceiptNumbers } from "@/lib/accounting/receipt-no";
 import { fillExportSortNumbers } from "@/lib/accounting/acc-book-sort";
+import {
+  planAllocationPersist,
+  applyPlanInMemory,
+  type AllocTrackedRow,
+} from "@/lib/accounting/persist-allocation";
 import { ParityError, ParityErrors } from "@/lib/accounting/parity-errors";
 import {
   PFUND2_ENSURE_ANONYMOUS_CUSTOMER_SQL,
@@ -488,6 +493,33 @@ export function stripAppOnlyAccBookColumns(
   return rest;
 }
 
+/** 후보자 자금원 코드(82~85). 이 계정을 쓰는 행이 있으면 후보자 거래로 본다. */
+const CANDIDATE_ACC_SEC_CDS = [82, 83, 84, 85];
+
+/**
+ * export용 (계정×과목) 분할 — acc_book(데이터)은 실거래 원본 그대로 두고, 보고자료(.db)에서만
+ * 금액을 충당 과목/자금원으로 분할한다. 영구화와 동일한 순수 함수(planAllocationPersist/
+ * applyPlanInMemory)를 **메모리에서만** 적용(DB write 없음). 후원회/정당 등 비후보자 거래는 무변경.
+ * 분할 추적 컬럼은 이후 stripAppOnlyAccBookColumns 가 제거하므로 공식 .db엔 순수 거래 행만 남는다.
+ */
+function allocateCandidateAccBookForExport(
+  rows: Record<string, unknown>[],
+): Record<string, unknown>[] {
+  const isCandidate = rows.some((r) => CANDIDATE_ACC_SEC_CDS.includes(Number(r.acc_sec_cd)));
+  if (!isCandidate) return rows;
+  const input = rows.map((r) => ({
+    ...r,
+    acc_book_id: Number(r.acc_book_id),
+    incm_sec_cd: Number(r.incm_sec_cd),
+    acc_sec_cd: Number(r.acc_sec_cd),
+    item_sec_cd: Number(r.item_sec_cd),
+    acc_amt: Number(r.acc_amt ?? 0),
+    acc_time: (r.acc_time as string | null | undefined) ?? null,
+  })) as unknown as AllocTrackedRow[];
+  const plan = planAllocationPersist(input, "");
+  return applyPlanInMemory(input, plan) as unknown as Record<string, unknown>[];
+}
+
 /**
  * data1/data2 export용 CUSTOMER 선정 — 거래(ACC_BOOK/ACC_BOOK_BAK)가 실제 참조하는
  * cust_id 집합으로 필터한다.
@@ -759,7 +791,8 @@ export async function GET(request: NextRequest) {
     //   acc_date→acc_sort_num으로 정렬해도 수입이 지출보다 먼저 와 수입지출부 누계가 음수가 안 되게.
     const finalAccBook = fillExportReceiptNumbers(
       fillExportSortNumbers(
-        filterByExportOrgId(remapOrgId(accBook, orgIdMap)).map(normalizeOfficialExpenseRow),
+        allocateCandidateAccBookForExport(filterByExportOrgId(remapOrgId(accBook, orgIdMap)))
+          .map(normalizeOfficialExpenseRow),
       ).map(stripAppOnlyAccBookColumns),
       exportCodeNames,
     );
