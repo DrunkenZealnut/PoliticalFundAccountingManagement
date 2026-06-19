@@ -14,7 +14,6 @@ import { getExpTypeData, PAY_METHODS } from "@/lib/expense-types";
 import { PageGuide } from "@/components/page-guide";
 import { PAGE_GUIDES } from "@/lib/page-guides";
 import { fileToBase64 } from "@/lib/file-utils";
-import { toAccTime } from "@/lib/date-utils";
 import { FundingDraftPreview } from "@/components/dashboard/FundingDraftPreview";
 import type { AsOfRow } from "@/lib/accounting/funding-balance-asof";
 
@@ -200,7 +199,6 @@ export default function DocumentRegisterPage() {
         acc_sec_cd: e.acc_sec_cd, item_sec_cd: e.item_sec_cd, exp_sec_cd: 0,
         cust_id: custId || NO_CUSTOMER_ID,
         acc_date: e.acc_date.replace(/-/g, ""),
-        acc_time: toAccTime(e.acc_time),
         content: e.content, acc_amt: e.acc_amt,
         rcp_yn: e.rcp_yn,
         rcp_no: e.rcp_yn === "Y" ? (e.rcp_no || null) : null,
@@ -334,7 +332,6 @@ export default function DocumentRegisterPage() {
                 acc_sec_cd: entry.acc_sec_cd,
                 acc_amt: entry.acc_amt,
                 acc_date: entry.acc_date ? entry.acc_date.replace(/-/g, "") : "99999999",
-                acc_time: toAccTime(entry.acc_time),
               }}
               getName={getName}
             />

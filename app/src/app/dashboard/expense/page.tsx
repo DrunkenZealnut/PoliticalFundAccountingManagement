@@ -20,7 +20,7 @@ import { PAGE_GUIDES } from "@/lib/page-guides";
 import { EvidenceFileManager, type PendingFile } from "@/components/evidence/evidence-file-manager";
 import { buildExpenseSummary } from "@/lib/accounting/ledger-summary";
 import { LedgerSummaryHeader } from "@/components/dashboard/LedgerSummaryHeader";
-import { fmtTimeInput, toAccTime } from "@/lib/date-utils";
+import { fmtTimeInput } from "@/lib/date-utils";
 import { buildFundingAllocation } from "@/lib/accounting/funding-allocation";
 import { FundingAllocationPanel } from "@/components/dashboard/FundingAllocationPanel";
 import { FundingDraftPreview } from "@/components/dashboard/FundingDraftPreview";
@@ -131,12 +131,12 @@ export default function ExpensePage() {
       .eq("org_id", orgId).eq("incm_sec_cd", 2);
     if (filters) query = applyFiltersToQuery(query, filters);
 
-    const { data } = await query.order("acc_date").order("acc_time", { ascending: true, nullsFirst: true }).order("acc_sort_num").limit(100000);
+    const { data } = await query.order("acc_date").order("acc_sort_num").limit(100000);
     const recs = data || [];
     setRecords(recs);
     setFilteredTotal({ amount: recs.reduce((s: number, r: AccBook) => s + r.acc_amt, 0), count: recs.length });
 
-    const { data: allData } = await sb.from("acc_book").select("incm_sec_cd, acc_amt, acc_sec_cd, item_sec_cd, acc_date, acc_time, acc_book_id").eq("org_id", orgId).limit(100000);
+    const { data: allData } = await sb.from("acc_book").select("incm_sec_cd, acc_amt, acc_sec_cd, item_sec_cd, acc_date, acc_book_id").eq("org_id", orgId).limit(100000);
     if (allData) {
       setAllRows(allData as FundingRow[]);
       const inc = allData.filter((r) => r.incm_sec_cd === 1).reduce((s, r) => s + r.acc_amt, 0);
@@ -169,8 +169,8 @@ export default function ExpensePage() {
     const sb = createSupabaseBrowser();
     Promise.all([
       sb.from("acc_book").select("*, customer:cust_id(name)").eq("org_id", orgId).eq("incm_sec_cd", 2)
-        .order("acc_date").order("acc_time", { ascending: true, nullsFirst: true }).order("acc_sort_num").limit(100000),
-      sb.from("acc_book").select("incm_sec_cd, acc_amt, acc_sec_cd, item_sec_cd, acc_date, acc_time, acc_book_id").eq("org_id", orgId).limit(100000),
+        .order("acc_date").order("acc_sort_num").limit(100000),
+      sb.from("acc_book").select("incm_sec_cd, acc_amt, acc_sec_cd, item_sec_cd, acc_date, acc_book_id").eq("org_id", orgId).limit(100000),
     ]).then(([recRes, sumRes]) => {
       const recs = recRes.data || [];
       setRecords(recs);
@@ -365,7 +365,6 @@ export default function ExpensePage() {
       exp_sec_cd: form.exp_sec_cd,
       cust_id: form.cust_id || -999,
       acc_date: form.acc_date.replace(/-/g, ""),
-      acc_time: toAccTime(form.acc_time),
       content: form.content,
       acc_amt: form.acc_amt,
       rcp_yn: form.rcp_yn,
@@ -388,7 +387,6 @@ export default function ExpensePage() {
         exp_sec_cd: selected.exp_sec_cd,
         cust_id: selected.cust_id,
         acc_date: selected.acc_date,
-        acc_time: selected.acc_time,
         content: selected.content,
         acc_amt: selected.acc_amt,
         rcp_yn: selected.rcp_yn,
@@ -431,7 +429,6 @@ export default function ExpensePage() {
       exp_sec_cd: selected.exp_sec_cd,
       cust_id: selected.cust_id,
       acc_date: selected.acc_date,
-      acc_time: selected.acc_time,
       content: selected.content,
       acc_amt: selected.acc_amt,
       rcp_yn: selected.rcp_yn,
@@ -460,7 +457,7 @@ export default function ExpensePage() {
         work_kind: 2, acc_book_id: r.acc_book_id, org_id: r.org_id,
         incm_sec_cd: r.incm_sec_cd, acc_sec_cd: r.acc_sec_cd,
         item_sec_cd: r.item_sec_cd, exp_sec_cd: r.exp_sec_cd,
-        cust_id: r.cust_id, acc_date: r.acc_date, acc_time: r.acc_time, content: r.content,
+        cust_id: r.cust_id, acc_date: r.acc_date, content: r.content,
         acc_amt: r.acc_amt, rcp_yn: r.rcp_yn, rcp_no: r.rcp_no,
       });
     }
@@ -619,7 +616,6 @@ export default function ExpensePage() {
                 acc_sec_cd: form.acc_sec_cd,
                 acc_amt: form.acc_amt,
                 acc_date: form.acc_date ? form.acc_date.replace(/-/g, "") : "99999999",
-                acc_time: toAccTime(form.acc_time),
                 excludeAccBookId: selected?.acc_book_id,
               }}
               getName={getName}

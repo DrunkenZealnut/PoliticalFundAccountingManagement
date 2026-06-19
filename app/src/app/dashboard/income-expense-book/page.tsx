@@ -87,7 +87,7 @@ export default function IncomeExpenseBookPage() {
     // 후보자 (계정×과목) 분할은 전 행 맥락이 필요하므로 계정/과목 필터는 조회 후(JS)에 적용한다.
     const { data, error } = await supabase
       .from("acc_book")
-      .select("acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_date, acc_time, content, acc_amt, rcp_yn, rcp_no, bigo, acc_print_ok, cust_id, customer:cust_id(name, reg_num, addr, job, tel)")
+      .select("acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_date, content, acc_amt, rcp_yn, rcp_no, bigo, acc_print_ok, cust_id, customer:cust_id(name, reg_num, addr, job, tel)")
       .eq("org_id", orgId)
       .gte("acc_date", fromStr)
       .lte("acc_date", toStr);

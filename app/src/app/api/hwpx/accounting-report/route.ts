@@ -137,7 +137,7 @@ export async function POST(request: NextRequest) {
       const { data: rows, error: rowsErr } = await supabase
         .from("acc_book")
         .select(
-          "acc_book_id, acc_date, acc_time, incm_sec_cd, acc_sec_cd, item_sec_cd, content, acc_amt, rcp_no, cust_id, " +
+          "acc_book_id, acc_date, incm_sec_cd, acc_sec_cd, item_sec_cd, content, acc_amt, rcp_no, cust_id, " +
             "customer:cust_id(name, reg_num, addr, addr_detail, job, tel)"
         )
         .eq("org_id", orgId)

@@ -124,7 +124,6 @@ export default function ResolutionPage() {
       .gte("acc_date", fromStr)
       .lte("acc_date", toStr)
       .order("acc_date", { ascending: true })
-      .order("acc_time", { ascending: true, nullsFirst: true })
       .order("acc_sort_num", { ascending: true });
 
     if (accSecCd) query = query.eq("acc_sec_cd", accSecCd);
