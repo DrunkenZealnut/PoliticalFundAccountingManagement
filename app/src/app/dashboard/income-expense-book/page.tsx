@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CodeSelect } from "@/components/code-select";
+import { compareAccDateTime } from "@/lib/accounting/acc-book-sort";
+import { reallocateFundSources, type ReallocRow } from "@/lib/accounting/fund-realloc";
 
 interface BookRow {
   acc_book_id: number;
@@ -15,12 +17,14 @@ interface BookRow {
   acc_sec_cd: number;
   item_sec_cd: number;
   acc_date: string;
+  acc_time: string | null;
   content: string;
   acc_amt: number;
   rcp_yn: string;
   rcp_no: string | null;
   bigo: string | null;
   acc_print_ok: string | null;
+  cust_id: number;
   customer: {
     name: string | null;
     reg_num: string | null;
@@ -37,7 +41,7 @@ interface RowWithTotals extends BookRow {
 }
 
 export default function IncomeExpenseBookPage() {
-  const { orgId, orgSecCd } = useAuth();
+  const { orgId, orgSecCd, orgType } = useAuth();
   const { loading: codesLoading, getName, getAccounts, getItems } = useCodeValues();
 
   const [accSecCd, setAccSecCd] = useState(0);
@@ -81,27 +85,64 @@ export default function IncomeExpenseBookPage() {
     const toStr = dateTo.replace(/-/g, "");
     const supabase = createSupabaseBrowser();
 
-    let query = supabase
+    // 재배분은 전 자금원·전 과목을 시간순으로 함께 봐야 하므로 계정/과목 필터를
+    // 쿼리에 걸지 않고 기간 전체를 조회한 뒤 재배분 → 선택 계정/과목으로 필터한다.
+    const { data, error } = await supabase
       .from("acc_book")
-      .select("acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_date, content, acc_amt, rcp_yn, rcp_no, bigo, acc_print_ok, customer:cust_id(name, reg_num, addr, job, tel)")
+      .select("acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_date, acc_time, content, acc_amt, rcp_yn, rcp_no, bigo, acc_print_ok, cust_id, customer:cust_id(name, reg_num, addr, job, tel)")
       .eq("org_id", orgId)
       .gte("acc_date", fromStr)
       .lte("acc_date", toStr)
-      .order("acc_date", { ascending: true })
-      .order("acc_time", { ascending: true, nullsFirst: true })
-      .order("incm_sec_cd", { ascending: true }) // 같은 시각이면 수입(1)을 지출(2)보다 먼저 — 잔액 음수 방지
-      .order("acc_sort_num", { ascending: true });
+      .limit(100000); // 재배분은 전체 거래 필요 — 기본 1000행 cap 회피(/api/acc-book와 동일)
 
-    if (accSecCd) query = query.eq("acc_sec_cd", accSecCd);
-    if (itemSecCd) query = query.eq("item_sec_cd", itemSecCd);
-
-    const { data, error } = await query;
     if (error) {
       alert(`조회 실패: ${error.message}`);
       setLoading(false);
       return;
     }
-    setRecords((data || []) as unknown as BookRow[]);
+
+    const all = (data || []) as unknown as BookRow[];
+
+    // 자금원 음수잔액 해소 재배분(전 과목, 표시용 — 원본 불변). 자금원(82~85)
+    // 개념은 후보자 전용이므로 후보자 기관에서만 적용한다.
+    const reallocated: BookRow[] =
+      orgType === "candidate"
+        ? reallocateFundSources(all as unknown as ReallocRow[]).rows.map((r) => {
+            const note =
+              r.origin === "split-moved"
+                ? `재배분(${getName(r.acc_sec_cd)}→${getName(r.sheetAccSecCd)})`
+                : "";
+            const base = r as unknown as BookRow;
+            return {
+              ...base,
+              acc_sec_cd: r.sheetAccSecCd, // 재배분된 자금원
+              acc_amt: r.effectiveAmt, // 분할 후 금액
+              bigo: [base.bigo, note].filter(Boolean).join(" ") || null,
+            };
+          })
+        : all;
+
+    // 선택 계정/과목 필터 + 정렬(날짜→시각, 같은 시각이면 수입 먼저).
+    // 후보자: 수입은 자금원 전체를 표시(과목 필터 안 함), 지출만 선택 과목으로 필터한다.
+    // 재배분 후 "누적 자금원 수입 ≥ 누적 전체지출 ≥ 누적 해당과목 지출"이라 과목
+    // 슬라이스로 봐도 잔액이 음수가 되지 않는다(선거비용 보전 양식과 동일 패턴).
+    // 후원회/정당 등 비후보자는 자금원 개념이 없어 기존(계정·과목 동일 필터) 유지.
+    const isCandidate = orgType === "candidate";
+    const filtered = reallocated
+      .filter((r) => {
+        if (accSecCd && r.acc_sec_cd !== accSecCd) return false;
+        if (!itemSecCd) return true;
+        if (isCandidate && r.incm_sec_cd === 1) return true; // 수입=자금원 전체
+        return r.item_sec_cd === itemSecCd; // 지출(및 비후보자 수입)=선택 과목
+      })
+      .sort(
+        (a, b) =>
+          compareAccDateTime(a, b) ||
+          a.incm_sec_cd - b.incm_sec_cd || // 같은 시각이면 수입(1) 먼저 — 잔액 음수 방지
+          a.acc_book_id - b.acc_book_id, // 결정적 정렬(원 acc_sort_num 최종 키 대체)
+      );
+
+    setRecords(filtered);
     setLoading(false);
   }
 
