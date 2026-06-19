@@ -301,11 +301,6 @@ export default function DocumentRegisterPage() {
               onChange={(e) => updateEntry(entry.id, { acc_date: e.target.value })} />
           </div>
           <div>
-            <Label>{typeLabel}시각 <span className="text-xs text-gray-400">(선택)</span></Label>
-            <Input type="time" value={entry.acc_time}
-              onChange={(e) => updateEntry(entry.id, { acc_time: e.target.value })} />
-          </div>
-          <div>
             <Label>금액</Label>
             <Input type="number" value={entry.acc_amt || ""}
               onChange={(e) => updateEntry(entry.id, { acc_amt: Number(e.target.value) })} placeholder="금액" />

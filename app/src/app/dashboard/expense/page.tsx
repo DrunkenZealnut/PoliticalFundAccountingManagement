@@ -745,15 +745,6 @@ export default function ExpensePage() {
           </div>
 
           <div>
-            <Label>지출시각 <span className="text-xs text-gray-400">(선택)</span></Label>
-            <Input
-              type="time"
-              value={form.acc_time}
-              onChange={(e) => setForm({ ...form, acc_time: e.target.value })}
-            />
-          </div>
-
-          <div>
             <Label>지출금액</Label>
             <Input
               type="number"

@@ -532,15 +532,6 @@ export default function IncomePage() {
           </div>
 
           <div>
-            <Label>수입시각 <span className="text-xs text-gray-400">(선택)</span></Label>
-            <Input
-              type="time"
-              value={form.acc_time}
-              onChange={(e) => setForm({ ...form, acc_time: e.target.value })}
-            />
-          </div>
-
-          <div>
             <HelpTooltip id="income.amount">
               <Label>수입금액</Label>
             </HelpTooltip>
