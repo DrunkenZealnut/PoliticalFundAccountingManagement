@@ -43,6 +43,27 @@ const totalExpense = (rows: ReallocRow[]) =>
 const totalEffExpense = (res: ReallocResult) =>
   res.rows.filter((r) => r.incm_sec_cd === 2).reduce((s, r) => s + r.effectiveAmt, 0);
 
+/**
+ * 수입·지출부 Option B 슬라이스의 시간순 최저잔액.
+ * 한 자금원(sheet) 시트에서 수입은 자금원 전체(과목 무관), 지출만 해당 과목(expItem).
+ * reports/income-expense-book 페이지의 과목 슬라이스 렌더와 동일한 모집단.
+ */
+function optionBSliceMin(res: ReallocResult, sheet: number, expItem: number): number {
+  const rows = res.rows.filter(
+    (r) => r.sheetAccSecCd === sheet && (r.incm_sec_cd === 1 || r.item_sec_cd === expItem),
+  );
+  const sorted = [...rows].sort(
+    (a, b) => compareAccDateTime(a, b) || a.incm_sec_cd - b.incm_sec_cd || a.acc_book_id - b.acc_book_id,
+  );
+  let bal = 0;
+  let min = 0;
+  for (const r of sorted) {
+    bal += r.incm_sec_cd === 1 ? r.effectiveAmt : -r.effectiveAmt;
+    min = Math.min(min, bal);
+  }
+  return min;
+}
+
 describe("reallocateFundSources", () => {
   it("T1: 가용 내 지출은 재배분 없음(as-is)", () => {
     const rows = [inc(1, 85, "20260501", 1000), exp(2, 85, "20260502", 600)];
@@ -157,5 +178,22 @@ describe("reallocateFundSources", () => {
     expect(res.shortfalls).toEqual([]);
     expect(res.redistributions).toEqual([]);
     expect(minBalances(res)[85]).toBeGreaterThanOrEqual(0);
+  });
+
+  it("T15: 수입이 선거비용(86)에 기장·선거비용외(87) 지출은 무대응 — Option B 슬라이스 음수 0 (실데이터 org 11 패턴)", () => {
+    // 자금원 85: 수입 전부 과목 86, 지출은 86·87 양쪽. 자금원 전체는 흑자지만
+    // 과목 87만 슬라이스(naive)하면 수입 0 − 지출 400 = −400 (사용자가 본 버그).
+    const rows = [
+      row({ acc_book_id: 1, incm_sec_cd: 1, acc_sec_cd: 85, item_sec_cd: 86, acc_date: "20260501", acc_amt: 1000 }),
+      row({ acc_book_id: 2, incm_sec_cd: 2, acc_sec_cd: 85, item_sec_cd: 87, acc_date: "20260502", acc_amt: 400 }),
+      row({ acc_book_id: 3, incm_sec_cd: 2, acc_sec_cd: 85, item_sec_cd: 86, acc_date: "20260503", acc_amt: 300 }),
+    ];
+    const res = reallocateFundSources(rows);
+    // 자금원 85 전체는 흑자 → 재배분/부족 없음
+    expect(res.shortfalls).toEqual([]);
+    expect(minBalances(res)[85]).toBeGreaterThanOrEqual(0);
+    // Option B: 자금원 전체수입(1000) + 과목 87 지출(400) → 음수 아님
+    expect(optionBSliceMin(res, 85, 87)).toBeGreaterThanOrEqual(0);
+    expect(optionBSliceMin(res, 85, 86)).toBeGreaterThanOrEqual(0);
   });
 });
