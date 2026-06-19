@@ -35,28 +35,9 @@ interface SettlementResult {
   accounts: AccountSummary[];
 }
 
-interface AllocAccountItem {
-  accSecCd: number;
-  itemSecCd: number;
-  income: number;
-  expense: number;
-  balance: number;
-  minBalance: number;
-}
-interface AllocResp {
-  ok: boolean;
-  status: number;
-  error?: string;
-  dryRun?: boolean;
-  rollback?: boolean;
-  plan?: { rawRows: number; sourcesSplit: number; updated: number; inserted: number; deletedMoved: number };
-  summary?: { byAccountItem: AllocAccountItem[]; totalIncome: number; totalExpense: number; cashBalance: number; hasNegative: boolean };
-  negativeAccounts?: AllocAccountItem[];
-}
-
 export default function SettlementPage() {
   const supabase = createSupabaseBrowser();
-  const { orgId, orgType } = useAuth();
+  const { orgId } = useAuth();
   const { loading: codesLoading, getName } = useCodeValues();
 
   const [dateFrom, setDateFrom] = useState("");
@@ -64,38 +45,6 @@ export default function SettlementPage() {
   const [result, setResult] = useState<SettlementResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [settled, setSettled] = useState(false);
-
-  // 과목 배분(후보자) — 수입을 충당 과목으로 재태깅해 (계정×과목) 균형 영구화
-  const [allocBusy, setAllocBusy] = useState(false);
-  const [alloc, setAlloc] = useState<AllocResp | null>(null);
-
-  const runItemAllocation = useCallback(
-    async (commit: boolean, rollback = false) => {
-      if (!orgId) return;
-      if (commit) {
-        const msg = rollback
-          ? "과목 배분을 해제하고 원본(raw) 상태로 되돌립니다. 진행할까요?"
-          : "수입 과목을 (계정×과목) 균형에 맞게 acc_book에 영구 기록합니다.\n원본은 가역(언제든 배분 해제 가능)입니다. 진행할까요?";
-        if (!confirm(msg)) return;
-      }
-      setAllocBusy(true);
-      setAlloc(null);
-      try {
-        const res = await fetch("/api/system/apply-item-allocation", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ orgId, dryRun: !commit, rollback }),
-        });
-        const json = await res.json();
-        setAlloc({ ok: res.ok && json.ok !== false, status: res.status, ...json });
-      } catch (e) {
-        setAlloc({ ok: false, status: 0, error: String(e) });
-      } finally {
-        setAllocBusy(false);
-      }
-    },
-    [orgId],
-  );
 
   const handleSettle = useCallback(async () => {
     if (!orgId || !dateFrom || !dateTo) {
@@ -415,86 +364,6 @@ export default function SettlementPage() {
                     </tbody>
                   </table>
                 </div>
-              </div>
-            )}
-
-            {/* 과목 배분 (후보자 전용) — 결산확정 전에 (계정×과목) 균형을 영구화 */}
-            {orgType === "candidate" && (
-              <div className="border rounded-lg p-4 space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="font-semibold text-sm flex items-center gap-1">
-                    정치자금 수입·지출부 과목 배분
-                    <HelpTooltip text="수입을 충당 과목(선거비용/선거비용외)으로 재태깅해 모든 (계정×과목) 잔액을 0 이상으로 맞춥니다. 지출 과목은 불변. 공식 프로그램과 동일한 데이터 구조이며 원본은 가역(배분 해제 가능)입니다." />
-                  </h3>
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm" onClick={() => runItemAllocation(false)} disabled={allocBusy}>
-                      균형 미리보기
-                    </Button>
-                    <Button size="sm" onClick={() => runItemAllocation(true)} disabled={allocBusy}>
-                      과목배분 확정
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => runItemAllocation(true, true)} disabled={allocBusy}>
-                      배분 해제
-                    </Button>
-                  </div>
-                </div>
-                {allocBusy && <p className="text-sm text-gray-500">처리 중…</p>}
-                {alloc && !alloc.ok && (
-                  <div className="text-sm text-red-600">
-                    {alloc.error ?? "처리 실패"}
-                    {alloc.negativeAccounts?.length ? (
-                      <div className="mt-1">
-                        음수 잔액:{" "}
-                        {alloc.negativeAccounts
-                          .map((n) => `${getName(n.accSecCd)}×${getName(n.itemSecCd)} ${fmt(n.minBalance)}`)
-                          .join(", ")}
-                      </div>
-                    ) : null}
-                  </div>
-                )}
-                {alloc && alloc.ok && alloc.summary && (
-                  <div className="text-sm space-y-2">
-                    <p className={alloc.dryRun ? "text-gray-600" : "text-green-600"}>
-                      {alloc.rollback
-                        ? "✓ 배분 해제됨(원본 복귀)"
-                        : alloc.dryRun
-                          ? "미리보기"
-                          : "✓ 과목배분 영구화 완료"}{" "}
-                      — 분할 {alloc.plan?.sourcesSplit ?? 0}건(이동분 {alloc.plan?.inserted ?? 0}) · 통장잔액{" "}
-                      {fmt(alloc.summary.cashBalance)}원 · 음수 {alloc.summary.hasNegative ? "있음 ⚠" : "없음"}
-                    </p>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead>
-                          <tr className="text-gray-500">
-                            <th className="text-left py-1">계정(자금원)</th>
-                            <th className="text-left">과목</th>
-                            <th className="text-right">수입</th>
-                            <th className="text-right">지출</th>
-                            <th className="text-right">잔액</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {alloc.summary.byAccountItem.map((b, i) => (
-                            <tr key={`${b.accSecCd}-${b.itemSecCd}-${i}`} className="border-t">
-                              <td className="py-1">{getName(b.accSecCd)}</td>
-                              <td>{getName(b.itemSecCd)}</td>
-                              <td className="text-right font-mono">{fmt(b.income)}</td>
-                              <td className="text-right font-mono">{fmt(b.expense)}</td>
-                              <td className={`text-right font-mono ${b.balance < 0 ? "text-red-600" : ""}`}>
-                                {fmt(b.balance)}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
-                <p className="text-xs text-gray-400">
-                  결산확정 전에 실행하면 (계정×과목)별 정치자금 수입·지출부가 음수 없이 출력됩니다. 거래를 추가·수정하면 다시
-                  실행하세요(멱등). 미적용 시 음수가 남을 수 있습니다.
-                </p>
               </div>
             )}
 
