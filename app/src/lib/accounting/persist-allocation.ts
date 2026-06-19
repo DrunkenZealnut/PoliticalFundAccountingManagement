@@ -1,15 +1,14 @@
 /* ------------------------------------------------------------------ */
-/*  과목 배분 영구화 — raw 복원 / 배분 계획 / (테스트·검증용) 인메모리 적용  */
+/*  과목 배분 — 분할 행 세트 산출(메모리 전용, 순수)                        */
 /*                                                                    */
-/*  buildLedgerRows(순수)로 산출한 배분을 acc_book에 영구 기록하기 위한      */
-/*  순수 계획 함수들. 실제 DB write는 RPC(scripts/017)·action이 수행하되,   */
-/*  "무엇을 쓸지"는 여기서 결정해 단위 테스트로 고정한다.                   */
-/*                                                                    */
-/*  멱등·가역 모델:                                                      */
-/*   - slice0(원행)은 acc_book_id 재사용 UPDATE → evidence_file FK·영수증   */
-/*     보존. 이동분만 신규 INSERT(alloc_src_id=원 id).                    */
-/*   - 변경된 slice0는 raw_*(incm/acc/item/amt)에 원값 백업 → 복원 가능.    */
-/*   - 재실행 = reconstructRawRows(이동분 제거 + slice0 복원) 후 재산출.     */
+/*  buildLedgerRows로 산출한 (계정×과목) 배분을, slice0(원행 id 재사용) +    */
+/*  이동분(신규 id) 형태의 acc_book 행 세트로 materialize 한다.            */
+/*  현재 유일 소비처: api/system/export-sqlite — acc_book(데이터)은 실거래   */
+/*  원본 그대로 두고, 이 함수들로 .db(보고자료)용 분할 행을 메모리에서만     */
+/*  만든다(DB write 없음). slice0가 원 acc_book_id를 유지해 영수증·메타가     */
+/*  분할 후에도 한 행에 보존되고, 이동분에만 새 id를 부여한다. 과거 acc_book  */
+/*  영구화에 쓰였으나 "보고 시점 분할" 전환으로 DB write는 폐기됐다(추적      */
+/*  컬럼 raw_·alloc_ 은 export strip 대상이라 .db엔 안 남는다).               */
 /* ------------------------------------------------------------------ */
 import { buildLedgerRows } from "./ledger-allocation";
 import type { ReallocRow, ReallocCustomer } from "./fund-realloc";
@@ -209,41 +208,8 @@ export function planAllocationPersist(current: AllocTrackedRow[], generation: st
 }
 
 /**
- * 배분 해제(롤백) 계획 — 이동분 삭제 + slice0를 raw로 복원·추적컬럼 정리.
- * RPC에 updates(추적컬럼 전부 null·원값)·inserts=[] 로 전달하면 v0.14.8.0 raw 상태 복귀.
- */
-export function planRollback(current: AllocTrackedRow[]): AllocPersistPlan {
-  const deleteMovedIds = current.filter((r) => r.alloc_src_id != null).map((r) => r.acc_book_id);
-  const updates = current
-    .filter((r) => r.alloc_src_id == null && r.raw_acc_amt != null)
-    .map((r) =>
-      clearTracking({
-        ...r,
-        incm_sec_cd: r.raw_incm_sec_cd ?? r.incm_sec_cd,
-        acc_sec_cd: r.raw_acc_sec_cd ?? r.acc_sec_cd,
-        item_sec_cd: r.raw_item_sec_cd ?? r.item_sec_cd,
-        acc_amt: r.raw_acc_amt as number,
-      }),
-    );
-  return {
-    generation: "",
-    deleteMovedIds,
-    updates,
-    inserts: [],
-    stats: {
-      rawRows: current.length - deleteMovedIds.length,
-      ledgerRows: 0,
-      updated: updates.length,
-      inserted: 0,
-      deletedMoved: deleteMovedIds.length,
-      sourcesSplit: 0,
-    },
-  };
-}
-
-/**
- * 계획을 인메모리로 적용(테스트·dry-run 검증용). 실제 DB는 RPC가 수행.
- * 이동분 신규 id는 기존 최대 +1.. 로 결정적 부여.
+ * 계획을 인메모리로 적용. export-sqlite가 (계정×과목) 분할 행 세트(이동분에 새 id 부여)를
+ * 만드는 데 사용한다(DB write 없음). 이동분 신규 id는 기존 최대 +1.. 로 결정적 부여.
  */
 export function applyPlanInMemory(current: AllocTrackedRow[], plan: AllocPersistPlan): AllocTrackedRow[] {
   const del = new Set(plan.deleteMovedIds);

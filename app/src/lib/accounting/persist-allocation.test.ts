@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   reconstructRawRows,
   planAllocationPersist,
-  planRollback,
   applyPlanInMemory,
   type AllocTrackedRow,
 } from "./persist-allocation";
@@ -139,12 +138,4 @@ describe("persist-allocation", () => {
     expect(signature(reconstructRawRows(applied))).toEqual(before);
   });
 
-  it("P8: planRollback — 적용 후 배분 해제 시 raw 완전 복귀·추적컬럼 정리", () => {
-    const current = [inc(1, 86, "20260430", 1000), exp(2, 87, "20260501", 600), exp(3, 86, "20260502", 300)];
-    const before = signature(current);
-    const applied = applyPlanInMemory(current, planAllocationPersist(current, GEN));
-    const rolled = applyPlanInMemory(applied, planRollback(applied));
-    expect(signature(rolled)).toEqual(before);
-    expect(rolled.every((r) => r.alloc_src_id == null && r.raw_acc_amt == null && r.alloc_gen == null)).toBe(true);
-  });
 });
