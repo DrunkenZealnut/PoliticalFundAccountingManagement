@@ -11,6 +11,7 @@ import { PageGuide } from "@/components/page-guide";
 import { PAGE_GUIDES } from "@/lib/page-guides";
 import { compareAccDateTime } from "@/lib/accounting/acc-book-sort";
 import { buildReportCombos, type AccItemCombo } from "@/lib/excel-template/report-combos";
+import { aggregateSummaryByAccount } from "@/lib/hwpx/report-summary-builder";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -185,34 +186,17 @@ function buildSummarySheet(
 
   applyHeaderStyle(ws, 6, 7, 1, 6);
 
-  // Aggregate by acc_sec_cd
-  const accMap = new Map<number, { accName: string; income: number; expElection: number; expOther: number }>();
-
-  for (const r of records) {
-    const key = r.acc_sec_cd;
-    if (!accMap.has(key)) {
-      accMap.set(key, { accName: getName(key), income: 0, expElection: 0, expOther: 0 });
-    }
-    const entry = accMap.get(key)!;
-    if (r.incm_sec_cd === 1) {
-      entry.income += r.acc_amt;
-    } else {
-      // exp_sec_cd indicates election expense type; treat exp_sec_cd > 0 as election expense
-      if (r.exp_sec_cd && r.exp_sec_cd > 0) {
-        entry.expElection += r.acc_amt;
-      } else {
-        entry.expOther += r.acc_amt;
-      }
-    }
-  }
+  // acc_sec_cd별 집계. 선거비용/선거비용외는 **과목(item_sec_cd)** 으로 분류(SSOT).
+  // 기존 exp_sec_cd(지출유형) 기준은 미입력(0)이 많아 선거비용을 전부 선거비용외로 오분류했음.
+  // (계정×과목) 배분현황·22-1 HWPX(buildReportSummaryModel)와 동일 기준.
+  const summaryRows = aggregateSummaryByAccount(records, getName);
 
   let rowIdx = 8;
   let totalIncome = 0;
   let totalExpElection = 0;
   let totalExpOther = 0;
 
-  const sorted = Array.from(accMap.entries()).sort((a, b) => a[0] - b[0]);
-  for (const [, v] of sorted) {
+  for (const v of summaryRows) {
     const row = ws.getRow(rowIdx);
     row.getCell(1).value = v.accName;
     row.getCell(2).value = v.income || null;

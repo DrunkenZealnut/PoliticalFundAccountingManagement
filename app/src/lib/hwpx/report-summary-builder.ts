@@ -119,6 +119,43 @@ export function buildReportSummaryModel(
   return { rows: SUMMARY_ORDER.map((s) => buckets[s]), total };
 }
 
+/** reports 총괄표(Excel) 동적 행 — acc_sec_cd 단위 집계. */
+export interface AccountSummaryRow {
+  acc_sec_cd: number;
+  accName: string;
+  income: number;
+  expElection: number; // 지출 선거비용
+  expOther: number; // 지출 선거비용외
+}
+
+/**
+ * acc_sec_cd별 동적 집계(reports `buildSummarySheet` Excel 총괄표용).
+ * 선거비용/선거비용외는 **과목명(item_sec_cd → getName)** 으로 분류한다(SSOT classifyExpenseCategory).
+ * 지출유형 코드(exp_sec_cd)는 미입력(0)이 많아 선거비용을 0으로 오분류하므로 쓰지 않는다.
+ * (계정×과목) 배분현황과 동일 기준 → 22-1 HWPX(buildReportSummaryModel)와도 일관.
+ */
+export function aggregateSummaryByAccount(
+  rows: ReportSummaryInputRow[],
+  getName: GetName,
+): AccountSummaryRow[] {
+  const map = new Map<number, AccountSummaryRow>();
+  for (const r of rows) {
+    let e = map.get(r.acc_sec_cd);
+    if (!e) {
+      e = { acc_sec_cd: r.acc_sec_cd, accName: getName(r.acc_sec_cd), income: 0, expElection: 0, expOther: 0 };
+      map.set(r.acc_sec_cd, e);
+    }
+    const amt = r.acc_amt || 0;
+    if (r.incm_sec_cd === 1) {
+      e.income += amt;
+    } else if (r.incm_sec_cd === 2) {
+      if (classifyExpenseCategory(getName(r.item_sec_cd)) === "선거비용") e.expElection += amt;
+      else e.expOther += amt;
+    }
+  }
+  return [...map.values()].sort((a, b) => a.acc_sec_cd - b.acc_sec_cd);
+}
+
 /** 단일 구분 행 → 토큰맵 (5열). */
 function rowTokenMap(prefix: string, row: SummaryRow): Record<string, string> {
   return {
