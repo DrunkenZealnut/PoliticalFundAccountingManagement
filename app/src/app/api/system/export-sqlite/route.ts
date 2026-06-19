@@ -452,21 +452,37 @@ export function normalizeOfficialExpenseRow(
 }
 
 /**
- * PFund2/선관위 공식 ACC_BOOK 포맷에 없는 앱 전용 확장 컬럼 제거.
+ * PFund2/선관위 공식 ACC_BOOK 포맷에 없는 앱 전용 확장 컬럼 목록.
  *
- * `acc_time`(거래 시각 HHmm, scripts/014의 CHAR(4))·`claim_amt`(보전청구액, scripts/015의
- * BIGINT)는 앱 전용 컬럼으로 공식 SQLite 스키마(ACC_BOOK/ACC_BOOK_BAK DDL)에 존재하지 않는다.
- * fetch가 `SELECT *`라 이 컬럼들이 따라오는데, insertRows가 컬럼명을 그대로 대문자화(ACC_TIME/
- * CLAIM_AMT)해 INSERT하면 "table ACC_BOOK has no column named ..."로 export 전체가 실패한다.
- * CUSTOMER.org_id를 export 시 제거하는 것과 동일한 앱↔공식 포맷 정렬 처리.
+ * 공식 SQLite 스키마(ACC_BOOK/ACC_BOOK_BAK DDL)에 존재하지 않는 컬럼은 export 직전 제거해야 한다.
+ * fetch가 `SELECT *`라 이 컬럼들이 따라오는데, insertRows가 컬럼명을 그대로 대문자화해 INSERT하면
+ * "table ACC_BOOK has no column named ..."로 export 전체가 실패하기 때문이다.
+ * - `acc_time`(거래 시각 HHmm, scripts/014의 CHAR(4))
+ * - `claim_amt`(보전청구액, scripts/015의 BIGINT)
+ * - `alloc_src_id`·`alloc_seq`·`raw_acc_sec_cd`·`raw_item_sec_cd`·`raw_acc_amt`·`alloc_gen`
+ *   (과목 배분 추적/raw 복원용, scripts/016) — 분할된 ACC_BOOK 행은 공식 .db에선 순수 거래 행만 남아야 함.
+ */
+const APP_ONLY_ACC_BOOK_COLUMNS = [
+  "acc_time",
+  "claim_amt",
+  "alloc_src_id",
+  "alloc_seq",
+  "raw_acc_sec_cd",
+  "raw_item_sec_cd",
+  "raw_acc_amt",
+  "alloc_gen",
+] as const;
+
+/**
+ * 앱 전용 확장 컬럼 제거(공식 포맷 정렬). CUSTOMER.org_id를 export 시 제거하는 것과 동일 처리.
+ * 제거 대상 컬럼이 하나도 없으면 원본 참조를 그대로 반환(불변).
  */
 export function stripAppOnlyAccBookColumns(
   row: Record<string, unknown>,
 ): Record<string, unknown> {
-  if (!("acc_time" in row) && !("claim_amt" in row)) return row;
+  if (!APP_ONLY_ACC_BOOK_COLUMNS.some((c) => c in row)) return row;
   const rest = { ...row };
-  delete rest.acc_time;
-  delete rest.claim_amt;
+  for (const c of APP_ONLY_ACC_BOOK_COLUMNS) delete rest[c];
   return rest;
 }
 
