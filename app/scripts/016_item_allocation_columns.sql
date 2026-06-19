@@ -7,9 +7,10 @@
 --
 --   alloc_src_id     : 이동분(분할로 새로 INSERT된 행)의 출처 raw acc_book_id. raw/slice0 행은 NULL.
 --   alloc_seq        : 분할 슬라이스 순번(0=slice0=원행, 1.. = 이동분).
+--   raw_incm_sec_cd  : Pass0(음수 수입→지출 정규화) 전 원 수입/지출 구분. 미변경 행은 NULL.
 --   raw_acc_sec_cd   : slice0(원행)을 in-place UPDATE 하기 전 원 계정(자금원). 미변경 행은 NULL.
 --   raw_item_sec_cd  : slice0 원 과목. 미변경 행은 NULL.
---   raw_acc_amt      : slice0 원 금액. 미변경 행은 NULL.
+--   raw_acc_amt      : slice0 원 금액(음수 수입은 음수). 미변경 행은 NULL.
 --   alloc_gen        : 마지막 배분 실행 일자(YYYYMMDD, 감사용).
 --
 -- 멱등 재생성(영구화 RPC scripts/017):
@@ -27,6 +28,7 @@
 
 ALTER TABLE pfam.acc_book     ADD COLUMN IF NOT EXISTS alloc_src_id    INTEGER;
 ALTER TABLE pfam.acc_book     ADD COLUMN IF NOT EXISTS alloc_seq       SMALLINT;
+ALTER TABLE pfam.acc_book     ADD COLUMN IF NOT EXISTS raw_incm_sec_cd SMALLINT;
 ALTER TABLE pfam.acc_book     ADD COLUMN IF NOT EXISTS raw_acc_sec_cd  INTEGER;
 ALTER TABLE pfam.acc_book     ADD COLUMN IF NOT EXISTS raw_item_sec_cd INTEGER;
 ALTER TABLE pfam.acc_book     ADD COLUMN IF NOT EXISTS raw_acc_amt     NUMERIC(15,0);
@@ -34,6 +36,7 @@ ALTER TABLE pfam.acc_book     ADD COLUMN IF NOT EXISTS alloc_gen       CHAR(8);
 
 ALTER TABLE pfam.acc_book_bak ADD COLUMN IF NOT EXISTS alloc_src_id    INTEGER;
 ALTER TABLE pfam.acc_book_bak ADD COLUMN IF NOT EXISTS alloc_seq       SMALLINT;
+ALTER TABLE pfam.acc_book_bak ADD COLUMN IF NOT EXISTS raw_incm_sec_cd SMALLINT;
 ALTER TABLE pfam.acc_book_bak ADD COLUMN IF NOT EXISTS raw_acc_sec_cd  INTEGER;
 ALTER TABLE pfam.acc_book_bak ADD COLUMN IF NOT EXISTS raw_item_sec_cd INTEGER;
 ALTER TABLE pfam.acc_book_bak ADD COLUMN IF NOT EXISTS raw_acc_amt     NUMERIC(15,0);
@@ -41,6 +44,7 @@ ALTER TABLE pfam.acc_book_bak ADD COLUMN IF NOT EXISTS alloc_gen       CHAR(8);
 
 COMMENT ON COLUMN pfam.acc_book.alloc_src_id    IS '과목배분 이동분의 출처 raw acc_book_id (NULL=raw/slice0)';
 COMMENT ON COLUMN pfam.acc_book.alloc_seq       IS '과목배분 분할 순번 (0=slice0, 1..=이동분)';
+COMMENT ON COLUMN pfam.acc_book.raw_incm_sec_cd IS '과목배분 전 원 수입/지출 구분 (Pass0 복원용, NULL=미변경)';
 COMMENT ON COLUMN pfam.acc_book.raw_acc_sec_cd  IS '과목배분 전 원 계정 (NULL=미변경)';
 COMMENT ON COLUMN pfam.acc_book.raw_item_sec_cd IS '과목배분 전 원 과목 (NULL=미변경)';
 COMMENT ON COLUMN pfam.acc_book.raw_acc_amt     IS '과목배분 전 원 금액 (NULL=미변경)';

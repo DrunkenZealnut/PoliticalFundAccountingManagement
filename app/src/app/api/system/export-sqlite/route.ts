@@ -459,7 +459,7 @@ export function normalizeOfficialExpenseRow(
  * "table ACC_BOOK has no column named ..."로 export 전체가 실패하기 때문이다.
  * - `acc_time`(거래 시각 HHmm, scripts/014의 CHAR(4))
  * - `claim_amt`(보전청구액, scripts/015의 BIGINT)
- * - `alloc_src_id`·`alloc_seq`·`raw_acc_sec_cd`·`raw_item_sec_cd`·`raw_acc_amt`·`alloc_gen`
+ * - `alloc_src_id`·`alloc_seq`·`raw_incm_sec_cd`·`raw_acc_sec_cd`·`raw_item_sec_cd`·`raw_acc_amt`·`alloc_gen`
  *   (과목 배분 추적/raw 복원용, scripts/016) — 분할된 ACC_BOOK 행은 공식 .db에선 순수 거래 행만 남아야 함.
  */
 const APP_ONLY_ACC_BOOK_COLUMNS = [
@@ -467,6 +467,7 @@ const APP_ONLY_ACC_BOOK_COLUMNS = [
   "claim_amt",
   "alloc_src_id",
   "alloc_seq",
+  "raw_incm_sec_cd",
   "raw_acc_sec_cd",
   "raw_item_sec_cd",
   "raw_acc_amt",

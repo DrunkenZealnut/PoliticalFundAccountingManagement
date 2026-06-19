@@ -124,10 +124,10 @@ describe("stripAppOnlyAccBookColumns", () => {
   it("alloc_* / raw_* 추적 컬럼을 제거한다 (scripts/016, 과목 배분)", () => {
     const out = stripAppOnlyAccBookColumns({
       acc_book_id: 1, acc_sec_cd: 85, item_sec_cd: 87, acc_amt: 528000,
-      alloc_src_id: 130, alloc_seq: 1, raw_acc_sec_cd: 85, raw_item_sec_cd: 86,
+      alloc_src_id: 130, alloc_seq: 1, raw_incm_sec_cd: 1, raw_acc_sec_cd: 85, raw_item_sec_cd: 86,
       raw_acc_amt: 3830000, alloc_gen: "20260619",
     });
-    for (const k of ["alloc_src_id", "alloc_seq", "raw_acc_sec_cd", "raw_item_sec_cd", "raw_acc_amt", "alloc_gen"]) {
+    for (const k of ["alloc_src_id", "alloc_seq", "raw_incm_sec_cd", "raw_acc_sec_cd", "raw_item_sec_cd", "raw_acc_amt", "alloc_gen"]) {
       expect(k in out).toBe(false);
     }
     // 공식 컬럼은 보존
