@@ -11,7 +11,6 @@ import { PageGuide } from "@/components/page-guide";
 import { PAGE_GUIDES } from "@/lib/page-guides";
 import { compareAccDateTime } from "@/lib/accounting/acc-book-sort";
 import { buildReportCombos, type AccItemCombo } from "@/lib/excel-template/report-combos";
-import { reallocateFundSources, type ReallocRow } from "@/lib/accounting/fund-realloc";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -748,7 +747,7 @@ function buildLedgerSheet(
 /* ------------------------------------------------------------------ */
 
 export default function ReportsPage() {
-  const { orgId, orgName, orgSecCd, acctName, orgType } = useAuth();
+  const { orgId, orgName, orgSecCd, acctName } = useAuth();
   const { getName, getAccounts, getItems, loading: codesLoading } = useCodeValues();
 
   const [covers, setCovers] = useState({
@@ -892,24 +891,11 @@ export default function ReportsPage() {
       );
 
       /* ---- Sheets 5~N: Per account/item combination (수입+지출 합산) ---- */
-      // 자금원 음수잔액 해소 재배분(전 과목): 한 자금원의 지출이 그 시점 가용
-      // 수입을 초과하면 부족분을 수입 남는 자금원으로 쪼개 이동(표시용, 원본 불변).
-      // 선거비용에만 적용되던 재배분을 선거비용외정치자금에도 적용 → 자금원 음수 방지.
-      // 자금원(82~85) 개념은 후보자 전용 — 후원회/정당 등은 원본 그대로.
-      const ledgerRecords: AccRecord[] =
-        orgType === "candidate"
-          ? reallocateFundSources(records as unknown as ReallocRow[]).rows.map((r) => ({
-              ...(r as unknown as AccRecord),
-              acc_sec_cd: r.sheetAccSecCd, // 재배분된 자금원 시트로 배치
-              acc_amt: r.effectiveAmt, // 분할 후 금액
-            }))
-          : records;
-
       const comboMap = new Map<
         string,
         { accSecCd: number; itemSecCd: number }
       >();
-      for (const r of ledgerRecords) {
+      for (const r of records) {
         const key = `${r.acc_sec_cd}-${r.item_sec_cd}`;
         if (!comboMap.has(key)) {
           comboMap.set(key, {
@@ -962,14 +948,12 @@ export default function ReportsPage() {
           buildItemCover(wb, accName, itemName, orgName || "", itemCoverName);
         }
 
-        // Ledger detail sheet (수입+지출 합산) — 재배분된 자금원 기준.
-        // 후보자: 수입은 자금원 전체(과목 무관) 표시, 지출만 해당 과목 → 과목
-        // 슬라이스 잔액 음수 0 보장(선거비용 보전 양식과 동일). 비후보자는 기존대로.
-        const sheetRecords = ledgerRecords.filter((r) => {
-          if (r.acc_sec_cd !== combo.accSecCd) return false;
-          if (orgType === "candidate" && r.incm_sec_cd === 1) return true;
-          return r.item_sec_cd === combo.itemSecCd;
-        });
+        // Ledger detail sheet (수입+지출 합산)
+        const sheetRecords = records.filter(
+          (r) =>
+            r.acc_sec_cd === combo.accSecCd &&
+            r.item_sec_cd === combo.itemSecCd,
+        );
         const ledgerName = `${sheetNum}_${accName}_${itemName}`.slice(0, 31);
         buildLedgerSheet(
           wb,
