@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { compareAccDateTime, type AccDateTimeRow } from "./acc-book-sort";
+import { compareAccDateTime, fillExportSortNumbers, type AccDateTimeRow } from "./acc-book-sort";
 
 describe("compareAccDateTime", () => {
   it("다른 거래일은 날짜 오름차순으로 정렬한다", () => {
@@ -60,5 +60,52 @@ describe("compareAccDateTime", () => {
       "20260116/0600",
       "20260116/1400",
     ]);
+  });
+});
+
+describe("fillExportSortNumbers", () => {
+  const r = (p: Record<string, unknown> & { acc_book_id: number }): Record<string, unknown> => ({
+    acc_date: "20260501",
+    acc_time: null,
+    incm_sec_cd: 1,
+    ...p,
+  });
+
+  it("정규순서(acc_date→acc_time→수입먼저→acc_book_id)로 1..N 전역 부여", () => {
+    const out = fillExportSortNumbers([
+      r({ acc_book_id: 3, acc_date: "20260502", incm_sec_cd: 2 }),
+      r({ acc_book_id: 1, acc_date: "20260501", incm_sec_cd: 2 }),
+      r({ acc_book_id: 2, acc_date: "20260501", incm_sec_cd: 1 }), // 같은날 수입 → 지출보다 먼저
+    ]);
+    const byId = new Map(out.map((x) => [x.acc_book_id, x.acc_sort_num]));
+    expect(byId.get(2)).toBe(1); // 5/1 수입 먼저
+    expect(byId.get(1)).toBe(2); // 5/1 지출
+    expect(byId.get(3)).toBe(3); // 5/2
+  });
+
+  it("같은 날 수입이 지출보다 낮은 acc_sort_num (Windows 누계 음수 방지)", () => {
+    const out = fillExportSortNumbers([
+      r({ acc_book_id: 10, acc_date: "20260526", incm_sec_cd: 2, acc_time: null }), // 지출
+      r({ acc_book_id: 11, acc_date: "20260526", incm_sec_cd: 1, acc_time: null }), // 수입
+    ]);
+    const exp = out.find((x) => x.acc_book_id === 10)!.acc_sort_num!;
+    const inc = out.find((x) => x.acc_book_id === 11)!.acc_sort_num!;
+    expect(inc).toBeLessThan(exp);
+  });
+
+  it("기존 acc_sort_num을 덮어써 정규순서로 일관화한다", () => {
+    const out = fillExportSortNumbers([
+      r({ acc_book_id: 1, acc_date: "20260501", incm_sec_cd: 1, acc_sort_num: 999 }),
+      r({ acc_book_id: 2, acc_date: "20260501", incm_sec_cd: 2, acc_sort_num: null }),
+    ]);
+    expect(out.find((x) => x.acc_book_id === 1)!.acc_sort_num).toBe(1); // 999 덮어씀
+    expect(out.find((x) => x.acc_book_id === 2)!.acc_sort_num).toBe(2);
+  });
+
+  it("원본 배열 순서·메타는 보존(acc_sort_num만 갱신)", () => {
+    const input = [r({ acc_book_id: 5, acc_date: "20260503" }), r({ acc_book_id: 4, acc_date: "20260502" })];
+    const out = fillExportSortNumbers(input);
+    expect(out.map((x) => x.acc_book_id)).toEqual([5, 4]); // 입력 순서 유지
+    expect(input[0].acc_sort_num).toBeUndefined(); // 원본 불변
   });
 });

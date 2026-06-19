@@ -12,6 +12,7 @@ import {
 } from "@/lib/accounting/organ-pair";
 import { computeBalances, type AccBookRow } from "@/lib/accounting/settlement-calc";
 import { fillExportReceiptNumbers } from "@/lib/accounting/receipt-no";
+import { fillExportSortNumbers } from "@/lib/accounting/acc-book-sort";
 import { ParityError, ParityErrors } from "@/lib/accounting/parity-errors";
 import {
   PFUND2_ENSURE_ANONYMOUS_CUSTOMER_SQL,
@@ -754,16 +755,18 @@ export async function GET(request: NextRequest) {
       cvNameById[Number(c.cv_id)] = String(c.cv_name ?? "");
     }
     const exportCodeNames = { acc: cvNameById, item: cvNameById };
+    // acc_sort_num 정규순서 재부여(수입먼저)는 acc_time 제거(strip) 전에 — 공식 프로그램이 acc_time 없이
+    //   acc_date→acc_sort_num으로 정렬해도 수입이 지출보다 먼저 와 수입지출부 누계가 음수가 안 되게.
     const finalAccBook = fillExportReceiptNumbers(
-      filterByExportOrgId(remapOrgId(accBook, orgIdMap))
-        .map(normalizeOfficialExpenseRow)
-        .map(stripAppOnlyAccBookColumns),
+      fillExportSortNumbers(
+        filterByExportOrgId(remapOrgId(accBook, orgIdMap)).map(normalizeOfficialExpenseRow),
+      ).map(stripAppOnlyAccBookColumns),
       exportCodeNames,
     );
     const finalAccBookBak = fillExportReceiptNumbers(
-      filterByExportOrgId(remapOrgId(accBookBak, orgIdMap))
-        .map(normalizeOfficialExpenseRow)
-        .map(stripAppOnlyAccBookColumns),
+      fillExportSortNumbers(
+        filterByExportOrgId(remapOrgId(accBookBak, orgIdMap)).map(normalizeOfficialExpenseRow),
+      ).map(stripAppOnlyAccBookColumns),
       exportCodeNames,
     );
 
