@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   buildCandidateReportSummary,
+  allocateCandidateLedgerRows,
   type ReportSummaryRawRow,
 } from "./income-expense-report-summary";
 
@@ -120,5 +121,80 @@ describe("buildCandidateReportSummary", () => {
     // -200,000 수입 → +200,000 지출로 전환: 수입엔 안 잡히고 지출에 반영.
     expect(model.total.income).toBe(500_000);
     expect(model.total.expSubtotal).toBe(200_000);
+  });
+});
+
+describe("allocateCandidateLedgerRows (page·HWPX 22-1/22-2/22-4 공유 SSOT)", () => {
+  type MetaRow = ReportSummaryRawRow & { content: string | null; cust_id: number; rcp_no: string | null };
+  const meta = (p: Partial<MetaRow>): MetaRow => ({
+    acc_book_id: ++_id,
+    incm_sec_cd: 1,
+    acc_sec_cd: 84,
+    item_sec_cd: 86,
+    acc_amt: 1000,
+    acc_date: "20260101",
+    acc_time: null,
+    content: null,
+    cust_id: 0,
+    rcp_no: null,
+    ...p,
+  });
+
+  it("후보자: 자금원 부족 지출을 이동하되 과목 불변 + 원본 메타(내용·거래처·영수증번호) 보존", () => {
+    const out = allocateCandidateLedgerRows([
+      meta({ acc_book_id: 1, incm_sec_cd: 1, acc_sec_cd: 84, item_sec_cd: 86, acc_amt: 100_000 }),
+      meta({ acc_book_id: 2, incm_sec_cd: 2, acc_sec_cd: 82, item_sec_cd: 86, acc_amt: 50_000, content: "지출X", cust_id: 9, rcp_no: "자(비)-1" }),
+    ]);
+    const moved = out.find((r) => r.acc_book_id === 2)!;
+    expect(moved.acc_sec_cd).toBe(84); // 82→84 이동
+    expect(moved.item_sec_cd).toBe(86); // 과목(선거비용) 불변 (I4)
+    expect(moved.content).toBe("지출X"); // 원본 메타 보존
+    expect(moved.cust_id).toBe(9);
+    expect(moved.rcp_no).toBe("자(비)-1"); // 22-4 ledger가 receiptNo로 렌더 → 재조인 시 보존돼야 함
+  });
+
+  it("빈 입력 → 빈 배열 (조기반환 경계)", () => {
+    expect(allocateCandidateLedgerRows([])).toEqual([]);
+  });
+
+  it("비후보자: 배분 안 함, acc_amt 숫자화 + Pass0(음수수입→지출)", () => {
+    const out = allocateCandidateLedgerRows([
+      meta({ acc_book_id: 1, incm_sec_cd: 1, acc_sec_cd: 1, item_sec_cd: 94, acc_amt: "500000" as unknown as number }),
+      meta({ acc_book_id: 2, incm_sec_cd: 1, acc_sec_cd: 2, item_sec_cd: 97, acc_amt: "-200000" as unknown as number }),
+    ]);
+    expect(out.length).toBe(2); // 분할 없음
+    expect(out.every((r) => typeof r.acc_amt === "number")).toBe(true); // 문자열→숫자 (G4)
+    const conv = out.find((r) => r.acc_book_id === 2)!;
+    expect(conv.incm_sec_cd).toBe(2); // 음수수입→지출
+    expect(conv.acc_amt).toBe(200_000);
+  });
+
+  it("합 보존: 분할해도 총수입·총지출 불변", () => {
+    const out = allocateCandidateLedgerRows([
+      meta({ acc_book_id: 1, incm_sec_cd: 1, acc_sec_cd: 84, item_sec_cd: 86, acc_amt: 100_000 }),
+      meta({ acc_book_id: 2, incm_sec_cd: 2, acc_sec_cd: 82, item_sec_cd: 86, acc_amt: 50_000 }),
+    ]);
+    expect(out.filter((r) => r.incm_sec_cd === 1).reduce((s, r) => s + r.acc_amt, 0)).toBe(100_000);
+    expect(out.filter((r) => r.incm_sec_cd === 2).reduce((s, r) => s + r.acc_amt, 0)).toBe(50_000);
+  });
+
+  it("한 지출이 여러 slice로 분할돼도 각 조각이 원본 메타·과목을 보존하고 금액 합이 보존된다", () => {
+    // 82 수입 30,000 < 82 선거비용 지출 50,000 → 부족분 20,000을 84(자산)로 이동.
+    // 지출 행 하나(acc_book_id=3)가 [82:30,000 + 84:20,000] 두 조각으로 분할 — 가장 위험한 경로.
+    const out = allocateCandidateLedgerRows([
+      meta({ acc_book_id: 1, incm_sec_cd: 1, acc_sec_cd: 82, item_sec_cd: 86, acc_amt: 30_000 }),
+      meta({ acc_book_id: 2, incm_sec_cd: 1, acc_sec_cd: 84, item_sec_cd: 86, acc_amt: 100_000 }),
+      meta({ acc_book_id: 3, incm_sec_cd: 2, acc_sec_cd: 82, item_sec_cd: 86, acc_amt: 50_000, content: "분할Y", cust_id: 7, rcp_no: "자(비)-9" }),
+    ]);
+    const slices = out.filter((r) => r.acc_book_id === 3);
+    expect(slices.length).toBe(2); // 단일 지출이 두 자금원으로 분할
+    expect(slices.reduce((s, r) => s + r.acc_amt, 0)).toBe(50_000); // 합 보존
+    expect(slices.map((r) => r.acc_sec_cd).sort()).toEqual([82, 84]); // 일부는 82 유지, 일부는 84로 이동
+    for (const s of slices) {
+      expect(s.item_sec_cd).toBe(86); // 모든 조각 과목 불변 (I4)
+      expect(s.content).toBe("분할Y"); // 모든 조각 원본 메타 보존
+      expect(s.cust_id).toBe(7);
+      expect(s.rcp_no).toBe("자(비)-9");
+    }
   });
 });

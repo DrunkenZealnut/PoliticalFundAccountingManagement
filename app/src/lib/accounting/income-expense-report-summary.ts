@@ -39,6 +39,43 @@ function hasCandidateFundingSource(rows: ReportSummaryRawRow[]): boolean {
 }
 
 /**
+ * raw acc_book 행 → 후보자 보고 시점 (계정×과목) 배분 행. page 총괄·HWPX 22-1/22-2/22-4 공유 SSOT.
+ *  1) acc_amt(NUMERIC→문자열 직렬화) 숫자화 — 문자열 연결 방지(비후보자 경로 G4).
+ *  2) adjustNegativeIncome(음수수입→지출, 보편) — 후보자 여부 무관(멱등).
+ *  3) 후보자(자금원 82~85)면 buildLedgerRows(Pass1 자금원재배분[과목 불변]·Pass2 과목배분)로 분할 후
+ *     acc_book_id로 원본 메타 재조인, 비후보자면 그대로.
+ * 제네릭이라 호출부의 메타(content·rcp_no·cust_id·customer 등)를 보존한다.
+ */
+export function allocateCandidateLedgerRows<T extends ReportSummaryRawRow>(rawRows: T[]): T[] {
+  const normalized = rawRows.map((r) => ({ ...r, acc_amt: Number(r.acc_amt) }));
+  const p0 = adjustNegativeIncome(normalized);
+  if (!hasCandidateFundingSource(p0)) return p0;
+
+  const origById = new Map(p0.map((r) => [r.acc_book_id, r] as const));
+  const input: ReallocRow[] = p0.map((r) => ({
+    acc_book_id: r.acc_book_id,
+    incm_sec_cd: r.incm_sec_cd,
+    acc_sec_cd: r.acc_sec_cd,
+    item_sec_cd: r.item_sec_cd,
+    acc_date: r.acc_date,
+    acc_time: r.acc_time ?? null,
+    acc_amt: r.acc_amt,
+    content: null,
+    rcp_no: null,
+    bigo: null,
+    cust_id: 0,
+    customer: null,
+  }));
+  return buildLedgerRows(input).map((lr) => ({
+    ...origById.get(lr.acc_book_id)!,
+    acc_sec_cd: lr.accSecCd,
+    item_sec_cd: lr.itemSecCd,
+    acc_amt: lr.amt,
+    incm_sec_cd: lr.incm_sec_cd,
+  })) as T[];
+}
+
+/**
  * raw acc_book 행 → 22-1 수입·지출보고서 총괄 모델.
  *
  * 후보자(자금원 82~85 거래 존재) 시 `buildLedgerRows`(Pass0 음수수입 정규화 →
@@ -50,45 +87,11 @@ export function buildCandidateReportSummary(
   rawRows: ReportSummaryRawRow[],
   getName: (cvId: number) => string,
 ): ReportSummaryModel {
-  // acc_amt(NUMERIC)는 Supabase에서 문자열로 직렬화될 수 있어 먼저 숫자화(문자열 연결 방지).
-  // 음수 수입→지출 정규화(Pass0)는 후보자 여부와 무관하게 적용한다 — 페이지가 보정 배너를
-  // 항상 띄우므로 총괄도 같은 규칙을 따라야 정합(adjustNegativeIncome SSOT). 후보자 경로에서
-  // buildLedgerRows가 Pass0를 다시 적용해도 멱등이라 이중적용 없음.
-  const normalized = adjustNegativeIncome(
-    rawRows.map((r) => ({ ...r, acc_amt: Number(r.acc_amt) })),
-  );
-
-  let summaryRows: ReportSummaryInputRow[];
-
-  if (hasCandidateFundingSource(normalized)) {
-    const input: ReallocRow[] = normalized.map((r) => ({
-      acc_book_id: r.acc_book_id,
-      incm_sec_cd: r.incm_sec_cd,
-      acc_sec_cd: r.acc_sec_cd,
-      item_sec_cd: r.item_sec_cd,
-      acc_date: r.acc_date,
-      acc_time: r.acc_time ?? null,
-      acc_amt: r.acc_amt,
-      content: null,
-      rcp_no: null,
-      bigo: null,
-      cust_id: 0,
-      customer: null,
-    }));
-    summaryRows = buildLedgerRows(input).map((lr) => ({
-      incm_sec_cd: lr.incm_sec_cd,
-      acc_sec_cd: lr.accSecCd,
-      item_sec_cd: lr.itemSecCd,
-      acc_amt: lr.amt,
-    }));
-  } else {
-    summaryRows = normalized.map((r) => ({
-      incm_sec_cd: r.incm_sec_cd,
-      acc_sec_cd: r.acc_sec_cd,
-      item_sec_cd: r.item_sec_cd,
-      acc_amt: r.acc_amt,
-    }));
-  }
-
+  const summaryRows: ReportSummaryInputRow[] = allocateCandidateLedgerRows(rawRows).map((r) => ({
+    incm_sec_cd: r.incm_sec_cd,
+    acc_sec_cd: r.acc_sec_cd,
+    item_sec_cd: r.item_sec_cd,
+    acc_amt: r.acc_amt,
+  }));
   return buildReportSummaryModel(summaryRows, getName);
 }

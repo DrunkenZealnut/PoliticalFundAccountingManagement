@@ -35,10 +35,7 @@ import {
   electionExpenseSummaryTokens,
   type ElectionExpenseSummaryInputRow,
 } from "@/lib/hwpx/election-expense-summary-builder";
-import { buildLedgerRows } from "@/lib/accounting/ledger-allocation";
-import type { ReallocRow } from "@/lib/accounting/fund-realloc";
-
-const CANDIDATE_ACC_SEC_CDS = [82, 83, 84, 85];
+import { allocateCandidateLedgerRows } from "@/lib/accounting/income-expense-report-summary";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -137,11 +134,14 @@ export async function POST(request: NextRequest) {
       const { data: rows, error: rowsErr } = await supabase
         .from("acc_book")
         .select(
-          "acc_book_id, acc_date, incm_sec_cd, acc_sec_cd, item_sec_cd, content, acc_amt, rcp_no, cust_id, " +
+          "acc_book_id, acc_date, acc_time, incm_sec_cd, acc_sec_cd, item_sec_cd, content, acc_amt, rcp_no, cust_id, " +
             "customer:cust_id(name, reg_num, addr, addr_detail, job, tel)"
         )
         .eq("org_id", orgId)
-        .order("acc_date", { ascending: true });
+        // 정렬 SSOT(acc-book-sort): acc_date → acc_time(미입력 nulls first). 22-4 잔액 누계는
+        // 같은 날 거래 시각순이 잔액 정확성을 좌우하므로 acc_time 1차 보조키 필수(누락 시 입력순 뒤바뀜).
+        .order("acc_date", { ascending: true })
+        .order("acc_time", { ascending: true, nullsFirst: true });
       if (rowsErr) {
         return errorResponse("QUERY_FAILED", "수입·지출내역 조회에 실패했습니다.", 500, { detail: rowsErr.message });
       }
@@ -152,27 +152,15 @@ export async function POST(request: NextRequest) {
       const nameMap = new Map<number, string>((cvs ?? []).map((c) => [c.cv_id, c.cv_name]));
       const getName = (id: number) => nameMap.get(id) ?? String(id);
 
-      // 후보자(자금원 82~85) 거래는 보고 시점 (계정×과목) 분할(buildLedgerRows) → acc_book_id로 원본 메타 조인.
-      //   acc_book(데이터)은 실거래 원본 그대로, 회계보고서 생성 시에만 분할. 22-1/22-2/22-4 일관 적용.
+      // 후보자(자금원 82~85) 거래는 보고 시점 (계정×과목) 분할 → acc_book_id로 원본 메타 조인.
+      //   acc_book(데이터)은 실거래 원본 그대로, 보고서 생성 시에만 분할. page 총괄과 동일 SSOT
+      //   (allocateCandidateLedgerRows: acc_amt 숫자화 + Pass0 보편 + 후보자 buildLedgerRows + 메타 조인). 22-1/22-2/22-4 일관.
       const rawRows = (rows ?? []) as unknown as {
         acc_book_id: number; incm_sec_cd: number; acc_sec_cd: number; item_sec_cd: number;
         acc_date: string; acc_time: string | null; content: string | null; acc_amt: number;
         rcp_no: string | null; cust_id: number;
       }[];
-      let ledgerRows: typeof rawRows = rawRows;
-      if (rawRows.some((r) => CANDIDATE_ACC_SEC_CDS.includes(Number(r.acc_sec_cd)))) {
-        const origById = new Map(rawRows.map((r) => [r.acc_book_id, r]));
-        const input: ReallocRow[] = rawRows.map((r) => ({
-          acc_book_id: r.acc_book_id, incm_sec_cd: r.incm_sec_cd, acc_sec_cd: r.acc_sec_cd,
-          item_sec_cd: r.item_sec_cd, acc_date: r.acc_date, acc_time: r.acc_time ?? null,
-          acc_amt: Number(r.acc_amt), content: r.content ?? null, rcp_no: null, bigo: null,
-          cust_id: r.cust_id, customer: null,
-        }));
-        ledgerRows = buildLedgerRows(input).map((lr) => {
-          const o = origById.get(lr.acc_book_id)!;
-          return { ...o, acc_sec_cd: lr.accSecCd, item_sec_cd: lr.itemSecCd, acc_amt: lr.amt, incm_sec_cd: lr.incm_sec_cd };
-        });
-      }
+      const ledgerRows = allocateCandidateLedgerRows(rawRows);
 
       if (formId === "22-4") {
         const model = buildIncomeLedgerModel(ledgerRows as unknown as IncomeLedgerInputRow[], getName);
