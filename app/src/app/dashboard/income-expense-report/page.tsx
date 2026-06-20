@@ -73,6 +73,11 @@ export default function IncomeExpenseReportPage() {
       alert("조회된 데이터가 없습니다.");
       return;
     }
+    // buildReportSummaryModel은 자금원 4분류 고정행을 보장하나, 인덱스 접근(rows[0..3]) 방어.
+    if (model.rows.length !== 4) {
+      alert("보고서 데이터 형식이 올바르지 않습니다.");
+      return;
+    }
 
     const ExcelJS = (await import("exceljs")).default;
     const workbook = new ExcelJS.Workbook();
