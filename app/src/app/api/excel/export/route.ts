@@ -264,7 +264,7 @@ export async function GET(request: NextRequest) {
   if (accSecCd) query = query.eq("acc_sec_cd", Number(accSecCd));
   if (itemSecCd) query = query.eq("item_sec_cd", Number(itemSecCd));
 
-  const { data: records } = await query.order("acc_date").order("acc_sort_num");
+  const { data: records } = await query.order("acc_date").order("acc_sort_num").order("acc_book_id");
 
   if (!records || records.length === 0) {
     return NextResponse.json({ error: "No data" }, { status: 404 });

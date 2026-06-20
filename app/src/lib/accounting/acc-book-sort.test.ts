@@ -108,4 +108,16 @@ describe("fillExportSortNumbers", () => {
     expect(out.map((x) => x.acc_book_id)).toEqual([5, 4]); // 입력 순서 유지
     expect(input[0].acc_sort_num).toBeUndefined(); // 원본 불변
   });
+
+  it("[회귀] 중복 acc_book_id(acc_book_bak)도 행별 고유 acc_sort_num — 덮어쓰기 없음", () => {
+    // acc_book_bak는 같은 원장 id가 여러 백업 행으로 중복될 수 있음. id-keyed Map이면 마지막 rank로 덮임.
+    const out = fillExportSortNumbers([
+      r({ acc_book_id: 7, acc_date: "20260501", incm_sec_cd: 1 }),
+      r({ acc_book_id: 7, acc_date: "20260502", incm_sec_cd: 2 }),
+      r({ acc_book_id: 7, acc_date: "20260503", incm_sec_cd: 2 }),
+    ]);
+    const nums = out.map((x) => x.acc_sort_num).sort();
+    expect(nums).toEqual([1, 2, 3]); // 3행 모두 고유 rank (덮어쓰기 시 [3,3,3]이 됨)
+    expect(new Set(nums).size).toBe(3);
+  });
 });

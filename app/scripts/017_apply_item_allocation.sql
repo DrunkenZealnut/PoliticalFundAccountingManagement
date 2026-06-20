@@ -95,5 +95,9 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION pfam.apply_item_allocation(integer, char, jsonb, jsonb) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION pfam.apply_item_allocation(integer, char, jsonb, jsonb) TO authenticated, service_role;
+-- ⚠️ 이 RPC는 "보고 시점 분할" 전환으로 더 이상 호출되지 않는다(호출하던 라우트 제거됨).
+--    scripts/018_drop_item_allocation.sql 로 DROP할 것. 이미 적용된 환경은 즉시 018을 적용하거나
+--    아래 REVOKE를 실행해 authenticated 직접 호출(타 기관 장부 변경 IDOR)을 차단할 것.
+-- SECURITY DEFINER 함수는 service_role 전용으로만 EXECUTE를 부여한다(authenticated 금지).
+REVOKE ALL ON FUNCTION pfam.apply_item_allocation(integer, char, jsonb, jsonb) FROM PUBLIC, authenticated;
+GRANT EXECUTE ON FUNCTION pfam.apply_item_allocation(integer, char, jsonb, jsonb) TO service_role;

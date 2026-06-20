@@ -188,7 +188,7 @@ function ReimbursementTab({ dirty, setDirty }: { dirty: boolean; setDirty: (d: b
       .select("acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_date, content, acc_amt, claim_amt, rcp_yn, rcp_no, acc_print_ok, bigo, exp_group1_cd, exp_group2_cd, exp_group3_cd, customer:cust_id(name, reg_num, addr, job, tel)")
       .eq("org_id", orgId).eq("incm_sec_cd", 2)
       .gte("acc_date", fromStr).lte("acc_date", toStr)
-      .order("acc_date", { ascending: true }).order("acc_sort_num", { ascending: true });
+      .order("acc_date", { ascending: true }).order("acc_sort_num", { ascending: true }).order("acc_book_id", { ascending: true });
     if (accSecCd) query = query.eq("acc_sec_cd", accSecCd);
     if (itemSecCd) query = query.eq("item_sec_cd", itemSecCd);
     const { data } = await query;
@@ -331,7 +331,7 @@ function BurdenCostTab() {
       .select("acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_date, content, acc_amt, claim_amt, rcp_yn, rcp_no, acc_print_ok, bigo, exp_group1_cd, exp_group2_cd, exp_group3_cd, customer:cust_id(name, reg_num, addr, job, tel)")
       .eq("org_id", orgId).eq("incm_sec_cd", 2)
       .gte("acc_date", fromStr).lte("acc_date", toStr)
-      .order("acc_date", { ascending: true }).order("acc_sort_num", { ascending: true });
+      .order("acc_date", { ascending: true }).order("acc_sort_num", { ascending: true }).order("acc_book_id", { ascending: true });
     if (nonElectionItem) query = query.eq("item_sec_cd", nonElectionItem.cv_id);
     const { data } = await query;
     const rows = ((data || []) as unknown as ReimbRow[]).filter(isBurdenCostRow);

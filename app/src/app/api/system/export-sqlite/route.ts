@@ -515,6 +515,8 @@ function allocateCandidateAccBookForExport(
     item_sec_cd: Number(r.item_sec_cd),
     acc_amt: Number(r.acc_amt ?? 0),
     acc_time: (r.acc_time as string | null | undefined) ?? null,
+    // select("*")엔 customer 조인이 없어 undefined → 분할 계산엔 미사용이나 타입 계약상 null 명시.
+    customer: (r.customer as Record<string, unknown> | null | undefined) ?? null,
   })) as unknown as AllocTrackedRow[];
   const plan = planAllocationPersist(input, "");
   return applyPlanInMemory(input, plan) as unknown as Record<string, unknown>[];

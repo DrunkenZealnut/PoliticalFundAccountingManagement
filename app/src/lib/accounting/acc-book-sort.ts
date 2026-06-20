@@ -61,7 +61,9 @@ export function fillExportSortNumbers(
       Number(a.incm_sec_cd) - Number(b.incm_sec_cd) || // 동시각: 수입(1) 먼저 (잔액 음수 방지 SSOT)
       id(a) - id(b),
   );
-  const rank = new Map<number, number>();
-  ordered.forEach((r, i) => rank.set(id(r), i + 1));
-  return rows.map((r) => ({ ...r, acc_sort_num: rank.get(id(r)) ?? null }));
+  // rank는 행 객체 참조 기준으로 부여한다. acc_book_id 기준 Map은 acc_book_bak처럼 같은 원장
+  // id가 여러 백업 행으로 중복될 때 마지막 rank로 덮여 acc_sort_num이 충돌하므로 금지.
+  const rankByRef = new Map<Record<string, unknown>, number>();
+  ordered.forEach((r, i) => rankByRef.set(r, i + 1));
+  return rows.map((r) => ({ ...r, acc_sort_num: rankByRef.get(r) ?? null }));
 }

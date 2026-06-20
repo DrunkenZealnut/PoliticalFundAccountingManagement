@@ -1,9 +1,14 @@
 # 수입·지출부 과목 배분 — 공식 동일 데이터 구조 Design Document
 
 > **Plan**: `docs/01-plan/features/income-expense-item-allocation.plan.md`
-> **Project**: PoliticalFundAccountingManagement · **Date**: 2026-06-19 · **Status**: Draft
-> **대체 대상**: `docs/superpowers/specs/2026-06-19-income-expense-balance-model-design.md`(표시용 → 본 설계는 데이터 영구화)
+> **Project**: PoliticalFundAccountingManagement · **Date**: 2026-06-19 · **Status**: Superseded (구현 방향 변경)
 > **재사용**: `adjust-negative-income.ts`(Pass0), `fund-realloc.ts`(Pass1), `acc-book-sort.ts`(정렬 SSOT), `funding-balance-asof.ts`(입력 힌트), `stripAppOnlyAccBookColumns`(export strip 선례)
+
+> ⚠️ **구현 변경 (2026-06-20): 영구화 → 보고 시점 분할.**
+> 본 문서의 **§3(영구화 표현)·§4.3~4.6(apply_item_allocation 라우트/RPC·마감 트리거·일회성 마이그레이션)은 폐기**되었다.
+> 사용자 결정으로 "지출 데이터까지 금액을 분할 저장하지 않는다 — acc_book은 실거래 원본 유지, 분할은 보고자료 생성 시점에만" 으로 전환.
+> **실제 구현**: `buildLedgerRows`(§4.1·§4.2, 유효)를 수입·지출부 화면·reports·HWPX·export-sqlite가 **생성 시 in-memory로 호출**(acc_book write 없음). export는 `persist-allocation.ts`(planAllocationPersist/applyPlanInMemory)로 분할 행 세트를 메모리에서만 생성.
+> 폐기된 영구화 잔재(`apply-item-allocation` 라우트·`migrate-item-allocation.mjs`·`planRollback`)는 제거, scripts/016·017 컬럼·RPC는 `scripts/018`로 drop. §1·§2·§4.1·§4.2·§5·§6·§7(불변식·워크드 예시·엣지·검증)은 유효.
 
 ---
 
