@@ -30,6 +30,7 @@
 - **What:** `api/hwpx/accounting-report`(22-1)가 `buildCandidateReportSummary`를 공유하도록 리팩터, `excel-template/data-query.ts`(`/api/excel/report`)의 병렬 분류 교체/제거, `CANDIDATE_ACC_SEC_CDS` 로컬 중복을 `FUNDING_SOURCE_BY_ACC_SEC_CD` SSOT로 통합.
 - **Why:** 페이지(V1)는 정규 SSOT로 일원화했으나 22-1 route는 동일 로직을 인라인 재구현(드리프트 위험 + 비후보자 경로 `acc_amt`(NUMERIC→문자열) 문자열연결 잠재버그). `data-query`는 선거비용/자금원 병렬분류·보조금외 항상 0. route가 SSOT를 공유하면 page==22-1 동등성이 구조적으로 보장되고 G4·G7이 동시 해소.
 - **Context:** `docs/03-analysis/income-expense-report-ssot.analysis.md`(G4·G7·V2·V3), `docs/05-reference/정치자금_수입지출부_생성_주의사항.md` §12. SSOT는 이미 `app/src/lib/accounting/income-expense-report-summary.ts`에 존재 — route/data-query가 import만 하면 됨.
+- **Progress:** 🔶 부분완료 v0.17.1.0 (#88) — `api/hwpx/accounting-report`(22-1/22-2/22-4)가 `allocateCandidateLedgerRows`(page `buildCandidateReportSummary`와 공유하는 신규 SSOT)로 위임. route 로컬 `CANDIDATE_ACC_SEC_CDS` 제거(**G7 route측 해소**)·비후보자 경로 `Number()`/Pass0 적용(**G4 route측 해소**). **잔여:** `excel-template/data-query.ts`(V2) 교체/제거, `export-sqlite`의 `CANDIDATE_ACC_SEC_CDS`(V3 export-sqlite측).
 - **Depends on:** Nothing.
 - **Added:** 2026-06-20 (감사 V1 후속, /pdca analyze)
 

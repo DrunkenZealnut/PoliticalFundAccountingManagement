@@ -18,10 +18,10 @@
 | G1 | **잔존 위반** (하드코딩·exp_sec_cd·name.includes·Rule2 raw집계) | — | ✅ **0건** (grep·에이전트 확인). 집계는 `buildCandidateReportSummary` 단일 경로 |
 | G2 | **22-1 동등성** (게이트·ReallocRow·buildReportSummaryModel 입력·비후보자 경로) | — | ✅ 파이프라인 동등. 후보자 데이터 수치 일치 |
 | G3 | **보정 배너 정합** — 페이지는 `applyCorrections` 배너를 게이트 없이 띄우는데 집계는 비후보자면 Pass0 스킵 → 비후보자+음수수입에서 배너 거짓 | major | ✅ **수정** — `buildCandidateReportSummary`가 Pass0(`adjustNegativeIncome`)를 **보편 적용**. 회귀 테스트 추가(6/6) |
-| G4 | **acc_amt 문자열 연결** — `acc_amt`는 `NUMERIC(15,0)`→Supabase 문자열 직렬화. 페이지는 양 경로 `Number()` 캐스팅(안전) | blocker(조건부) | ✅ 페이지 안전 + 보편 `Number()` 정규화로 이중 방어. ⚠️ **route(accounting-report) 비후보자 경로는 미캐스팅 — 잠재 버그**(아래 follow-up) |
+| G4 | **acc_amt 문자열 연결** — `acc_amt`는 `NUMERIC(15,0)`→Supabase 문자열 직렬화. 페이지는 양 경로 `Number()` 캐스팅(안전) | blocker(조건부) | ✅ **수정** (v0.17.1.0 #88) — route(accounting-report)도 `allocateCandidateLedgerRows`가 비후보자 포함 전 행 `Number()` 정규화. 페이지·route 양측 안전 |
 | G5 | 환급(음수) 셀 표시 — 페이지는 비양수 셀을 `"-"`, HWPX는 음수값 출력 | minor | ℹ️ **수치 동일**, 표시만 상이. 옛 페이지와 동일 패턴(회귀 아님) |
 | G6 | 비후보자 행별 가시성 — 동적 N행 → 고정 4행(+기타는 합계로) | minor | ℹ️ **의도** — 공식 22-1 양식이 4행 고정. 후보자엔 정상, 비후보자는 이 폼 미사용 |
-| G7 | 후보자 게이트 SSOT 중복 — 페이지는 `FUNDING_SOURCE_BY_ACC_SEC_CD`, route는 로컬 `CANDIDATE_ACC_SEC_CDS` | minor | ⏳ **V3 범위(연기)** — 동일 집합이라 현재 무영향. SSOT 통합 권장 |
+| G7 | 후보자 게이트 SSOT 중복 — 페이지는 `FUNDING_SOURCE_BY_ACC_SEC_CD`, route는 로컬 `CANDIDATE_ACC_SEC_CDS` | minor | ✅ **수정** (v0.17.1.0 #88) — accounting-report route가 `allocateCandidateLedgerRows`(내부 `hasCandidateFundingSource`=`FUNDING_SOURCE_BY_ACC_SEC_CD`) 사용, 로컬 `CANDIDATE_ACC_SEC_CDS` 제거. 잔여: export-sqlite(V3) |
 
 ## 3. 변경 산출물
 
