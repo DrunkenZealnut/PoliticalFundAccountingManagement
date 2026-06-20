@@ -40,12 +40,13 @@ const CTX: OrgMetricsContext = {
 };
 
 describe("computeCandidateMetrics", () => {
-  it("선거비용은 exp_sec_cd>0, 선거비용외는 exp_sec_cd=0 지출로 분리한다", () => {
+  it("선거비용/선거비용외는 과목(item_sec_cd∈선거비용)으로 분리한다 — exp_sec_cd 무관", () => {
+    // 지출유형(exp_sec_cd) 미입력(0)이어도 과목이 선거비용(200)이면 선거비용. (계정×과목)·총괄표와 동일 기준.
     const rows = [
-      row({ incm_sec_cd: 2, exp_sec_cd: 10, acc_amt: 1000 }), // 선거비용
-      row({ incm_sec_cd: 2, exp_sec_cd: 5, acc_amt: 500 }), // 선거비용
-      row({ incm_sec_cd: 2, exp_sec_cd: 0, acc_amt: 300 }), // 선거비용외
-      row({ incm_sec_cd: 1, exp_sec_cd: 0, acc_amt: 9999 }), // 수입(지출 아님 → 제외)
+      row({ incm_sec_cd: 2, item_sec_cd: 200, exp_sec_cd: 0, acc_amt: 1000 }), // 선거비용 과목
+      row({ incm_sec_cd: 2, item_sec_cd: 200, exp_sec_cd: 0, acc_amt: 500 }), // 선거비용 과목
+      row({ incm_sec_cd: 2, item_sec_cd: 101, exp_sec_cd: 0, acc_amt: 300 }), // 선거비용 과목 아님 → 선거비용외
+      row({ incm_sec_cd: 1, item_sec_cd: 200, acc_amt: 9999 }), // 수입(지출 아님 → 제외)
     ];
     const m = computeCandidateMetrics(rows, CTX);
     expect(m.electionExpense).toBe(1500);
@@ -128,17 +129,17 @@ describe("computeCandidateMetrics", () => {
     expect(m.fundingSources).toHaveLength(0);
   });
 
-  it("Edge: 환급(음수) 보전 거래는 보전 예상액에서 차감한다 (aggregator SSOT)", () => {
+  it("Edge: 환급(음수) 선거비용·보전 거래를 과목 기준으로 반영한다 (aggregator SSOT)", () => {
     const rows = [
-      row({ incm_sec_cd: 2, exp_sec_cd: 1, acc_amt: 1000 }),
-      row({ incm_sec_cd: 2, exp_sec_cd: 1, acc_amt: -300 }), // 보정(음수) 거래
+      row({ incm_sec_cd: 2, item_sec_cd: 200, acc_amt: 1000 }), // 선거비용
+      row({ incm_sec_cd: 2, item_sec_cd: 200, acc_amt: -300 }), // 환급(음수)
       // 보전: 양수=청구, 음수=환급/조정 차감 (acc_amt!==0 이면 합산)
       row({ incm_sec_cd: 2, item_sec_cd: 200, acc_sec_cd: 82, acc_print_ok: "Y", acc_amt: 800 }),
       row({ incm_sec_cd: 2, item_sec_cd: 200, acc_sec_cd: 82, acc_print_ok: "Y", acc_amt: -200 }),
     ];
     const m = computeCandidateMetrics(rows, CTX);
-    // electionExpense는 음수 보정 반영
-    expect(m.electionExpense).toBe(700); // exp_sec_cd>0인 1000-300
+    // electionExpense는 음수 보정 반영, 전부 선거비용 과목(200)
+    expect(m.electionExpense).toBe(1300); // 1000 - 300 + 800 - 200
     expect(m.reimbursableEstimate).toBe(600); // 800 - 200(환급 차감)
   });
 });

@@ -5,7 +5,7 @@
 /*  후원회(supporter): 모금총액·추이·기부자수·후보자 기부금 지급          */
 /*                                                                    */
 /*  설계 근거: docs/02-design/features/dashboard-org-differentiation   */
-/*  - 선거비용/선거비용외 카드: exp_sec_cd > 0 (reports/page.tsx 패턴) */
+/*  - 선거비용/선거비용외 카드: item_sec_cd∈선거비용 (총괄표·배분과 동일) */
 /*  - 보전 예상액: aggregateReimbursementByFundingSource() 재사용      */
 /*    → 보전청구서(claim-form)와 100% 동일 기준 (SSOT)                 */
 /*  - 수입 자금원 분류: classifyFundingSource(acc_sec_cd) 82~85        */
@@ -25,7 +25,7 @@ export interface OrgMetricsRow {
   incm_sec_cd: number; // 1=수입, 2=지출
   acc_sec_cd: number; // 수입 자금원 분류 (82보조금/83보조금외/84후보자자산/85후원회기부금)
   item_sec_cd: number; // 과목 코드 (선거비용 판별·후보자 기부금 식별)
-  exp_sec_cd: number; // 지출유형 코드 (>0 → 선거비용)
+  exp_sec_cd: number; // 지출유형 코드 (보전 세부유형; 선거비용 판별엔 미사용)
   acc_print_ok: string | null; // 보전 체크 ('Y')
   acc_amt: number;
   acc_date: string; // YYYYMMDD
@@ -54,8 +54,8 @@ export interface FundingSourceSlice {
 export interface CandidateMetrics {
   totalIncome: number;
   totalExpense: number;
-  electionExpense: number; // 선거비용 지출 (exp_sec_cd > 0)
-  nonElectionExpense: number; // 선거비용외 지출 (exp_sec_cd = 0)
+  electionExpense: number; // 선거비용 지출 (item_sec_cd∈선거비용)
+  nonElectionExpense: number; // 선거비용외 지출 (그 외 과목)
   reimbursableEstimate: number; // 보전 예상액 (선거비용 & acc_print_ok='Y')
   fundingSources: FundingSourceSlice[]; // 수입 출처 4분류
   executionRate: number; // 집행률 = 지출/수입 (%, 0~100)
@@ -89,7 +89,6 @@ const FUNDING_ORDER: FundingSource[] = [
 
 const isIncome = (r: OrgMetricsRow) => r.incm_sec_cd === 1;
 const isExpense = (r: OrgMetricsRow) => r.incm_sec_cd === 2;
-const isElection = (r: OrgMetricsRow) => (r.exp_sec_cd ?? 0) > 0;
 const monthKey = (accDate: string) => accDate.slice(0, 6); // YYYYMM
 
 /** YYYYMM 에 delta개월을 더한 YYYYMM (Date 비의존, 결정적) */
@@ -115,6 +114,9 @@ export function computeCandidateMetrics(
   let nonElectionExpense = 0;
 
   const fundingMap = new Map<FundingSource, number>();
+  // 선거비용/선거비용외는 과목(item_sec_cd∈선거비용)으로 분류 — 보전 추정·총괄표·(계정×과목) 배분과 동일 기준.
+  // exp_sec_cd(지출유형)는 미입력(0)이 많아 선거비용을 0으로 오분류하므로 쓰지 않는다.
+  const electionItems = new Set(ctx.electionExpenseItemCds);
 
   for (const r of rows) {
     if (isIncome(r)) {
@@ -123,7 +125,7 @@ export function computeCandidateMetrics(
       fundingMap.set(src, (fundingMap.get(src) ?? 0) + r.acc_amt);
     } else if (isExpense(r)) {
       totalExpense += r.acc_amt;
-      if (isElection(r)) {
+      if (electionItems.has(r.item_sec_cd)) {
         electionExpense += r.acc_amt;
       } else {
         nonElectionExpense += r.acc_amt;

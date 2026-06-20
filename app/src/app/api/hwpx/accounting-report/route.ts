@@ -35,6 +35,10 @@ import {
   electionExpenseSummaryTokens,
   type ElectionExpenseSummaryInputRow,
 } from "@/lib/hwpx/election-expense-summary-builder";
+import { buildLedgerRows } from "@/lib/accounting/ledger-allocation";
+import type { ReallocRow } from "@/lib/accounting/fund-realloc";
+
+const CANDIDATE_ACC_SEC_CDS = [82, 83, 84, 85];
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -133,7 +137,7 @@ export async function POST(request: NextRequest) {
       const { data: rows, error: rowsErr } = await supabase
         .from("acc_book")
         .select(
-          "acc_date, incm_sec_cd, acc_sec_cd, item_sec_cd, content, acc_amt, rcp_no, cust_id, " +
+          "acc_book_id, acc_date, incm_sec_cd, acc_sec_cd, item_sec_cd, content, acc_amt, rcp_no, cust_id, " +
             "customer:cust_id(name, reg_num, addr, addr_detail, job, tel)"
         )
         .eq("org_id", orgId)
@@ -148,19 +152,41 @@ export async function POST(request: NextRequest) {
       const nameMap = new Map<number, string>((cvs ?? []).map((c) => [c.cv_id, c.cv_name]));
       const getName = (id: number) => nameMap.get(id) ?? String(id);
 
+      // 후보자(자금원 82~85) 거래는 보고 시점 (계정×과목) 분할(buildLedgerRows) → acc_book_id로 원본 메타 조인.
+      //   acc_book(데이터)은 실거래 원본 그대로, 회계보고서 생성 시에만 분할. 22-1/22-2/22-4 일관 적용.
+      const rawRows = (rows ?? []) as unknown as {
+        acc_book_id: number; incm_sec_cd: number; acc_sec_cd: number; item_sec_cd: number;
+        acc_date: string; acc_time: string | null; content: string | null; acc_amt: number;
+        rcp_no: string | null; cust_id: number;
+      }[];
+      let ledgerRows: typeof rawRows = rawRows;
+      if (rawRows.some((r) => CANDIDATE_ACC_SEC_CDS.includes(Number(r.acc_sec_cd)))) {
+        const origById = new Map(rawRows.map((r) => [r.acc_book_id, r]));
+        const input: ReallocRow[] = rawRows.map((r) => ({
+          acc_book_id: r.acc_book_id, incm_sec_cd: r.incm_sec_cd, acc_sec_cd: r.acc_sec_cd,
+          item_sec_cd: r.item_sec_cd, acc_date: r.acc_date, acc_time: r.acc_time ?? null,
+          acc_amt: Number(r.acc_amt), content: r.content ?? null, rcp_no: null, bigo: null,
+          cust_id: r.cust_id, customer: null,
+        }));
+        ledgerRows = buildLedgerRows(input).map((lr) => {
+          const o = origById.get(lr.acc_book_id)!;
+          return { ...o, acc_sec_cd: lr.accSecCd, item_sec_cd: lr.itemSecCd, acc_amt: lr.amt, incm_sec_cd: lr.incm_sec_cd };
+        });
+      }
+
       if (formId === "22-4") {
-        const model = buildIncomeLedgerModel((rows ?? []) as unknown as IncomeLedgerInputRow[], getName);
+        const model = buildIncomeLedgerModel(ledgerRows as unknown as IncomeLedgerInputRow[], getName);
         bytes = await transformSection(template, (section) => renderIncomeLedgerSection(section, model));
       } else if (formId === "22-2") {
         // 선거비용 지출내역 집계표: 선거비용 지출을 자금원 구분별 집계 → 고정 셀 토큰 치환
         const model = buildElectionExpenseSummaryModel(
-          (rows ?? []) as unknown as ElectionExpenseSummaryInputRow[],
+          ledgerRows as unknown as ElectionExpenseSummaryInputRow[],
           getName,
         );
         ({ bytes } = await generateHwpx(template, electionExpenseSummaryTokens(model)));
       } else {
         // 22-1 총괄표: 고정 셀 토큰 치환
-        const model = buildReportSummaryModel((rows ?? []) as unknown as ReportSummaryInputRow[], getName);
+        const model = buildReportSummaryModel(ledgerRows as unknown as ReportSummaryInputRow[], getName);
         ({ bytes } = await generateHwpx(template, summaryTokens(model)));
       }
     }

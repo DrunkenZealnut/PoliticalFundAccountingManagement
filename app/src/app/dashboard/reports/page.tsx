@@ -10,7 +10,10 @@ import { Label } from "@/components/ui/label";
 import { PageGuide } from "@/components/page-guide";
 import { PAGE_GUIDES } from "@/lib/page-guides";
 import { compareAccDateTime } from "@/lib/accounting/acc-book-sort";
+import { buildLedgerRows } from "@/lib/accounting/ledger-allocation";
+import type { ReallocRow } from "@/lib/accounting/fund-realloc";
 import { buildReportCombos, type AccItemCombo } from "@/lib/excel-template/report-combos";
+import { aggregateSummaryByAccount } from "@/lib/hwpx/report-summary-builder";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -141,6 +144,33 @@ function applyDataCellStyle(
 /**
  * Sheet 1: 정치자금 수입지출보고서 (총괄표)
  */
+/**
+ * 후보자 보고자료: raw acc_book 행 → buildLedgerRows(Pass0→1→2)로 (계정×과목) 분할,
+ * acc_book_id로 원본 메타(거래처·증빙·exp_sec_cd) 조인. acc_book(데이터)은 실거래 원본 그대로,
+ * 보고서 생성 시점에만 금액 분할. 비후보자는 호출하지 않는다.
+ */
+function allocateReportRecords(records: AccRecord[]): AccRecord[] {
+  const origById = new Map(records.map((r) => [r.acc_book_id, r]));
+  const input: ReallocRow[] = records.map((r) => ({
+    acc_book_id: r.acc_book_id,
+    incm_sec_cd: r.incm_sec_cd,
+    acc_sec_cd: r.acc_sec_cd,
+    item_sec_cd: r.item_sec_cd,
+    acc_date: r.acc_date,
+    acc_time: r.acc_time,
+    acc_amt: r.acc_amt,
+    content: r.content,
+    rcp_no: null,
+    bigo: null,
+    cust_id: r.cust_id,
+    customer: null,
+  }));
+  return buildLedgerRows(input).map((lr) => {
+    const o = origById.get(lr.acc_book_id)!;
+    return { ...o, acc_sec_cd: lr.accSecCd, item_sec_cd: lr.itemSecCd, acc_amt: lr.amt, incm_sec_cd: lr.incm_sec_cd };
+  });
+}
+
 function buildSummarySheet(
   wb: ExcelJS_Workbook,
   records: AccRecord[],
@@ -185,34 +215,17 @@ function buildSummarySheet(
 
   applyHeaderStyle(ws, 6, 7, 1, 6);
 
-  // Aggregate by acc_sec_cd
-  const accMap = new Map<number, { accName: string; income: number; expElection: number; expOther: number }>();
-
-  for (const r of records) {
-    const key = r.acc_sec_cd;
-    if (!accMap.has(key)) {
-      accMap.set(key, { accName: getName(key), income: 0, expElection: 0, expOther: 0 });
-    }
-    const entry = accMap.get(key)!;
-    if (r.incm_sec_cd === 1) {
-      entry.income += r.acc_amt;
-    } else {
-      // exp_sec_cd indicates election expense type; treat exp_sec_cd > 0 as election expense
-      if (r.exp_sec_cd && r.exp_sec_cd > 0) {
-        entry.expElection += r.acc_amt;
-      } else {
-        entry.expOther += r.acc_amt;
-      }
-    }
-  }
+  // acc_sec_cd별 집계. 선거비용/선거비용외는 **과목(item_sec_cd)** 으로 분류(SSOT).
+  // 기존 exp_sec_cd(지출유형) 기준은 미입력(0)이 많아 선거비용을 전부 선거비용외로 오분류했음.
+  // (계정×과목) 배분현황·22-1 HWPX(buildReportSummaryModel)와 동일 기준.
+  const summaryRows = aggregateSummaryByAccount(records, getName);
 
   let rowIdx = 8;
   let totalIncome = 0;
   let totalExpElection = 0;
   let totalExpOther = 0;
 
-  const sorted = Array.from(accMap.entries()).sort((a, b) => a[0] - b[0]);
-  for (const [, v] of sorted) {
+  for (const v of summaryRows) {
     const row = ws.getRow(rowIdx);
     row.getCell(1).value = v.accName;
     row.getCell(2).value = v.income || null;
@@ -747,7 +760,7 @@ function buildLedgerSheet(
 /* ------------------------------------------------------------------ */
 
 export default function ReportsPage() {
-  const { orgId, orgName, orgSecCd, acctName } = useAuth();
+  const { orgId, orgName, orgSecCd, orgType, acctName } = useAuth();
   const { getName, getAccounts, getItems, loading: codesLoading } = useCodeValues();
 
   const [covers, setCovers] = useState({
@@ -847,6 +860,11 @@ export default function ReportsPage() {
         return;
       }
 
+      // 후보자: 보고자료(총괄표·계정과목별 수입지출부)는 보고 시점에 (계정×과목) 분할 적용.
+      //   acc_book(데이터)은 실거래 원본 그대로. 비후보자는 원본 그대로 집계.
+      const reportRecords: AccRecord[] =
+        orgType === "candidate" ? allocateReportRecords(records) : records;
+
       // Fetch this org's customers via server API (org_id 격리, bypasses RLS)
       const custRes = await fetch(`/api/customers?orgId=${orgId}`);
       if (!custRes.ok) throw new Error("수입지출처 데이터를 불러오지 못했습니다.");
@@ -869,7 +887,7 @@ export default function ReportsPage() {
       const wb = new ExcelJS.Workbook();
 
       /* ---- Sheet 1: 수입지출보고서 총괄표 ---- */
-      buildSummarySheet(wb, records, orgName || "", dateFrom, dateTo, getName);
+      buildSummarySheet(wb, reportRecords, orgName || "", dateFrom, dateTo, getName);
 
       /* ---- Sheet 2: 재산명세서 ---- */
       buildEstateSheet(wb, estates, orgName || "");
@@ -895,7 +913,7 @@ export default function ReportsPage() {
         string,
         { accSecCd: number; itemSecCd: number }
       >();
-      for (const r of records) {
+      for (const r of reportRecords) {
         const key = `${r.acc_sec_cd}-${r.item_sec_cd}`;
         if (!comboMap.has(key)) {
           comboMap.set(key, {
@@ -949,7 +967,7 @@ export default function ReportsPage() {
         }
 
         // Ledger detail sheet (수입+지출 합산)
-        const sheetRecords = records.filter(
+        const sheetRecords = reportRecords.filter(
           (r) =>
             r.acc_sec_cd === combo.accSecCd &&
             r.item_sec_cd === combo.itemSecCd,

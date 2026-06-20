@@ -119,6 +119,29 @@ describe("stripAppOnlyAccBookColumns", () => {
     stripAppOnlyAccBookColumns(row);
     expect(row.acc_time).toBe("0900"); // 원본 유지
   });
+
+  // scripts/016 과목 배분 추적 컬럼(앱 전용) — 공식 ACC_BOOK 포맷엔 없음
+  it("alloc_* / raw_* 추적 컬럼을 제거한다 (scripts/016, 과목 배분)", () => {
+    const out = stripAppOnlyAccBookColumns({
+      acc_book_id: 1, acc_sec_cd: 85, item_sec_cd: 87, acc_amt: 528000,
+      alloc_src_id: 130, alloc_seq: 1, raw_incm_sec_cd: 1, raw_acc_sec_cd: 85, raw_item_sec_cd: 86,
+      raw_acc_amt: 3830000, alloc_gen: "20260619",
+    });
+    for (const k of ["alloc_src_id", "alloc_seq", "raw_incm_sec_cd", "raw_acc_sec_cd", "raw_item_sec_cd", "raw_acc_amt", "alloc_gen"]) {
+      expect(k in out).toBe(false);
+    }
+    // 공식 컬럼은 보존
+    expect(out.acc_sec_cd).toBe(85);
+    expect(out.item_sec_cd).toBe(87);
+    expect(out.acc_amt).toBe(528000);
+  });
+
+  it("alloc 컬럼만 있고 acc_time/claim_amt 없는 행도 제거한다 (early-return 가드)", () => {
+    // 이동분 신규행: acc_time/claim_amt 없이 alloc_src_id만 있어도 INSERT 컬럼서 빠져야 함
+    const out = stripAppOnlyAccBookColumns({ acc_book_id: 5, alloc_src_id: 130, alloc_seq: 1 });
+    expect("alloc_src_id" in out).toBe(false);
+    expect("alloc_seq" in out).toBe(false);
+  });
 });
 
 /**

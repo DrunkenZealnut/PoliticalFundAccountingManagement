@@ -71,7 +71,7 @@ describe("computeBalances - 계정별 집계", () => {
     const rows = [
       row({ incm_sec_cd: 1, acc_amt: 100, acc_sec_cd: 4 }),
       row({ incm_sec_cd: 1, acc_amt: 200, acc_sec_cd: 1 }),
-      row({ incm_sec_cd: 2, acc_amt: 50, acc_sec_cd: 3 }),
+      row({ incm_sec_cd: 2, acc_amt: 50, acc_sec_cd: 3, item_sec_cd: 86 }),
     ];
     const result = computeBalances(rows);
     expect(result.byAccount.map((b) => b.acc_sec_cd)).toEqual([1, 3, 4]);
@@ -80,10 +80,10 @@ describe("computeBalances - 계정별 집계", () => {
     expect(result.byAccount[1].electionExpense).toBe(50);
   });
 
-  it("선거비용은 acc_sec_cd=3에 집계, 그 외는 nonElectionExpense", () => {
+  it("선거비용은 과목(item_sec_cd=86)으로 집계, 그 외 과목은 nonElectionExpense", () => {
     const rows = [
-      row({ incm_sec_cd: 2, acc_amt: 100, acc_sec_cd: 3 }),
-      row({ incm_sec_cd: 2, acc_amt: 50, acc_sec_cd: 7 }),
+      row({ incm_sec_cd: 2, acc_amt: 100, acc_sec_cd: 3, item_sec_cd: 86 }), // 선거비용 과목
+      row({ incm_sec_cd: 2, acc_amt: 50, acc_sec_cd: 7, item_sec_cd: 87 }), // 선거비용외 과목
     ];
     const result = computeBalances(rows);
     const acc3 = result.byAccount.find((b) => b.acc_sec_cd === 3);
@@ -94,10 +94,10 @@ describe("computeBalances - 계정별 집계", () => {
     expect(acc7?.nonElectionExpense).toBe(50);
   });
 
-  it("electionExpenseAccSecCds 커스터마이즈 가능", () => {
-    const rows = [row({ incm_sec_cd: 2, acc_amt: 100, acc_sec_cd: 99 })];
+  it("electionExpenseItemCds 커스터마이즈 가능", () => {
+    const rows = [row({ incm_sec_cd: 2, acc_amt: 100, acc_sec_cd: 99, item_sec_cd: 77 })];
     const result = computeBalances(rows, {
-      electionExpenseAccSecCds: new Set([99]),
+      electionExpenseItemCds: new Set([77]),
     });
     expect(result.byAccount[0].electionExpense).toBe(100);
   });
@@ -245,7 +245,7 @@ describe("computeBalances - 규칙 2: 자금출처 재배분", () => {
     const result = computeBalances(rows, {
       applyFundSourceRedistribution: true,
       reimbursementCaps: { byAccSecCd: { 82: 2_548_335 } },
-      electionExpenseAccSecCds: new Set([82, 84]),
+      // item_sec_cd=86(선거비용) 기본 분류로 82·84 지출이 선거비용에 잡힘 — 별도 옵션 불필요
     });
     const subsidy = result.byAccount.find((a) => a.acc_sec_cd === 82)!;
     const asset = result.byAccount.find((a) => a.acc_sec_cd === 84)!;

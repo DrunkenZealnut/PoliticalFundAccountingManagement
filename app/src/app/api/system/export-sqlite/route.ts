@@ -12,6 +12,12 @@ import {
 } from "@/lib/accounting/organ-pair";
 import { computeBalances, type AccBookRow } from "@/lib/accounting/settlement-calc";
 import { fillExportReceiptNumbers } from "@/lib/accounting/receipt-no";
+import { fillExportSortNumbers } from "@/lib/accounting/acc-book-sort";
+import {
+  planAllocationPersist,
+  applyPlanInMemory,
+  type AllocTrackedRow,
+} from "@/lib/accounting/persist-allocation";
 import { ParityError, ParityErrors } from "@/lib/accounting/parity-errors";
 import {
   PFUND2_ENSURE_ANONYMOUS_CUSTOMER_SQL,
@@ -452,22 +458,68 @@ export function normalizeOfficialExpenseRow(
 }
 
 /**
- * PFund2/선관위 공식 ACC_BOOK 포맷에 없는 앱 전용 확장 컬럼 제거.
+ * PFund2/선관위 공식 ACC_BOOK 포맷에 없는 앱 전용 확장 컬럼 목록.
  *
- * `acc_time`(거래 시각 HHmm, scripts/014의 CHAR(4))·`claim_amt`(보전청구액, scripts/015의
- * BIGINT)는 앱 전용 컬럼으로 공식 SQLite 스키마(ACC_BOOK/ACC_BOOK_BAK DDL)에 존재하지 않는다.
- * fetch가 `SELECT *`라 이 컬럼들이 따라오는데, insertRows가 컬럼명을 그대로 대문자화(ACC_TIME/
- * CLAIM_AMT)해 INSERT하면 "table ACC_BOOK has no column named ..."로 export 전체가 실패한다.
- * CUSTOMER.org_id를 export 시 제거하는 것과 동일한 앱↔공식 포맷 정렬 처리.
+ * 공식 SQLite 스키마(ACC_BOOK/ACC_BOOK_BAK DDL)에 존재하지 않는 컬럼은 export 직전 제거해야 한다.
+ * fetch가 `SELECT *`라 이 컬럼들이 따라오는데, insertRows가 컬럼명을 그대로 대문자화해 INSERT하면
+ * "table ACC_BOOK has no column named ..."로 export 전체가 실패하기 때문이다.
+ * - `acc_time`(거래 시각 HHmm, scripts/014의 CHAR(4))
+ * - `claim_amt`(보전청구액, scripts/015의 BIGINT)
+ * - `alloc_src_id`·`alloc_seq`·`raw_incm_sec_cd`·`raw_acc_sec_cd`·`raw_item_sec_cd`·`raw_acc_amt`·`alloc_gen`
+ *   (과목 배분 추적/raw 복원용, scripts/016) — 분할된 ACC_BOOK 행은 공식 .db에선 순수 거래 행만 남아야 함.
+ */
+const APP_ONLY_ACC_BOOK_COLUMNS = [
+  "acc_time",
+  "claim_amt",
+  "alloc_src_id",
+  "alloc_seq",
+  "raw_incm_sec_cd",
+  "raw_acc_sec_cd",
+  "raw_item_sec_cd",
+  "raw_acc_amt",
+  "alloc_gen",
+] as const;
+
+/**
+ * 앱 전용 확장 컬럼 제거(공식 포맷 정렬). CUSTOMER.org_id를 export 시 제거하는 것과 동일 처리.
+ * 제거 대상 컬럼이 하나도 없으면 원본 참조를 그대로 반환(불변).
  */
 export function stripAppOnlyAccBookColumns(
   row: Record<string, unknown>,
 ): Record<string, unknown> {
-  if (!("acc_time" in row) && !("claim_amt" in row)) return row;
+  if (!APP_ONLY_ACC_BOOK_COLUMNS.some((c) => c in row)) return row;
   const rest = { ...row };
-  delete rest.acc_time;
-  delete rest.claim_amt;
+  for (const c of APP_ONLY_ACC_BOOK_COLUMNS) delete rest[c];
   return rest;
+}
+
+/** 후보자 자금원 코드(82~85). 이 계정을 쓰는 행이 있으면 후보자 거래로 본다. */
+const CANDIDATE_ACC_SEC_CDS = [82, 83, 84, 85];
+
+/**
+ * export용 (계정×과목) 분할 — acc_book(데이터)은 실거래 원본 그대로 두고, 보고자료(.db)에서만
+ * 금액을 충당 과목/자금원으로 분할한다. 영구화와 동일한 순수 함수(planAllocationPersist/
+ * applyPlanInMemory)를 **메모리에서만** 적용(DB write 없음). 후원회/정당 등 비후보자 거래는 무변경.
+ * 분할 추적 컬럼은 이후 stripAppOnlyAccBookColumns 가 제거하므로 공식 .db엔 순수 거래 행만 남는다.
+ */
+function allocateCandidateAccBookForExport(
+  rows: Record<string, unknown>[],
+): Record<string, unknown>[] {
+  const isCandidate = rows.some((r) => CANDIDATE_ACC_SEC_CDS.includes(Number(r.acc_sec_cd)));
+  if (!isCandidate) return rows;
+  const input = rows.map((r) => ({
+    ...r,
+    acc_book_id: Number(r.acc_book_id),
+    incm_sec_cd: Number(r.incm_sec_cd),
+    acc_sec_cd: Number(r.acc_sec_cd),
+    item_sec_cd: Number(r.item_sec_cd),
+    acc_amt: Number(r.acc_amt ?? 0),
+    acc_time: (r.acc_time as string | null | undefined) ?? null,
+    // select("*")엔 customer 조인이 없어 undefined → 분할 계산엔 미사용이나 타입 계약상 null 명시.
+    customer: (r.customer as Record<string, unknown> | null | undefined) ?? null,
+  })) as unknown as AllocTrackedRow[];
+  const plan = planAllocationPersist(input, "");
+  return applyPlanInMemory(input, plan) as unknown as Record<string, unknown>[];
 }
 
 /**
@@ -737,16 +789,19 @@ export async function GET(request: NextRequest) {
       cvNameById[Number(c.cv_id)] = String(c.cv_name ?? "");
     }
     const exportCodeNames = { acc: cvNameById, item: cvNameById };
+    // acc_sort_num 정규순서 재부여(수입먼저)는 acc_time 제거(strip) 전에 — 공식 프로그램이 acc_time 없이
+    //   acc_date→acc_sort_num으로 정렬해도 수입이 지출보다 먼저 와 수입지출부 누계가 음수가 안 되게.
     const finalAccBook = fillExportReceiptNumbers(
-      filterByExportOrgId(remapOrgId(accBook, orgIdMap))
-        .map(normalizeOfficialExpenseRow)
-        .map(stripAppOnlyAccBookColumns),
+      fillExportSortNumbers(
+        allocateCandidateAccBookForExport(filterByExportOrgId(remapOrgId(accBook, orgIdMap)))
+          .map(normalizeOfficialExpenseRow),
+      ).map(stripAppOnlyAccBookColumns),
       exportCodeNames,
     );
     const finalAccBookBak = fillExportReceiptNumbers(
-      filterByExportOrgId(remapOrgId(accBookBak, orgIdMap))
-        .map(normalizeOfficialExpenseRow)
-        .map(stripAppOnlyAccBookColumns),
+      fillExportSortNumbers(
+        filterByExportOrgId(remapOrgId(accBookBak, orgIdMap)).map(normalizeOfficialExpenseRow),
+      ).map(stripAppOnlyAccBookColumns),
       exportCodeNames,
     );
 

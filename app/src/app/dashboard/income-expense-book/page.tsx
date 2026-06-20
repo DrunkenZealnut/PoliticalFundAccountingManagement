@@ -8,6 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CodeSelect } from "@/components/code-select";
+import { buildLedgerRows } from "@/lib/accounting/ledger-allocation";
+import { compareAccDateTime } from "@/lib/accounting/acc-book-sort";
+import type { ReallocRow } from "@/lib/accounting/fund-realloc";
 
 interface BookRow {
   acc_book_id: number;
@@ -37,7 +40,7 @@ interface RowWithTotals extends BookRow {
 }
 
 export default function IncomeExpenseBookPage() {
-  const { orgId, orgSecCd } = useAuth();
+  const { orgId, orgSecCd, orgType } = useAuth();
   const { loading: codesLoading, getName, getAccounts, getItems } = useCodeValues();
 
   const [accSecCd, setAccSecCd] = useState(0);
@@ -81,27 +84,57 @@ export default function IncomeExpenseBookPage() {
     const toStr = dateTo.replace(/-/g, "");
     const supabase = createSupabaseBrowser();
 
-    let query = supabase
+    // 후보자 (계정×과목) 분할은 전 행 맥락이 필요하므로 계정/과목 필터는 조회 후(JS)에 적용한다.
+    const { data, error } = await supabase
       .from("acc_book")
-      .select("acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_date, content, acc_amt, rcp_yn, rcp_no, bigo, acc_print_ok, customer:cust_id(name, reg_num, addr, job, tel)")
+      .select("acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_date, content, acc_amt, rcp_yn, rcp_no, bigo, acc_print_ok, cust_id, customer:cust_id(name, reg_num, addr, job, tel)")
       .eq("org_id", orgId)
       .gte("acc_date", fromStr)
-      .lte("acc_date", toStr)
-      .order("acc_date", { ascending: true })
-      .order("acc_time", { ascending: true, nullsFirst: true })
-      .order("incm_sec_cd", { ascending: true }) // 같은 시각이면 수입(1)을 지출(2)보다 먼저 — 잔액 음수 방지
-      .order("acc_sort_num", { ascending: true });
+      .lte("acc_date", toStr);
 
-    if (accSecCd) query = query.eq("acc_sec_cd", accSecCd);
-    if (itemSecCd) query = query.eq("item_sec_cd", itemSecCd);
-
-    const { data, error } = await query;
     if (error) {
       alert(`조회 실패: ${error.message}`);
       setLoading(false);
       return;
     }
-    setRecords((data || []) as unknown as BookRow[]);
+    const rawRows = (data || []) as unknown as (BookRow & { acc_time: string | null; cust_id: number })[];
+
+    let rows: BookRow[];
+    if (orgType === "candidate") {
+      // 보고 시점 분할: raw → buildLedgerRows(Pass0→1→2) → acc_book_id로 원본 메타(증빙·거래처) 조인.
+      // acc_book(데이터)은 실거래 원본 그대로, 화면(보고자료)에서만 금액을 과목/자금원으로 분할.
+      const origById = new Map(rawRows.map((r) => [r.acc_book_id, r]));
+      const reallocInput: ReallocRow[] = rawRows.map((r) => ({
+        acc_book_id: r.acc_book_id, incm_sec_cd: r.incm_sec_cd, acc_sec_cd: r.acc_sec_cd,
+        item_sec_cd: r.item_sec_cd, acc_date: r.acc_date, acc_time: r.acc_time ?? null,
+        acc_amt: r.acc_amt, content: r.content, rcp_no: r.rcp_no, bigo: r.bigo,
+        cust_id: r.cust_id, customer: null,
+      }));
+      rows = buildLedgerRows(reallocInput).map((lr) => {
+        const o = origById.get(lr.acc_book_id);
+        return {
+          acc_book_id: lr.acc_book_id, incm_sec_cd: lr.incm_sec_cd,
+          acc_sec_cd: lr.accSecCd, item_sec_cd: lr.itemSecCd,
+          acc_date: lr.acc_date, content: lr.content ?? "", acc_amt: lr.amt,
+          rcp_yn: o?.rcp_yn ?? "", rcp_no: lr.rcp_no, bigo: lr.bigo,
+          acc_print_ok: o?.acc_print_ok ?? null, customer: o?.customer ?? null,
+        };
+      });
+    } else {
+      rows = rawRows.map((r) => ({ ...r }));
+    }
+
+    // 계정/과목 필터 + 정규 정렬(같은 날 수입 먼저 — 누계 음수 방지)
+    if (accSecCd) rows = rows.filter((r) => r.acc_sec_cd === accSecCd);
+    if (itemSecCd) rows = rows.filter((r) => r.item_sec_cd === itemSecCd);
+    rows.sort(
+      (a, b) =>
+        compareAccDateTime({ acc_date: a.acc_date }, { acc_date: b.acc_date }) ||
+        a.incm_sec_cd - b.incm_sec_cd ||
+        a.acc_book_id - b.acc_book_id,
+    );
+
+    setRecords(rows);
     setLoading(false);
   }
 

@@ -111,11 +111,13 @@ export interface ComputeBalancesOptions {
   applyFundSourceRedistribution?: boolean;
   /** 재배분 활성화 시 필수 입력. 미지정 시 재배분 0 적용. */
   reimbursementCaps?: ReimbursementCaps;
-  /** 선거비용으로 간주할 acc_sec_cd 집합. 기본: [3] (선거비용). */
-  electionExpenseAccSecCds?: ReadonlySet<number>;
+  /** 선거비용으로 간주할 과목(item_sec_cd) 집합. 기본: [86] (선거비용 과목). */
+  electionExpenseItemCds?: ReadonlySet<number>;
 }
 
-const DEFAULT_ELECTION_EXPENSE_ACC_SEC_CDS: ReadonlySet<number> = new Set([3]);
+// 선거비용 과목 코드(후보자 86=선거비용). 총괄표·수입지출부·(계정×과목) 배분과 동일 기준.
+// 후원회/정당은 과목 체계가 달라 byAccount.electionExpense를 쓰지 않는다.
+const DEFAULT_ELECTION_EXPENSE_ITEM_CDS: ReadonlySet<number> = new Set([86]);
 
 /**
  * 마이너스 수입 행 1건을 양수 지출 행으로 변환한 사본을 반환.
@@ -197,7 +199,7 @@ export function computeBalances(
     dateTo,
     applyNegativeIncomeRule = true,
     applyFundSourceRedistribution = false,
-    electionExpenseAccSecCds = DEFAULT_ELECTION_EXPENSE_ACC_SEC_CDS,
+    electionExpenseItemCds = DEFAULT_ELECTION_EXPENSE_ITEM_CDS,
   } = options;
 
   const filtered = rows.filter((r) => inDateRange(r.acc_date, dateFrom, dateTo));
@@ -230,8 +232,8 @@ export function computeBalances(
     if (row.incm_sec_cd === 1) {
       bucket.income += row.acc_amt;
     } else if (row.incm_sec_cd === 2) {
-      // 선거비용 분류: exp_sec_cd가 있으면 그 의미를 우선시. acc_sec_cd=3을 선거비용으로 보는 단순 규칙으로 시작.
-      if (electionExpenseAccSecCds.has(row.acc_sec_cd)) {
+      // 선거비용 분류: 과목(item_sec_cd 86=선거비용)으로 판별 — 총괄표·(계정×과목) 배분과 동일 기준.
+      if (electionExpenseItemCds.has(row.item_sec_cd)) {
         bucket.electionExpense += row.acc_amt;
       } else {
         bucket.nonElectionExpense += row.acc_amt;
@@ -276,9 +278,9 @@ export function computeBalances(
  *     remainder = supporterIncome - supporterExpense
  *     (양수일 때만)
  *
- * 주의: byAccount의 electionExpense는 `electionExpenseAccSecCds` 기준 acc_sec_cd 분류.
- * 후보자 데이터의 PFund2 호환 표시는 item_sec_cd=86 기반이라 페이지 측에서 별도 분류 필요.
- * 본 모듈은 redistributions detail을 정확히 산출하며 page는 그 detail로 자체 표시를 보정함.
+ * byAccount의 electionExpense는 `electionExpenseItemCds`(기본 86=선거비용 과목) 기준 과목 분류 —
+ * 총괄표·수입지출부·(계정×과목) 배분과 동일 기준. (이전 acc_sec_cd 기준은 미입력 데이터서 오분류했음)
+ * 본 모듈은 redistributions detail도 정확히 산출하며 page는 그 detail로 자체 표시를 보정함.
  *
  * @internal — computeBalances 내부에서만 호출. UI/API는 SettlementResult.redistributions를 통해 접근.
  */

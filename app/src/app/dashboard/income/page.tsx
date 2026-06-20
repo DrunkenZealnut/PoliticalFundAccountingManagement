@@ -18,7 +18,7 @@ import { EmptyState } from "@/components/empty-state";
 import { PAGE_GUIDES } from "@/lib/page-guides";
 import { buildIncomeSummary } from "@/lib/accounting/ledger-summary";
 import { LedgerSummaryHeader } from "@/components/dashboard/LedgerSummaryHeader";
-import { fmtTimeInput, toAccTime } from "@/lib/date-utils";
+import { fmtTimeInput } from "@/lib/date-utils";
 
 interface AccBook {
   acc_book_id: number;
@@ -244,7 +244,6 @@ export default function IncomePage() {
       exp_sec_cd: 0,
       cust_id: form.cust_id || -999,
       acc_date: form.acc_date.replace(/-/g, ""),
-      acc_time: toAccTime(form.acc_time),
       content: form.content,
       acc_amt: form.acc_amt,
       rcp_yn: form.rcp_yn,
@@ -260,7 +259,7 @@ export default function IncomePage() {
           work_kind: 1, acc_book_id: selected.acc_book_id, org_id: selected.org_id,
           incm_sec_cd: selected.incm_sec_cd, acc_sec_cd: selected.acc_sec_cd,
           item_sec_cd: selected.item_sec_cd, exp_sec_cd: selected.exp_sec_cd,
-          cust_id: selected.cust_id, acc_date: selected.acc_date, acc_time: selected.acc_time, content: selected.content,
+          cust_id: selected.cust_id, acc_date: selected.acc_date, content: selected.content,
           acc_amt: selected.acc_amt, rcp_yn: selected.rcp_yn, rcp_no: selected.rcp_no,
         }}),
       });
@@ -300,7 +299,7 @@ export default function IncomePage() {
         work_kind: 2, acc_book_id: selected.acc_book_id, org_id: selected.org_id,
         incm_sec_cd: selected.incm_sec_cd, acc_sec_cd: selected.acc_sec_cd,
         item_sec_cd: selected.item_sec_cd, exp_sec_cd: selected.exp_sec_cd,
-        cust_id: selected.cust_id, acc_date: selected.acc_date, acc_time: selected.acc_time, content: selected.content,
+        cust_id: selected.cust_id, acc_date: selected.acc_date, content: selected.content,
         acc_amt: selected.acc_amt, rcp_yn: selected.rcp_yn, rcp_no: selected.rcp_no,
       }}),
     });
@@ -331,7 +330,7 @@ export default function IncomePage() {
           work_kind: 2, acc_book_id: r.acc_book_id, org_id: r.org_id,
           incm_sec_cd: r.incm_sec_cd, acc_sec_cd: r.acc_sec_cd,
           item_sec_cd: r.item_sec_cd, exp_sec_cd: r.exp_sec_cd,
-          cust_id: r.cust_id, acc_date: r.acc_date, acc_time: r.acc_time, content: r.content,
+          cust_id: r.cust_id, acc_date: r.acc_date, content: r.content,
           acc_amt: r.acc_amt, rcp_yn: r.rcp_yn, rcp_no: r.rcp_no,
         }}),
       });
@@ -513,6 +512,13 @@ export default function IncomePage() {
             />
           </HelpTooltip>
 
+          {orgType === "candidate" && form.item_sec_cd > 0 && (
+            <p className="md:col-span-4 -mt-1 text-xs text-gray-500">
+              💡 수입의 과목(선거비용/선거비용외)은 결산 시 <b>과목배분</b>으로 실제 지출에 맞게 자동 정합됩니다. 대략
+              선택해도 (계정×과목) 잔액은 마감 시 음수 없이 맞춰집니다.
+            </p>
+          )}
+
           <div>
             <HelpTooltip id="income.date">
               <Label>수입일자</Label>
@@ -521,15 +527,6 @@ export default function IncomePage() {
               type="date"
               value={form.acc_date}
               onChange={(e) => setForm({ ...form, acc_date: e.target.value })}
-            />
-          </div>
-
-          <div>
-            <Label>수입시각 <span className="text-xs text-gray-400">(선택)</span></Label>
-            <Input
-              type="time"
-              value={form.acc_time}
-              onChange={(e) => setForm({ ...form, acc_time: e.target.value })}
             />
           </div>
 

@@ -222,7 +222,6 @@ export async function queryLedgerData(
 
   const { data: records } = await query
     .order("acc_date")
-    .order("acc_time", { ascending: true, nullsFirst: true })
     .order("acc_sort_num");
 
   const rows: LedgerRow[] = [];

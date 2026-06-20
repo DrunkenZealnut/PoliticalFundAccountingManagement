@@ -35,3 +35,35 @@ export function compareAccDateTime(a: AccDateTimeRow, b: AccDateTimeRow): number
   if (ta === tb) return 0;
   return ta < tb ? -1 : 1;
 }
+
+/**
+ * export용: 모든 행에 `acc_sort_num`을 정규순서로 전역 1..N 재부여한다 (snake_case 키, Record 기반).
+ *
+ * 선관위 공식 프로그램(PFund2)은 `acc_time`이 없어(`stripAppOnlyAccBookColumns`로 export 시 제거됨)
+ * `acc_date → acc_sort_num`으로 동시각 거래를 정렬한다. 우리 데이터는 `acc_sort_num`이 비어있는
+ * 행이 많아 같은 날 수입이 지출보다 뒤로 밀리면 정치자금 수입·지출부 누계가 일시 음수로 렌더된다.
+ * 정규순서(`compareAccDateTime → 수입(incm 1) 먼저 → acc_book_id`)로 acc_sort_num을 재부여하면
+ * 공식 프로그램이 우리 앱과 동일하게(수입 먼저) 렌더해 음수가 사라진다. 공식 Fund_Data_1.db도
+ * 전 행에 acc_sort_num을 채운다. **`stripAppOnlyAccBookColumns`(acc_time 제거) 이전에** 호출할 것.
+ * export 전용 — 원본 배열 순서·메타는 불변(acc_sort_num만 갱신).
+ */
+export function fillExportSortNumbers(
+  rows: Record<string, unknown>[],
+): Record<string, unknown>[] {
+  const id = (r: Record<string, unknown>) => Number(r.acc_book_id ?? 0);
+  const dt = (r: Record<string, unknown>): AccDateTimeRow => ({
+    acc_date: String(r.acc_date ?? ""),
+    acc_time: (r.acc_time as string | null | undefined) ?? null,
+  });
+  const ordered = [...rows].sort(
+    (a, b) =>
+      compareAccDateTime(dt(a), dt(b)) ||
+      Number(a.incm_sec_cd) - Number(b.incm_sec_cd) || // 동시각: 수입(1) 먼저 (잔액 음수 방지 SSOT)
+      id(a) - id(b),
+  );
+  // rank는 행 객체 참조 기준으로 부여한다. acc_book_id 기준 Map은 acc_book_bak처럼 같은 원장
+  // id가 여러 백업 행으로 중복될 때 마지막 rank로 덮여 acc_sort_num이 충돌하므로 금지.
+  const rankByRef = new Map<Record<string, unknown>, number>();
+  ordered.forEach((r, i) => rankByRef.set(r, i + 1));
+  return rows.map((r) => ({ ...r, acc_sort_num: rankByRef.get(r) ?? null }));
+}
