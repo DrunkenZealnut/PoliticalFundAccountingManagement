@@ -116,11 +116,14 @@ export async function POST(request: NextRequest) {
   const { data: rows, error: rowsErr } = await supabase
     .from("acc_book")
     .select(
-      "acc_book_id, acc_date, incm_sec_cd, acc_sec_cd, item_sec_cd, content, acc_amt, rcp_no, cust_id, " +
+      "acc_book_id, acc_date, acc_time, incm_sec_cd, acc_sec_cd, item_sec_cd, content, acc_amt, rcp_no, cust_id, " +
         "customer:cust_id(name, reg_num, addr, addr_detail, job, tel)"
     )
     .eq("org_id", orgId)
-    .order("acc_date", { ascending: true });
+    // 정렬 SSOT(acc-book-sort): acc_date → acc_time(미입력 nulls first). 서식7 수입·지출부도
+    // 그룹 내 compareAccDateTime 정렬을 쓰므로 acc_time 미조회 시 같은 날 거래가 입력순으로 뒤바뀜.
+    .order("acc_date", { ascending: true })
+    .order("acc_time", { ascending: true, nullsFirst: true });
 
   if (rowsErr) {
     return errorResponse("QUERY_FAILED", "수입·지출내역 조회에 실패했습니다.", 500, { detail: rowsErr.message });
