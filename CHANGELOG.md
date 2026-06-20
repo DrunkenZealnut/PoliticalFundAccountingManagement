@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.17.0.0] - 2026-06-20
+
+### Changed
+
+- **「정치자금 수입지출보고서」 화면·엑셀이 공식 회계보고서(서식 22-1)와 동일 기준으로 집계됩니다.** 페이지가 선거비용을 과목 코드(86·19)로 하드코딩하고 자금원을 이름으로 추정하던 자체 집계를, 정규 배분 SSOT(`buildCandidateReportSummary` → buildLedgerRows + buildReportSummaryModel)로 일원화했습니다. 같은 데이터면 HWPX 22-1과 수치가 일치하고, 보조금/보조금외가 분리되며, 음수 수입 보정이 화면 안내와 정합합니다. 폐기된 '자금출처 재배분(Rule 2)' 토글은 제거했습니다.
+
+### Added
+
+- **개발/운영 참고 문서 「정치자금 수입·지출부 생성 주의사항」**(`docs/05-reference/`) — 잔액이 깨지는 원리, 보고 시점 분할 모델, 선거비용=과목(item_sec_cd) 분류 SSOT, 라운드트립 정렬, 제출 전 검증 체크리스트. 감사로 발견한 정규 배분 미준수 경로(V1 해소 / V2·V3 잔여)도 §12에 기록.
+
 ## [0.16.0.0] - 2026-06-20
 
 ### Added

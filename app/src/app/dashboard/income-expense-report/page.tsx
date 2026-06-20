@@ -8,30 +8,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { HelpTooltip } from "@/components/help-tooltip";
+import { applyCorrections, type Correction } from "@/lib/accounting/settlement-calc";
 import {
-  applyCorrections,
-  computeBalances,
-  type AccBookRow,
-  type Correction,
-  type RedistributionDetail,
-  type ReimbursementCaps,
-} from "@/lib/accounting/settlement-calc";
-
-interface AccountRow {
-  acc_sec_cd: number;
-  income: number;
-  electionExpense: number;
-  nonElectionExpense: number;
-}
-
-const SUBSIDY_CODES = [82, 83] as const;
-const SUBSIDY_LABELS: Record<number, string> = {
-  82: "보조금",
-  83: "보조금외 지원금",
-};
-const ASSET_ACC_SEC_CD = 84;
-const SUPPORTER_ACC_SEC_CD = 85;
-const ELECTION_EXPENSE_ITEM_SEC_CD = 86;
+  buildCandidateReportSummary,
+  type ReportSummaryRawRow,
+} from "@/lib/accounting/income-expense-report-summary";
+import type { ReportSummaryModel } from "@/lib/hwpx/report-summary-builder";
 
 export default function IncomeExpenseReportPage() {
   const supabase = createSupabaseBrowser();
@@ -43,18 +25,9 @@ export default function IncomeExpenseReportPage() {
   const [electionName, setElectionName] = useState("");
   const [districtName, setDistrictName] = useState("");
   const [loading, setLoading] = useState(false);
-  const [accounts, setAccounts] = useState<AccountRow[]>([]);
+  const [model, setModel] = useState<ReportSummaryModel | null>(null);
   const [corrections, setCorrections] = useState<Correction[]>([]);
   const [searched, setSearched] = useState(false);
-
-  // ====== 자금출처 재배분 (Rule 2) 옵션 ======
-  const [redistEnabled, setRedistEnabled] = useState(false);
-  const [redistSupporter, setRedistSupporter] = useState(true);
-  const [redistCaps, setRedistCaps] = useState<Record<number, string>>({
-    82: "",
-    83: "",
-  });
-  const [redistDetails, setRedistDetails] = useState<RedistributionDetail[]>([]);
 
   const fmt = (n: number) => n.toLocaleString("ko-KR");
 
@@ -78,83 +51,31 @@ export default function IncomeExpenseReportPage() {
       .lte("acc_date", toStr);
 
     if (!data) {
-      setAccounts([]);
+      setModel(null);
       setCorrections([]);
       setLoading(false);
       return;
     }
 
-    // 선관위 PFund2와 동일하게 마이너스 수입을 지출로 전환 (단일 진실원천)
-    const { rows: correctedRows, corrections: appliedCorrections } =
-      applyCorrections(data);
+    // 마이너스 수입 보정 내역은 안내용으로만 표시. 집계 자체는 buildCandidateReportSummary가
+    // 내부 Pass0(adjustNegativeIncome SSOT)에서 동일 규칙으로 처리 — 멱등이라 이중적용 없음.
+    const { corrections: appliedCorrections } = applyCorrections(data);
     setCorrections(appliedCorrections);
 
-    // 자금출처 재배분 detail 계산 (옵션) — settlement-calc.computeBalances로 SSOT 호출
-    let details: RedistributionDetail[] = [];
-    if (redistEnabled) {
-      const byAccSecCd: Record<number, number> = {};
-      for (const cd of SUBSIDY_CODES) {
-        const v = Number(redistCaps[cd]);
-        if (Number.isFinite(v) && v > 0) byAccSecCd[cd] = v;
-      }
-      const caps: ReimbursementCaps = {
-        byAccSecCd,
-        redistributeSupporterRemainder: redistSupporter,
-      };
-      const settlement = computeBalances(correctedRows as AccBookRow[], {
-        applyNegativeIncomeRule: false, // 이미 위에서 적용됨
-        applyFundSourceRedistribution: true,
-        reimbursementCaps: caps,
-      });
-      details = settlement.redistributions;
-    }
-    setRedistDetails(details);
-
-    // Aggregate by acc_sec_cd (item_sec_cd=86 기반 선거비용 분류)
-    const map = new Map<number, AccountRow>();
-    for (const r of correctedRows) {
-      const existing = map.get(r.acc_sec_cd);
-      const isElectionExpense =
-        r.incm_sec_cd === 2 && (r.item_sec_cd === 86 || r.item_sec_cd === 19);
-      const isNonElectionExpense = r.incm_sec_cd === 2 && !isElectionExpense;
-
-      if (existing) {
-        if (r.incm_sec_cd === 1) existing.income += r.acc_amt;
-        if (isElectionExpense) existing.electionExpense += r.acc_amt;
-        if (isNonElectionExpense) existing.nonElectionExpense += r.acc_amt;
-      } else {
-        map.set(r.acc_sec_cd, {
-          acc_sec_cd: r.acc_sec_cd,
-          income: r.incm_sec_cd === 1 ? r.acc_amt : 0,
-          electionExpense: isElectionExpense ? r.acc_amt : 0,
-          nonElectionExpense: isNonElectionExpense ? r.acc_amt : 0,
-        });
-      }
-    }
-
-    // 재배분 detail을 page의 byAccount 분류에 overlay (선거비용 -> 자산 이동)
-    for (const d of details) {
-      const from = map.get(d.fromAccSecCd);
-      if (from) from.electionExpense = Math.max(0, from.electionExpense - d.amount);
-      const to = map.get(d.toAccSecCd) ?? {
-        acc_sec_cd: d.toAccSecCd,
-        income: 0,
-        electionExpense: 0,
-        nonElectionExpense: 0,
-      };
-      to.electionExpense += d.amount;
-      map.set(d.toAccSecCd, to);
-    }
-
-    setAccounts(
-      Array.from(map.values()).sort((a, b) => a.acc_sec_cd - b.acc_sec_cd)
-    );
+    // 정규 SSOT: 후보자면 buildLedgerRows(Pass0→1→2)로 (계정×과목) 분할 후 자금원 4분류 집계.
+    // HWPX 22-1(api/hwpx/accounting-report)·reports 총괄과 동일 로직 → 수치 일치.
+    setModel(buildCandidateReportSummary(data as ReportSummaryRawRow[], getName));
     setLoading(false);
-  }, [orgId, supabase, dateFrom, dateTo, redistEnabled, redistSupporter, redistCaps]);
+  }, [orgId, supabase, dateFrom, dateTo, getName]);
 
   async function handleExcel() {
-    if (accounts.length === 0) {
+    if (!model) {
       alert("조회된 데이터가 없습니다.");
+      return;
+    }
+    // buildReportSummaryModel은 자금원 4분류 고정행을 보장하나, 인덱스 접근(rows[0..3]) 방어.
+    if (model.rows.length !== 4) {
+      alert("보고서 데이터 형식이 올바르지 않습니다.");
       return;
     }
 
@@ -176,22 +97,16 @@ export default function IncomeExpenseReportPage() {
       { label: "보조금", income: 0, elec: 0, nonElec: 0, sub: true },    // Row 10
       { label: "보조금외", income: 0, elec: 0, nonElec: 0, sub: true },  // Row 11
     ];
-    for (const acc of accounts) {
-      const name = getName(acc.acc_sec_cd);
-      let idx: number;
-      if (name.includes("보조금외")) idx = 3;
-      else if (name.includes("보조금")) idx = 2;
-      else if (name.includes("후원") || name.includes("기부")) idx = 1;
-      else idx = 0;
-      rows[idx].income += acc.income;
-      rows[idx].elec += acc.electionExpense;
-      rows[idx].nonElec += acc.nonElectionExpense;
-    }
+    // model.rows 순서 = 후보자자산·후원회기부금·보조금·보조금외 (buildReportSummaryModel SSOT).
+    rows[0].income = model.rows[0].income; rows[0].elec = model.rows[0].expElection; rows[0].nonElec = model.rows[0].expNonElection;
+    rows[1].income = model.rows[1].income; rows[1].elec = model.rows[1].expElection; rows[1].nonElec = model.rows[1].expNonElection;
+    rows[2].income = model.rows[2].income; rows[2].elec = model.rows[2].expElection; rows[2].nonElec = model.rows[2].expNonElection;
+    rows[3].income = model.rows[3].income; rows[3].elec = model.rows[3].expElection; rows[3].nonElec = model.rows[3].expNonElection;
 
-    const totIncome = rows.reduce((s, r) => s + r.income, 0);
-    const totElec = rows.reduce((s, r) => s + r.elec, 0);
-    const totNonElec = rows.reduce((s, r) => s + r.nonElec, 0);
-    const totExp = totElec + totNonElec;
+    const totIncome = model.total.income;
+    const totElec = model.total.expElection;
+    const totNonElec = model.total.expNonElection;
+    const totExp = model.total.expSubtotal;
 
     const today = new Date();
     const todayFmt = `${today.getFullYear()}년 ${String(today.getMonth() + 1).padStart(2, "0")}월 ${String(today.getDate()).padStart(2, "0")}일`;
@@ -420,17 +335,16 @@ export default function IncomeExpenseReportPage() {
     URL.revokeObjectURL(url);
   }
 
-  // Totals
-  const totals = accounts.reduce(
-    (s, a) => ({
-      income: s.income + a.income,
-      elec: s.elec + a.electionExpense,
-      nonElec: s.nonElec + a.nonElectionExpense,
-    }),
-    { income: 0, elec: 0, nonElec: 0 }
-  );
-  const totalExpense = totals.elec + totals.nonElec;
-  const balance = totals.income - totalExpense;
+  // 합계(미분류 기타 포함 — 공식 22-1과 동일)
+  const totals = model
+    ? {
+        income: model.total.income,
+        elec: model.total.expElection,
+        nonElec: model.total.expNonElection,
+      }
+    : { income: 0, elec: 0, nonElec: 0 };
+  const totalExpense = model?.total.expSubtotal ?? 0;
+  const balance = model?.total.balance ?? 0;
 
   if (codesLoading) {
     return (
@@ -488,60 +402,6 @@ export default function IncomeExpenseReportPage() {
           </div>
         </div>
 
-        <div className="border-t pt-4">
-          <details className="text-sm">
-            <summary className="cursor-pointer font-medium">
-              자금출처 충당 재배분 설정 (PFund2 호환, 선택)
-            </summary>
-            <div className="mt-3 space-y-3 pl-4 border-l-2 border-gray-100">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={redistEnabled}
-                  onChange={(e) => setRedistEnabled(e.target.checked)}
-                />
-                <span>보조금 비인정분 → 자산 선거비용 이전 활성화</span>
-              </label>
-              {redistEnabled && (
-                <>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {SUBSIDY_CODES.map((cd) => (
-                      <div key={cd}>
-                        <Label>
-                          {SUBSIDY_LABELS[cd]} (CV {cd}) 보전 인정액 (원)
-                        </Label>
-                        <Input
-                          type="number"
-                          min={0}
-                          value={redistCaps[cd] ?? ""}
-                          onChange={(e) =>
-                            setRedistCaps((prev) => ({
-                              ...prev,
-                              [cd]: e.target.value,
-                            }))
-                          }
-                          placeholder="예: 2548335"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={redistSupporter}
-                      onChange={(e) => setRedistSupporter(e.target.checked)}
-                    />
-                    <span>후원회기부금 잔액 → 자산 선거비용 이전</span>
-                  </label>
-                  <p className="text-xs text-gray-500">
-                    재배분은 자금출처별 분포만 이동시키며, 수입/지출 총액과 잔액은 변하지 않습니다.
-                  </p>
-                </>
-              )}
-            </div>
-          </details>
-        </div>
-
         <div className="flex gap-2 pt-4 border-t">
           <Button onClick={handleQuery} disabled={loading}>
             {loading ? "조회 중..." : "조회"}
@@ -549,7 +409,7 @@ export default function IncomeExpenseReportPage() {
           <Button
             variant="outline"
             onClick={handleExcel}
-            disabled={accounts.length === 0}
+            disabled={!model}
           >
             엑셀 다운로드
           </Button>
@@ -574,30 +434,6 @@ export default function IncomeExpenseReportPage() {
               ))}
             </ul>
           </details>
-        </div>
-      )}
-
-      {searched && redistDetails.length > 0 && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm">
-          <p className="font-medium text-blue-900">
-            💰 자금출처 재배분 {redistDetails.length}건 적용 (PFund2 호환)
-          </p>
-          <ul className="mt-2 ml-4 list-disc text-xs text-blue-800">
-            {redistDetails.map((d, i) => {
-              const fromName =
-                d.fromAccSecCd === SUPPORTER_ACC_SEC_CD
-                  ? "후원회기부금"
-                  : SUBSIDY_LABELS[d.fromAccSecCd] ?? `CV${d.fromAccSecCd}`;
-              return (
-                <li key={i}>
-                  {fromName} → 자산 (선거비용): {fmt(d.amount)}원
-                </li>
-              );
-            })}
-          </ul>
-          <p className="mt-2 text-xs text-blue-700">
-            * 재배분은 자금출처별 분포만 이동시키며, 수입/지출/잔액 총액은 변하지 않습니다.
-          </p>
         </div>
       )}
 
@@ -626,7 +462,7 @@ export default function IncomeExpenseReportPage() {
               </tr>
             </thead>
             <tbody>
-              {accounts.length === 0 ? (
+              {!model ? (
                 <tr>
                   <td
                     colSpan={6}
@@ -637,38 +473,26 @@ export default function IncomeExpenseReportPage() {
                 </tr>
               ) : (
                 <>
-                  {accounts.map((a) => {
-                    const exp = a.electionExpense + a.nonElectionExpense;
-                    return (
-                      <tr
-                        key={a.acc_sec_cd}
-                        className="border-b hover:bg-gray-50"
-                      >
-                        <td className="px-3 py-3 font-medium">
-                          {getName(a.acc_sec_cd)}
-                        </td>
-                        <td className="px-3 py-3 text-right font-mono text-blue-600">
-                          {a.income > 0 ? fmt(a.income) : "-"}
-                        </td>
-                        <td className="px-3 py-3 text-right font-mono">
-                          {a.electionExpense > 0
-                            ? fmt(a.electionExpense)
-                            : "-"}
-                        </td>
-                        <td className="px-3 py-3 text-right font-mono">
-                          {a.nonElectionExpense > 0
-                            ? fmt(a.nonElectionExpense)
-                            : "-"}
-                        </td>
-                        <td className="px-3 py-3 text-right font-mono text-red-600">
-                          {exp > 0 ? fmt(exp) : "-"}
-                        </td>
-                        <td className="px-3 py-3 text-right font-mono text-green-600 font-semibold">
-                          {fmt(a.income - exp)}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {model.rows.map((a) => (
+                    <tr key={a.source} className="border-b hover:bg-gray-50">
+                      <td className="px-3 py-3 font-medium">{a.source}</td>
+                      <td className="px-3 py-3 text-right font-mono text-blue-600">
+                        {a.income > 0 ? fmt(a.income) : "-"}
+                      </td>
+                      <td className="px-3 py-3 text-right font-mono">
+                        {a.expElection > 0 ? fmt(a.expElection) : "-"}
+                      </td>
+                      <td className="px-3 py-3 text-right font-mono">
+                        {a.expNonElection > 0 ? fmt(a.expNonElection) : "-"}
+                      </td>
+                      <td className="px-3 py-3 text-right font-mono text-red-600">
+                        {a.expSubtotal > 0 ? fmt(a.expSubtotal) : "-"}
+                      </td>
+                      <td className="px-3 py-3 text-right font-mono text-green-600 font-semibold">
+                        {fmt(a.balance)}
+                      </td>
+                    </tr>
+                  ))}
 
                   <tr className="bg-gray-100 font-bold">
                     <td className="px-3 py-3">합계</td>
