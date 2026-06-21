@@ -1,5 +1,7 @@
 # 자금출처 충당 재배분 알고리즘 (fund-source-redistribution) Planning Document
 
+> ⚠️ **SUPERSEDED (2026-06-21)** — 본 플랜의 유효 결정은 [docs/05-reference/자금원배정방식.md](../../05-reference/자금원배정방식.md)로 통합됨. 재배분 캐스케이드는 **Pass1 `fund-realloc.ts`** 로 구현 완료. 단, 결산/영구화 시점 적용 방식은 **보고 시점 계산**으로 대체됨(영구화 롤백 2026-06-20). 현재 진실은 권위 문서를 볼 것.
+
 > **Summary**: 선관위 PFund2의 결산 시 지출을 자금출처별로 재배분하는 로직을 구현. 보조금 보전 인정 한도를 초과한 분과 후원회기부금 잔액을 자산 지출로 이동하여 결산 수치를 PFund2와 0원 차이로 맞춤
 >
 > **Project**: PoliticalFundAccountingManagement
