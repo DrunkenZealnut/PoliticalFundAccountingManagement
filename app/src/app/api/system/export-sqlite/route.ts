@@ -18,6 +18,7 @@ import {
   applyPlanInMemory,
   type AllocTrackedRow,
 } from "@/lib/accounting/persist-allocation";
+import { isFundingSourceAccSecCd } from "@/lib/accounting/funding-source";
 import { ParityError, ParityErrors } from "@/lib/accounting/parity-errors";
 import {
   PFUND2_ENSURE_ANONYMOUS_CUSTOMER_SQL,
@@ -493,19 +494,17 @@ export function stripAppOnlyAccBookColumns(
   return rest;
 }
 
-/** 후보자 자금원 코드(82~85). 이 계정을 쓰는 행이 있으면 후보자 거래로 본다. */
-const CANDIDATE_ACC_SEC_CDS = [82, 83, 84, 85];
-
 /**
  * export용 (계정×과목) 분할 — acc_book(데이터)은 실거래 원본 그대로 두고, 보고자료(.db)에서만
  * 금액을 충당 과목/자금원으로 분할한다. 영구화와 동일한 순수 함수(planAllocationPersist/
  * applyPlanInMemory)를 **메모리에서만** 적용(DB write 없음). 후원회/정당 등 비후보자 거래는 무변경.
  * 분할 추적 컬럼은 이후 stripAppOnlyAccBookColumns 가 제거하므로 공식 .db엔 순수 거래 행만 남는다.
  */
-function allocateCandidateAccBookForExport(
+export function allocateCandidateAccBookForExport(
   rows: Record<string, unknown>[],
 ): Record<string, unknown>[] {
-  const isCandidate = rows.some((r) => CANDIDATE_ACC_SEC_CDS.includes(Number(r.acc_sec_cd)));
+  // 후보자 자금원(82~85) 코드는 funding-source SSOT predicate로 판정 — 로컬 상수 중복 금지(V3 통합).
+  const isCandidate = rows.some((r) => isFundingSourceAccSecCd(Number(r.acc_sec_cd)));
   if (!isCandidate) return rows;
   const input = rows.map((r) => ({
     ...r,

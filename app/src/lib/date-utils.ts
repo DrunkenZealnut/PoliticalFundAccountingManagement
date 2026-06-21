@@ -23,3 +23,10 @@ export function toAccTime(hm: string | null | undefined): string | null {
   const digits = hm.replace(":", "").trim();
   return HHMM_RE.test(digits) ? digits : null;
 }
+
+/** DB 저장형 "YYYYMMDD" → 표시형 "YYYY-MM-DD". 8자리 아니면 원본 그대로(빈값은 ""). */
+export function fmtAccDate(yyyymmdd: string | null | undefined): string {
+  if (!yyyymmdd) return "";
+  const s = yyyymmdd.trim();
+  return s.length === 8 ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}` : s;
+}

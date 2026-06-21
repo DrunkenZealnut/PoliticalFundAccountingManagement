@@ -21,8 +21,10 @@ import {
   type IncomeLedgerInputRow,
 } from "@/lib/hwpx/income-ledger-builder";
 import { buildLedgerRows } from "@/lib/accounting/ledger-allocation";
+import { detectCandidateShortfalls } from "@/lib/accounting/income-expense-report-summary";
+import { logShortfalls, shortfallHeaders } from "@/lib/accounting/shortfall-surface";
 import { CANDIDATE_SEC_CDS } from "@/lib/accounting/organ-pair";
-import type { ReallocRow } from "@/lib/accounting/fund-realloc";
+import type { ReallocRow, Shortfall } from "@/lib/accounting/fund-realloc";
 import { renderIncomeLedgerSection } from "@/lib/hwpx/owpml-table";
 
 const supabase = createClient(
@@ -145,7 +147,12 @@ export async function POST(request: NextRequest) {
     acc_amt: number;
   })[];
   let ledgerInput: IncomeLedgerInputRow[];
+  // 통장 전체 부족(데이터 오류) 신호 — 생성은 막지 않고 표면화(은폐 금지). 후보자만 산출.
+  let shortfalls: Shortfall[] = [];
   if (CANDIDATE_SEC_CDS.has(orgSecCd)) {
+    // 통장 부족(총지출 > 총수입) 진단 — page 총괄·22-1과 동일 SSOT(detectCandidateShortfalls). 상세는 서버 로그에만.
+    shortfalls = detectCandidateShortfalls(rawRows);
+    logShortfalls("hwpx/income-ledger", `org=${orgId}`, shortfalls);
     const origById = new Map(rawRows.map((r) => [r.acc_book_id, r]));
     const reallocInput: ReallocRow[] = rawRows.map((r) => ({
       acc_book_id: r.acc_book_id,
@@ -197,6 +204,8 @@ export async function POST(request: NextRequest) {
         "Content-Type": "application/hwp+zip",
         "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
         "Cache-Control": "no-store",
+        // 통장 부족 표면화(은폐 금지). 보안: 건수만 노출, 거래 상세는 서버 로그에만(shortfall-surface SSOT).
+        ...shortfallHeaders(shortfalls),
       },
     });
   } catch (e) {

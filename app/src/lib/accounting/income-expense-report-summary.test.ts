@@ -2,8 +2,12 @@ import { describe, it, expect } from "vitest";
 import {
   buildCandidateReportSummary,
   allocateCandidateLedgerRows,
+  detectCandidateShortfalls,
   type ReportSummaryRawRow,
 } from "./income-expense-report-summary";
+import { planAllocationPersist, applyPlanInMemory, type AllocTrackedRow } from "./persist-allocation";
+import { classifyFundingSource, type FundingSource } from "./funding-source";
+import { classifyExpenseCategory } from "@/lib/hwpx/report-summary-builder";
 
 /**
  * 코드명 맵. 86·19 둘 다 "선거비용"(시스템에 cs_id 11/3 두 개 존재) — 과목명으로
@@ -196,5 +200,124 @@ describe("allocateCandidateLedgerRows (page·HWPX 22-1/22-2/22-4 공유 SSOT)", 
       expect(s.cust_id).toBe(7);
       expect(s.rcp_no).toBe("자(비)-9");
     }
+  });
+});
+
+describe("detectCandidateShortfalls (FR-03 통장 부족 진단 — 순수 헬퍼)", () => {
+  it("정상 후보자 데이터(통장≥0)는 부족 없음 → 빈 배열 (TC-1)", () => {
+    // 84 수입 100,000 ≥ 82 선거비용 지출 50,000 → 82 부족분은 84로 충당, 부족 없음.
+    const shortfalls = detectCandidateShortfalls([
+      row({ acc_book_id: 1, incm_sec_cd: 1, acc_sec_cd: 84, item_sec_cd: 86, acc_amt: 100_000 }),
+      row({ acc_book_id: 2, incm_sec_cd: 2, acc_sec_cd: 82, item_sec_cd: 86, acc_amt: 50_000 }),
+    ]);
+    expect(shortfalls).toEqual([]);
+  });
+
+  it("통장 전체 부족(총지출 > 총수입)은 부족 노출 + shortAmt>0 + 잔류 자금원 식별 (TC-2)", () => {
+    // 84 수입 30,000 < 82 지출 50,000 → 풀 전체 20,000 부족이 82에 잔류.
+    const shortfalls = detectCandidateShortfalls([
+      row({ acc_book_id: 1, incm_sec_cd: 1, acc_sec_cd: 84, item_sec_cd: 86, acc_amt: 30_000 }),
+      row({ acc_book_id: 2, incm_sec_cd: 2, acc_sec_cd: 82, item_sec_cd: 86, acc_amt: 50_000 }),
+    ]);
+    expect(shortfalls.length).toBeGreaterThan(0);
+    expect(shortfalls.every((s) => s.shortAmt > 0)).toBe(true);
+    expect(shortfalls.reduce((sum, s) => sum + s.shortAmt, 0)).toBe(20_000);
+    expect(shortfalls.some((s) => s.accSecCd === 82)).toBe(true); // 부족이 잔류한 자금원
+  });
+
+  it("비후보자(자금원 82~85 없음)는 배분 미적용 → 빈 배열 (TC-3)", () => {
+    // 후원회: 1=수입 100,000 < 2=지출 200,000이어도 자금원 계정이 아니라 진단 대상 아님.
+    const shortfalls = detectCandidateShortfalls([
+      row({ acc_book_id: 1, incm_sec_cd: 1, acc_sec_cd: 1, item_sec_cd: 94, acc_amt: 100_000 }),
+      row({ acc_book_id: 2, incm_sec_cd: 2, acc_sec_cd: 2, item_sec_cd: 97, acc_amt: 200_000 }),
+    ]);
+    expect(shortfalls).toEqual([]);
+  });
+
+  it("빈 입력 → 빈 배열 (경계)", () => {
+    expect(detectCandidateShortfalls([])).toEqual([]);
+  });
+
+  it("멱등: 같은 입력을 두 번 호출해도 동일 결과 (순수·사이드이펙트 없음)", () => {
+    const rows = [
+      row({ acc_book_id: 1, incm_sec_cd: 1, acc_sec_cd: 84, acc_amt: 30_000 }),
+      row({ acc_book_id: 2, incm_sec_cd: 2, acc_sec_cd: 82, acc_amt: 50_000 }),
+    ];
+    const first = detectCandidateShortfalls(rows);
+    const second = detectCandidateShortfalls(rows);
+    expect(first).toEqual(second);
+    expect(first.length).toBeGreaterThan(0); // 실제 부족 케이스로 멱등 검증
+  });
+});
+
+describe("교차검증 가드 (FR-04: SSOT·총괄모델·export 세 경로 동일 배분)", () => {
+  // 자금원 분할이 실제로 일어나는 픽스처:
+  //   84(자산) 수입 100,000 + 82(보조금) 수입 30,000, 이후 82 선거비용 지출 50,000
+  //   → 82 가용 30,000으로 부족 → 20,000을 84로 이동(한 지출이 82:30,000 + 84:20,000으로 분할).
+  //   음수수입 없음 → Pass0가 no-op이라 export 경로(planAllocationPersist는 Pass0 미적용)와 전제 일치.
+  const RAW = [
+    { acc_book_id: 1, incm_sec_cd: 1, acc_sec_cd: 84, item_sec_cd: 86, acc_amt: 100_000, acc_date: "20260101", acc_time: null },
+    { acc_book_id: 2, incm_sec_cd: 1, acc_sec_cd: 82, item_sec_cd: 86, acc_amt: 30_000, acc_date: "20260102", acc_time: null },
+    { acc_book_id: 3, incm_sec_cd: 2, acc_sec_cd: 82, item_sec_cd: 86, acc_amt: 50_000, acc_date: "20260103", acc_time: null },
+  ] as const;
+
+  /** 행들을 "계정:과목:수입지출" → 금액합으로 집계(평이 객체 → toEqual 비교). */
+  function cells(
+    rows: { acc_sec_cd: number; item_sec_cd: number; incm_sec_cd: number; acc_amt: number }[],
+  ): Record<string, number> {
+    const m: Record<string, number> = {};
+    for (const r of rows) {
+      const k = `${r.acc_sec_cd}:${r.item_sec_cd}:${r.incm_sec_cd}`;
+      m[k] = (m[k] ?? 0) + Number(r.acc_amt);
+    }
+    return m;
+  }
+
+  /** RAW → export 경로 입력(AllocTrackedRow: 추적/메타 컬럼 전부 null). */
+  function toTracked(r: (typeof RAW)[number]): AllocTrackedRow {
+    return {
+      ...r,
+      cust_id: 0, content: null, rcp_no: null, rcp_no2: null, bigo: null, customer: null,
+      alloc_src_id: null, alloc_seq: null,
+      raw_incm_sec_cd: null, raw_acc_sec_cd: null, raw_item_sec_cd: null, raw_acc_amt: null, alloc_gen: null,
+    };
+  }
+
+  it("SSOT(allocateCandidateLedgerRows) == export(planAllocationPersist+applyPlanInMemory) — (계정×과목×수입지출) 셀 동일 (표류 방지 핵심 가드)", () => {
+    const ssot = cells(allocateCandidateLedgerRows(RAW as unknown as ReportSummaryRawRow[]));
+    const tracked = RAW.map(toTracked);
+    const exported = cells(applyPlanInMemory(tracked, planAllocationPersist(tracked, "")));
+    expect(exported).toEqual(ssot);
+  });
+
+  it("픽스처가 degenerate(무분할)가 아님 — 한 지출이 82 잔류 30,000 + 84 이동 20,000으로 실제 분할", () => {
+    // 위 동일성이 '아무것도 안 쪼개져서' 우연히 성립한 게 아님을 고정.
+    const ssot = cells(allocateCandidateLedgerRows(RAW as unknown as ReportSummaryRawRow[]));
+    expect(ssot["82:86:2"]).toBe(30_000); // 82 잔류분
+    expect(ssot["84:86:2"]).toBe(20_000); // 82→84 이동분
+  });
+
+  it("총괄 모델(buildCandidateReportSummary) 자금원 셀 == SSOT 행을 동일 분류 SSOT로 재집계한 값", () => {
+    const aRows = allocateCandidateLedgerRows(RAW as unknown as ReportSummaryRawRow[]);
+    // SSOT 행 → 자금원×(선거비용/외) 독립 재집계(classifyFundingSource·classifyExpenseCategory 동일 SSOT).
+    const expected = new Map<FundingSource, { income: number; expElection: number; expNonElection: number }>();
+    for (const r of aRows) {
+      const src = classifyFundingSource(r.acc_sec_cd, getName(r.acc_sec_cd));
+      const cell = expected.get(src) ?? { income: 0, expElection: 0, expNonElection: 0 };
+      if (r.incm_sec_cd === 1) cell.income += r.acc_amt;
+      else if (classifyExpenseCategory(getName(r.item_sec_cd)) === "선거비용") cell.expElection += r.acc_amt;
+      else cell.expNonElection += r.acc_amt;
+      expected.set(src, cell);
+    }
+    const model = buildCandidateReportSummary(RAW as unknown as ReportSummaryRawRow[], getName);
+    for (const mrow of model.rows) {
+      const e = expected.get(mrow.source) ?? { income: 0, expElection: 0, expNonElection: 0 };
+      expect(mrow.income).toBe(e.income);
+      expect(mrow.expElection).toBe(e.expElection);
+      expect(mrow.expNonElection).toBe(e.expNonElection);
+    }
+    // 합 보존: 세 경로 공통 입력 → 동일 총액(수입 130,000 / 지출 50,000).
+    expect(model.total.income).toBe(130_000);
+    expect(model.total.expSubtotal).toBe(50_000);
   });
 });
