@@ -18,6 +18,14 @@ export const FUNDING_SOURCE_BY_ACC_SEC_CD: Record<number, FundingSource> = {
   85: "후원회기부금",
 };
 
+/**
+ * acc_sec_cd가 후보자 자금원 계정(82~85)인지 — "후보자 거래" 판정 게이트의 SSOT predicate.
+ * `classifyFundingSource`는 "기타" 폴백이 있어 boolean 게이트로 쓰면 안 됨(폴백이 게이트로 샘).
+ */
+export function isFundingSourceAccSecCd(accSecCd: number): boolean {
+  return FUNDING_SOURCE_BY_ACC_SEC_CD[accSecCd] !== undefined;
+}
+
 export function classifyFundingSource(
   accSecCd: number,
   accSecName?: string,

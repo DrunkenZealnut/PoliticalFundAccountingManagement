@@ -14,8 +14,8 @@
 /* ------------------------------------------------------------------ */
 import { buildLedgerRows } from "./ledger-allocation";
 import { adjustNegativeIncome } from "./adjust-negative-income";
-import { FUNDING_SOURCE_BY_ACC_SEC_CD } from "./funding-source";
-import type { ReallocRow } from "./fund-realloc";
+import { isFundingSourceAccSecCd } from "./funding-source";
+import { reallocateFundSources, type ReallocRow, type Shortfall } from "./fund-realloc";
 import {
   buildReportSummaryModel,
   type ReportSummaryInputRow,
@@ -33,9 +33,20 @@ export interface ReportSummaryRawRow {
   acc_time?: string | null; // HHmm, 미입력 NULL
 }
 
-/** 후보자 자금원 계정(82~85) 여부 — funding-source SSOT 재사용(로컬 상수 중복 금지). */
+/** 후보자 자금원 계정(82~85) 여부 — funding-source SSOT predicate 재사용. */
 function hasCandidateFundingSource(rows: ReportSummaryRawRow[]): boolean {
-  return rows.some((r) => FUNDING_SOURCE_BY_ACC_SEC_CD[Number(r.acc_sec_cd)] !== undefined);
+  return rows.some((r) => isFundingSourceAccSecCd(Number(r.acc_sec_cd)));
+}
+
+/**
+ * 후보자 배분/진단 공통 전처리: acc_amt 숫자화 + Pass0(음수수입→지출, 멱등).
+ * `isCandidate=false`면 후보자 자금원(82~85) 거래가 없어 배분 대상이 아니다(호출부가 분기).
+ */
+function preprocessCandidate<T extends ReportSummaryRawRow>(
+  rawRows: T[],
+): { p0: T[]; isCandidate: boolean } {
+  const p0 = adjustNegativeIncome(rawRows.map((r) => ({ ...r, acc_amt: Number(r.acc_amt) })));
+  return { p0, isCandidate: hasCandidateFundingSource(p0) };
 }
 
 /**
@@ -47,12 +58,36 @@ function hasCandidateFundingSource(rows: ReportSummaryRawRow[]): boolean {
  * 제네릭이라 호출부의 메타(content·rcp_no·cust_id·customer 등)를 보존한다.
  */
 export function allocateCandidateLedgerRows<T extends ReportSummaryRawRow>(rawRows: T[]): T[] {
-  const normalized = rawRows.map((r) => ({ ...r, acc_amt: Number(r.acc_amt) }));
-  const p0 = adjustNegativeIncome(normalized);
-  if (!hasCandidateFundingSource(p0)) return p0;
+  const { p0, isCandidate } = preprocessCandidate(rawRows);
+  if (!isCandidate) return p0;
 
   const origById = new Map(p0.map((r) => [r.acc_book_id, r] as const));
-  const input: ReallocRow[] = p0.map((r) => ({
+  return buildLedgerRows(toReallocInput(p0)).map((lr) => ({
+    ...origById.get(lr.acc_book_id)!,
+    acc_sec_cd: lr.accSecCd,
+    item_sec_cd: lr.itemSecCd,
+    acc_amt: lr.amt,
+    incm_sec_cd: lr.incm_sec_cd,
+  })) as T[];
+}
+
+/**
+ * raw acc_book 행 → 통장(현금풀) 부족 진단. 정상 데이터(통장 잔액 ≥ 0)면 빈 배열.
+ *
+ * `allocateCandidateLedgerRows`와 **동일한 전처리**(acc_amt 숫자화 + Pass0 음수수입 정규화 +
+ * 후보자 자금원 판정)를 거친 뒤 Pass1(`reallocateFundSources`)의 `shortfalls`만 추출한다.
+ * 통장 전체 부족(총지출 > 총수입 = 데이터 오류)일 때만 비어있지 않다. 순수·멱등·사이드이펙트 없음.
+ * 행을 반환하는 SSOT(`buildLedgerRows`)의 시그니처는 건드리지 않고, 폐기되던 shortfall 신호만 재노출한다.
+ */
+export function detectCandidateShortfalls<T extends ReportSummaryRawRow>(rawRows: T[]): Shortfall[] {
+  const { p0, isCandidate } = preprocessCandidate(rawRows);
+  if (!isCandidate) return [];
+  return reallocateFundSources(toReallocInput(p0)).shortfalls;
+}
+
+/** ReportSummaryRawRow(전처리 완료) → Pass1/buildLedgerRows 입력 행. 메타는 배분에 무관하므로 비운다. */
+function toReallocInput(rows: ReportSummaryRawRow[]): ReallocRow[] {
+  return rows.map((r) => ({
     acc_book_id: r.acc_book_id,
     incm_sec_cd: r.incm_sec_cd,
     acc_sec_cd: r.acc_sec_cd,
@@ -66,13 +101,6 @@ export function allocateCandidateLedgerRows<T extends ReportSummaryRawRow>(rawRo
     cust_id: 0,
     customer: null,
   }));
-  return buildLedgerRows(input).map((lr) => ({
-    ...origById.get(lr.acc_book_id)!,
-    acc_sec_cd: lr.accSecCd,
-    item_sec_cd: lr.itemSecCd,
-    acc_amt: lr.amt,
-    incm_sec_cd: lr.incm_sec_cd,
-  })) as T[];
 }
 
 /**

@@ -35,7 +35,12 @@ import {
   electionExpenseSummaryTokens,
   type ElectionExpenseSummaryInputRow,
 } from "@/lib/hwpx/election-expense-summary-builder";
-import { allocateCandidateLedgerRows } from "@/lib/accounting/income-expense-report-summary";
+import {
+  allocateCandidateLedgerRows,
+  detectCandidateShortfalls,
+} from "@/lib/accounting/income-expense-report-summary";
+import type { Shortfall } from "@/lib/accounting/fund-realloc";
+import { logShortfalls, shortfallHeaders } from "@/lib/accounting/shortfall-surface";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -114,6 +119,8 @@ export async function POST(request: NextRequest) {
   // formId 분기: 조회 + 렌더
   try {
     let bytes: Uint8Array;
+    // 통장 전체 부족(데이터 오류) 신호 — 생성은 막지 않고 표면화(은폐 금지). 22-1/22-2/22-4에서만 산출.
+    let shortfalls: Shortfall[] = [];
 
     if (formId === "22-3") {
       // 재산명세서: estate 조회 → 구분별 그룹/소계/합계 → 표 행 동적 복제
@@ -161,6 +168,9 @@ export async function POST(request: NextRequest) {
         rcp_no: string | null; cust_id: number;
       }[];
       const ledgerRows = allocateCandidateLedgerRows(rawRows);
+      // 통장 부족(총지출 > 총수입 = 데이터 오류) 진단. 정상 데이터면 빈 배열. 상세는 서버 로그에만(헤더는 건수만).
+      shortfalls = detectCandidateShortfalls(rawRows);
+      logShortfalls("hwpx/accounting-report", `org=${orgId}, form=${formId}`, shortfalls);
 
       if (formId === "22-4") {
         const model = buildIncomeLedgerModel(ledgerRows as unknown as IncomeLedgerInputRow[], getName);
@@ -186,6 +196,8 @@ export async function POST(request: NextRequest) {
         "Content-Type": "application/hwp+zip",
         "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
         "Cache-Control": "no-store",
+        // 통장 부족 표면화(은폐 금지). 보안: 건수만 노출, 거래 상세는 서버 로그에만(shortfall-surface SSOT).
+        ...shortfallHeaders(shortfalls),
       },
     });
   } catch (e) {

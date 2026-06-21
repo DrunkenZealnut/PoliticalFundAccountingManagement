@@ -11,8 +11,11 @@ import { HelpTooltip } from "@/components/help-tooltip";
 import { applyCorrections, type Correction } from "@/lib/accounting/settlement-calc";
 import {
   buildCandidateReportSummary,
+  detectCandidateShortfalls,
   type ReportSummaryRawRow,
 } from "@/lib/accounting/income-expense-report-summary";
+import type { Shortfall } from "@/lib/accounting/fund-realloc";
+import { fmtAccDate } from "@/lib/date-utils";
 import type { ReportSummaryModel } from "@/lib/hwpx/report-summary-builder";
 
 export default function IncomeExpenseReportPage() {
@@ -27,6 +30,7 @@ export default function IncomeExpenseReportPage() {
   const [loading, setLoading] = useState(false);
   const [model, setModel] = useState<ReportSummaryModel | null>(null);
   const [corrections, setCorrections] = useState<Correction[]>([]);
+  const [shortfalls, setShortfalls] = useState<Shortfall[]>([]);
   const [searched, setSearched] = useState(false);
 
   const fmt = (n: number) => n.toLocaleString("ko-KR");
@@ -53,6 +57,7 @@ export default function IncomeExpenseReportPage() {
     if (!data) {
       setModel(null);
       setCorrections([]);
+      setShortfalls([]);
       setLoading(false);
       return;
     }
@@ -65,6 +70,8 @@ export default function IncomeExpenseReportPage() {
     // 정규 SSOT: 후보자면 buildLedgerRows(Pass0→1→2)로 (계정×과목) 분할 후 자금원 4분류 집계.
     // HWPX 22-1(api/hwpx/accounting-report)·reports 총괄과 동일 로직 → 수치 일치.
     setModel(buildCandidateReportSummary(data as ReportSummaryRawRow[], getName));
+    // 통장 전체 부족(데이터 오류)을 0/음수로 묻지 않고 표면화(은폐 금지). 정상 데이터면 빈 배열 → 배너 미표시.
+    setShortfalls(detectCandidateShortfalls(data as ReportSummaryRawRow[]));
     setLoading(false);
   }, [orgId, supabase, dateFrom, dateTo, getName]);
 
@@ -430,6 +437,24 @@ export default function IncomeExpenseReportPage() {
                     <>ACC_BOOK #{c.acc_book_id ?? "?"}: 수입 {fmt(c.before.acc_amt)} → 지출 {fmt(c.after.acc_amt)}</>
                   )}
                   {c.rule !== "negative_income_to_expense" && c.reason}
+                </li>
+              ))}
+            </ul>
+          </details>
+        </div>
+      )}
+
+      {searched && shortfalls.length > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm">
+          <p className="font-medium text-red-900">
+            ⚠️ 통장 잔액 부족 — 자금원에 배정하지 못한 지출 {shortfalls.length}건이 있습니다. 데이터를 점검하세요. (보고서 금액이 실제와 다를 수 있습니다)
+          </p>
+          <details className="mt-2 text-red-800">
+            <summary className="cursor-pointer">부족 내역 보기</summary>
+            <ul className="mt-2 ml-4 list-disc text-xs">
+              {shortfalls.map((s, i) => (
+                <li key={i}>
+                  {getName(s.accSecCd)}({s.accSecCd}) {fmtAccDate(s.acc_date)} {fmt(s.shortAmt)}원 부족 (ACC_BOOK #{s.acc_book_id})
                 </li>
               ))}
             </ul>
