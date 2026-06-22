@@ -12,7 +12,7 @@ import { buildAdjustedAccBook, adjustedOrigins, adjustedNotes, type AdjustedOrig
 import { fillExportReceiptNumbers, type ReceiptCodeNames } from "@/lib/accounting/receipt-no";
 import { detectCandidateShortfalls, type ReportSummaryRawRow } from "@/lib/accounting/income-expense-report-summary";
 import type { Shortfall } from "@/lib/accounting/fund-realloc";
-import { compareAccDateTime } from "@/lib/accounting/acc-book-sort";
+import { compareAccDateTime, fillExportSortNumbers } from "@/lib/accounting/acc-book-sort";
 
 interface BookRow {
   acc_book_id: number;
@@ -33,6 +33,7 @@ interface BookRow {
     job: string | null;
     tel: string | null;
   } | null;
+  acc_time?: string | null; // HHmm 거래 시각(같은 날 정렬·채번 정합 키)
   origin?: AdjustedOrigin; // 재조정 구분: 원본/이동/분할
   note?: string | null; // 재배분 근거(예: "재배분 보조금→후보자등자산")
 }
@@ -92,7 +93,7 @@ export default function IncomeExpenseBookPage() {
     // 후보자 (계정×과목) 분할은 전 행 맥락이 필요하므로 계정/과목 필터는 조회 후(JS)에 적용한다.
     const { data, error } = await supabase
       .from("acc_book")
-      .select("acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_date, content, acc_amt, rcp_yn, rcp_no, bigo, acc_print_ok, cust_id, customer:cust_id(name, reg_num, addr, job, tel)")
+      .select("acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_date, acc_time, content, acc_amt, rcp_yn, rcp_no, bigo, acc_print_ok, cust_id, customer:cust_id(name, reg_num, addr, job, tel)")
       .eq("org_id", orgId)
       .gte("acc_date", fromStr)
       .lte("acc_date", toStr);
@@ -106,14 +107,19 @@ export default function IncomeExpenseBookPage() {
 
     // 재조정 SSOT(export-sqlite와 동일): 원본 불변, 후보자면 (계정×과목) 분할(이동분 신규 id).
     const adjusted = buildAdjustedAccBook(rawRecords);
+    // 채번 정렬 키(acc_sort_num)를 export-sqlite와 '동일하게' 재계산한다(같은 날 acc_time→수입먼저→id).
+    //   fillExportReceiptNumbers는 acc_date→acc_sort_num→acc_book_id 순으로 채번하는데, 이 단계를
+    //   빼면 같은 날짜에 acc_time이 다른 거래의 영수증 순번이 .db(export)와 어긋난다. DB의 acc_sort_num은
+    //   신규행이 NULL이라 신뢰 불가 → export처럼 fillExportSortNumbers로 재계산해야 화면==.db 보장.
+    const sorted = fillExportSortNumbers(adjusted);
     // 영수증번호 = 재조정 행 기준 채번(가: 계산만, 원본 acc_book 미변경). export-sqlite와 동일 함수.
     const codeNames: ReceiptCodeNames = { acc: {}, item: {} };
-    for (const r of adjusted) {
+    for (const r of sorted) {
       const a = Number(r.acc_sec_cd), it = Number(r.item_sec_cd);
       codeNames.acc[a] = getName(a);
       codeNames.item[it] = getName(it);
     }
-    const numbered = fillExportReceiptNumbers(adjusted, codeNames);
+    const numbered = fillExportReceiptNumbers(sorted, codeNames);
     const origins = adjustedOrigins(numbered);
     const notes = adjustedNotes(numbered, getName);
     let rows: BookRow[] = numbered.map((r, i) => ({
@@ -122,6 +128,7 @@ export default function IncomeExpenseBookPage() {
       acc_sec_cd: Number(r.acc_sec_cd),
       item_sec_cd: Number(r.item_sec_cd),
       acc_date: String(r.acc_date ?? ""),
+      acc_time: (r.acc_time as string | null) ?? null,
       content: String(r.content ?? ""),
       acc_amt: Number(r.acc_amt ?? 0),
       rcp_yn: String(r.rcp_yn ?? ""),
@@ -140,7 +147,10 @@ export default function IncomeExpenseBookPage() {
     if (itemSecCd) rows = rows.filter((r) => r.item_sec_cd === itemSecCd);
     rows.sort(
       (a, b) =>
-        compareAccDateTime({ acc_date: a.acc_date }, { acc_date: b.acc_date }) ||
+        compareAccDateTime(
+          { acc_date: a.acc_date, acc_time: a.acc_time },
+          { acc_date: b.acc_date, acc_time: b.acc_time },
+        ) ||
         a.incm_sec_cd - b.incm_sec_cd ||
         a.acc_book_id - b.acc_book_id,
     );
