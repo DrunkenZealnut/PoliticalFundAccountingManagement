@@ -33,7 +33,6 @@ function row(p: Partial<ReportSummaryRawRow>): ReportSummaryRawRow {
     item_sec_cd: 86,
     acc_amt: 1000,
     acc_date: "20260101",
-    acc_time: null,
     ...p,
   };
 }
@@ -137,7 +136,6 @@ describe("allocateCandidateLedgerRows (page·HWPX 22-1/22-2/22-4 공유 SSOT)", 
     item_sec_cd: 86,
     acc_amt: 1000,
     acc_date: "20260101",
-    acc_time: null,
     content: null,
     cust_id: 0,
     rcp_no: null,
@@ -256,9 +254,9 @@ describe("교차검증 가드 (FR-04: SSOT·총괄모델·export 세 경로 동�
   //   → 82 가용 30,000으로 부족 → 20,000을 84로 이동(한 지출이 82:30,000 + 84:20,000으로 분할).
   //   음수수입 없음 → Pass0가 no-op이라 export 경로(planAllocationPersist는 Pass0 미적용)와 전제 일치.
   const RAW = [
-    { acc_book_id: 1, incm_sec_cd: 1, acc_sec_cd: 84, item_sec_cd: 86, acc_amt: 100_000, acc_date: "20260101", acc_time: null },
-    { acc_book_id: 2, incm_sec_cd: 1, acc_sec_cd: 82, item_sec_cd: 86, acc_amt: 30_000, acc_date: "20260102", acc_time: null },
-    { acc_book_id: 3, incm_sec_cd: 2, acc_sec_cd: 82, item_sec_cd: 86, acc_amt: 50_000, acc_date: "20260103", acc_time: null },
+    { acc_book_id: 1, incm_sec_cd: 1, acc_sec_cd: 84, item_sec_cd: 86, acc_amt: 100_000, acc_date: "20260101" },
+    { acc_book_id: 2, incm_sec_cd: 1, acc_sec_cd: 82, item_sec_cd: 86, acc_amt: 30_000, acc_date: "20260102" },
+    { acc_book_id: 3, incm_sec_cd: 2, acc_sec_cd: 82, item_sec_cd: 86, acc_amt: 50_000, acc_date: "20260103" },
   ] as const;
 
   /** 행들을 "계정:과목:수입지출" → 금액합으로 집계(평이 객체 → toEqual 비교). */

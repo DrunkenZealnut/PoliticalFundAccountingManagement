@@ -15,7 +15,6 @@ function row(p: Partial<AllocTrackedRow> & { acc_book_id: number }): AllocTracke
     item_sec_cd: 86,
     acc_amt: 0,
     acc_date: "20260501",
-    acc_time: null,
     cust_id: 1,
     content: "x",
     rcp_no: null,

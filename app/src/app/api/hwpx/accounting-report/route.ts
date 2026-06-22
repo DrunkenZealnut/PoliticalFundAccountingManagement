@@ -141,14 +141,15 @@ export async function POST(request: NextRequest) {
       const { data: rows, error: rowsErr } = await supabase
         .from("acc_book")
         .select(
-          "acc_book_id, acc_date, acc_time, incm_sec_cd, acc_sec_cd, item_sec_cd, content, acc_amt, rcp_no, cust_id, " +
+          "acc_book_id, acc_date, incm_sec_cd, acc_sec_cd, item_sec_cd, content, acc_amt, rcp_no, cust_id, " +
             "customer:cust_id(name, reg_num, addr, addr_detail, job, tel)"
         )
         .eq("org_id", orgId)
-        // 정렬 SSOT(acc-book-sort): acc_date → acc_time(미입력 nulls first). 22-4 잔액 누계는
-        // 같은 날 거래 시각순이 잔액 정확성을 좌우하므로 acc_time 1차 보조키 필수(누락 시 입력순 뒤바뀜).
+        // 정렬 SSOT(acc-book-sort): acc_date → acc_sort_num → acc_book_id. 22-4 같은 날 순서는
+        // 빌더가 compareAccDateTime + tie-break(수입 먼저)로 재정렬하므로 결정적 보조키만 부여한다.
         .order("acc_date", { ascending: true })
-        .order("acc_time", { ascending: true, nullsFirst: true });
+        .order("acc_sort_num", { ascending: true, nullsFirst: true })
+        .order("acc_book_id", { ascending: true });
       if (rowsErr) {
         return errorResponse("QUERY_FAILED", "수입·지출내역 조회에 실패했습니다.", 500, { detail: rowsErr.message });
       }
@@ -164,7 +165,7 @@ export async function POST(request: NextRequest) {
       //   (allocateCandidateLedgerRows: acc_amt 숫자화 + Pass0 보편 + 후보자 buildLedgerRows + 메타 조인). 22-1/22-2/22-4 일관.
       const rawRows = (rows ?? []) as unknown as {
         acc_book_id: number; incm_sec_cd: number; acc_sec_cd: number; item_sec_cd: number;
-        acc_date: string; acc_time: string | null; content: string | null; acc_amt: number;
+        acc_date: string; content: string | null; acc_amt: number;
         rcp_no: string | null; cust_id: number;
       }[];
       const ledgerRows = allocateCandidateLedgerRows(rawRows);

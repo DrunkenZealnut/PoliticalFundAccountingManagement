@@ -30,7 +30,6 @@ export interface IebInputRow {
   acc_book_id: number;
   incm_sec_cd: number;
   acc_date: string; // YYYYMMDD
-  acc_time?: string | null; // HHmm, 거래 시각(분 단위, NULL 허용)
   content: string | null;
   acc_amt: number;
   claim_amt?: number | null;

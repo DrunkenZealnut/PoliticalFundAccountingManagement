@@ -18,7 +18,6 @@ import { EmptyState } from "@/components/empty-state";
 import { PAGE_GUIDES } from "@/lib/page-guides";
 import { buildIncomeSummary } from "@/lib/accounting/ledger-summary";
 import { LedgerSummaryHeader } from "@/components/dashboard/LedgerSummaryHeader";
-import { fmtTimeInput } from "@/lib/date-utils";
 
 interface AccBook {
   acc_book_id: number;
@@ -29,7 +28,6 @@ interface AccBook {
   exp_sec_cd: number;
   cust_id: number;
   acc_date: string;
-  acc_time: string | null;
   content: string;
   acc_amt: number;
   rcp_yn: string;
@@ -67,7 +65,6 @@ export default function IncomePage() {
     acc_sec_cd: 0,
     item_sec_cd: 0,
     acc_date: "",
-    acc_time: "",
     acc_amt: 0,
     cust_id: 0,
     content: "",
@@ -163,7 +160,6 @@ export default function IncomePage() {
       acc_sec_cd: 0,
       item_sec_cd: 0,
       acc_date: "",
-      acc_time: "",
       acc_amt: 0,
       cust_id: 0,
       content: "",
@@ -187,7 +183,6 @@ export default function IncomePage() {
         r.acc_date.length === 8
           ? `${r.acc_date.slice(0, 4)}-${r.acc_date.slice(4, 6)}-${r.acc_date.slice(6, 8)}`
           : r.acc_date,
-      acc_time: fmtTimeInput(r.acc_time),
       acc_amt: r.acc_amt,
       cust_id: r.cust_id,
       content: r.content,

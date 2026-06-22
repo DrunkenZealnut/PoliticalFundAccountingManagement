@@ -1,4 +1,5 @@
 -- 014_add_acc_time.sql : 거래 시각(분 단위) 컬럼 추가
+-- ⚠️ SUPERSEDED by 019_drop_acc_time.sql (acc-time-removal v0.20.0.0) — 시분초 미사용. 신규 적용 금지.
 -- acc-time-input feature. Supabase SQL 에디터에서 수동 적용 (DDL은 서비스롤 REST로 실행 불가).
 -- additive · nullable · 기본 NULL → 기존 행/코드 무영향, 롤백 = DROP COLUMN.
 -- acc_date(CHAR(8) YYYYMMDD)는 그대로 두어 선관위 PFund2/SQLite export(ACC_DATE CHAR(8)) 호환 유지.

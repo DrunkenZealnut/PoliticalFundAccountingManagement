@@ -52,8 +52,8 @@ export interface LedgerCustomer {
 
 /** acc_book 행(수입/지출) + customer 상세 (전용 조회 결과). */
 export interface IncomeLedgerInputRow {
+  acc_book_id: number; // 같은 날·같은 구분 정렬 tie-break(입력순 비결정성 제거)
   acc_date: string; // YYYYMMDD
-  acc_time?: string | null; // HHmm, 거래 시각(분 단위, NULL 허용)
   incm_sec_cd: number; // 1=수입, 2=지출
   acc_sec_cd: number;
   item_sec_cd: number;
@@ -184,10 +184,15 @@ function emptyLedgerRow(): LedgerCellRow {
 function buildGroupRows(groupRows: IncomeLedgerInputRow[]): LedgerCellRow[] {
   if (groupRows.length === 0) return [emptyLedgerRow()];
 
-  // 그룹 내 일자 → 거래 시각(acc_time)순, 동일 시각은 수입(incm=1) 먼저 (stable sort)
+  // 그룹 내 일자순, 같은 날은 수입(incm=1) 먼저 → acc_book_id (정렬 SSOT tie-break)
   const sorted = groupRows
     .slice()
-    .sort((a, b) => compareAccDateTime(a, b) || a.incm_sec_cd - b.incm_sec_cd);
+    .sort(
+      (a, b) =>
+        compareAccDateTime(a, b) ||
+        a.incm_sec_cd - b.incm_sec_cd ||
+        a.acc_book_id - b.acc_book_id,
+    );
 
   let incCum = 0;
   let expCum = 0;

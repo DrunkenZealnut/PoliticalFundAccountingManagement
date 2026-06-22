@@ -22,6 +22,7 @@ const getName = (cv: number) =>
 
 function row(p: Partial<IncomeLedgerInputRow>): IncomeLedgerInputRow {
   return {
+    acc_book_id: 1,
     acc_date: "20260521", incm_sec_cd: 1, acc_sec_cd: 84, item_sec_cd: 10, content: "내역",
     acc_amt: 1000, rcp_no: null, cust_id: 1,
     customer: { name: "홍길동", reg_num: "570923", addr: "서울 종로", addr_detail: "1", job: "회사원", tel: "02-1-2" },

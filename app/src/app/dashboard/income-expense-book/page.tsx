@@ -107,8 +107,8 @@ export default function IncomeExpenseBookPage() {
     // 재조정 SSOT(export-sqlite와 동일): 원본 불변, 후보자면 (계정×과목) 분할(이동분 신규 id).
     const adjusted = buildAdjustedAccBook(rawRecords);
     // 영수증번호 = 재조정 행 기준 채번(가: 계산만, 원본 acc_book 미변경). export-sqlite와 동일 함수.
-    //   거래 시각(acc_time)은 사용하지 않으므로(시분초 미사용), 같은 날 거래는 acc_book_id 순으로 채번된다
-    //   — export-sqlite도 동일(acc_time 없으면 fillExportSortNumbers가 날짜→incm→id 순이라 incm 그룹 내 id 순).
+    //   같은 날 거래는 acc_book_id 순으로 채번된다 — export-sqlite도 fillExportSortNumbers가
+    //   날짜→incm→id 순이라 incm 그룹 내 id 순으로 동일(화면==.db 정합 유지).
     const codeNames: ReceiptCodeNames = { acc: {}, item: {} };
     for (const r of adjusted) {
       const a = Number(r.acc_sec_cd), it = Number(r.item_sec_cd);

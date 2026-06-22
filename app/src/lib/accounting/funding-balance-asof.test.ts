@@ -8,7 +8,6 @@ function r(p: Partial<AsOfRow>): AsOfRow {
     acc_sec_cd: 85,
     incm_sec_cd: 1,
     acc_date: "20260501",
-    acc_time: null,
     acc_amt: 0,
     ...p,
   };
@@ -40,13 +39,12 @@ describe("availableAsOf", () => {
     expect(availableAsOf(rows, "20260503", { excludeAccBookId: 777 })[85]).toBe(1000);
   });
 
-  it("A5: 같은 날짜 — asOfTime 미지정이면 그 날 전체 포함, 지정 시 시각 이하만", () => {
+  it("A5: 같은 날짜는 전부 포함 (시각 미사용)", () => {
     const rows = [
-      inc(85, "20260502", 1000, { acc_time: "0900" }),
-      exp(85, "20260502", 200, { acc_time: "1500" }),
+      inc(85, "20260502", 1000),
+      exp(85, "20260502", 200),
     ];
-    expect(availableAsOf(rows, "20260502")[85]).toBe(800); // 전체
-    expect(availableAsOf(rows, "20260502", { asOfTime: "1000" })[85]).toBe(1000); // 0900만
+    expect(availableAsOf(rows, "20260502")[85]).toBe(800); // 같은 날 전체 포함
   });
 
   it("지출 일반 차감 + 자금원 분리", () => {

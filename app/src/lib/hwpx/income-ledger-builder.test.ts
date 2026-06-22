@@ -22,6 +22,7 @@ const getName = (cv: number) => NAMES[cv] ?? `코드${cv}`;
 
 function row(p: Partial<IncomeLedgerInputRow>): IncomeLedgerInputRow {
   return {
+    acc_book_id: 1,
     acc_date: "20260521",
     incm_sec_cd: 1,
     acc_sec_cd: 84,
@@ -150,18 +151,6 @@ describe("buildIncomeLedgerModel", () => {
       getName,
     );
     expect(model.groups[0].rows.map((r) => r.content)).toEqual(["수입", "지출"]);
-  });
-
-  it("동일자라도 거래 시각(acc_time)이 빠른 행이 먼저 — 새벽 지출이 오후 수입보다 앞 (회귀)", () => {
-    // acc_time 미반영 시(기존 incm_sec_cd 정렬)에는 오후 수입이 먼저 나와 실패한다.
-    const model = buildIncomeLedgerModel(
-      [
-        row({ incm_sec_cd: 1, acc_date: "20260521", acc_time: "1400", content: "오후수입" }),
-        row({ incm_sec_cd: 2, acc_date: "20260521", acc_time: "0600", content: "새벽지출" }),
-      ],
-      getName,
-    );
-    expect(model.groups[0].rows.map((r) => r.content)).toEqual(["새벽지출", "오후수입"]);
   });
 
   it("익명(cust_id=-999)은 상세 셀 공란, 금액은 정상", () => {

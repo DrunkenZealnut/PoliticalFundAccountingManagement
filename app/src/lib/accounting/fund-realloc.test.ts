@@ -8,7 +8,6 @@ function row(p: Partial<ReallocRow> & { acc_book_id: number }): ReallocRow {
     acc_sec_cd: 85,
     item_sec_cd: 86,
     acc_date: "20260501",
-    acc_time: null,
     acc_amt: 0,
     content: "x",
     rcp_no: null,

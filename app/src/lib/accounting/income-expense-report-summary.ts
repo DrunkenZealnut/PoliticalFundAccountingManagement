@@ -30,7 +30,6 @@ export interface ReportSummaryRawRow {
   item_sec_cd: number; // 과목(선거비용 86 / 선거비용외 87 …)
   acc_amt: number;
   acc_date: string; // YYYYMMDD
-  acc_time?: string | null; // HHmm, 미입력 NULL
 }
 
 /** 후보자 자금원 계정(82~85) 여부 — funding-source SSOT predicate 재사용. */
@@ -93,7 +92,6 @@ function toReallocInput(rows: ReportSummaryRawRow[]): ReallocRow[] {
     acc_sec_cd: r.acc_sec_cd,
     item_sec_cd: r.item_sec_cd,
     acc_date: r.acc_date,
-    acc_time: r.acc_time ?? null,
     acc_amt: r.acc_amt,
     content: null,
     rcp_no: null,

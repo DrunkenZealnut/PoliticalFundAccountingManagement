@@ -31,7 +31,6 @@ interface ParsedEntry {
   acc_sec_cd: number;
   item_sec_cd: number;
   acc_date: string;
-  acc_time: string;
   content: string;
   acc_amt: number;
   cust_id: number;
@@ -117,7 +116,7 @@ export default function DocumentRegisterPage() {
         fileBase64: base64,
         fileType: file.type,
         preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : "",
-        acc_sec_cd: 0, item_sec_cd: 0, acc_date: "", acc_time: "", content: "", acc_amt: 0,
+        acc_sec_cd: 0, item_sec_cd: 0, acc_date: "", content: "", acc_amt: 0,
         cust_id: 0, customerName: "", rcp_yn: "Y", rcp_no: "", bigo: "", providerRegNum: "",
         exp_group1_cd: "", exp_group2_cd: "", exp_group3_cd: "", acc_ins_type: "118",
       });

@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.20.0.0] - 2026-06-22
+
+### Removed
+- 거래 시각(시·분, `acc_time`) 입력·표시를 전면 제거. 수입·지출·문서등록 화면의 「거래 시각」 입력 흔적이 사라지고, 거래는 날짜 단위로만 기록·정렬한다. (시분초는 사용하지 않기로 한 결정 — `acc-time-input`(v0.7.0.0) 되돌림. `scripts/019_drop_acc_time.sql`로 컬럼 DROP, 코드 배포 후 적용.)
+
+### Changed
+- 같은 날 거래의 정렬·영수증 채번을 `거래일 → 수입 먼저 → 입력순(acc_book_id)` 기준으로 일관화. 화면·HWPX·Excel·SQLite 백업 산출물의 같은 날 순서·수치는 동일하게 유지(회귀 0). 자금원 잔액 가드의 시점 잔액은 날짜 단위로 단순화.
+
 ## [0.19.1.0] - 2026-06-22
 
 ### Fixed

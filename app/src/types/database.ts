@@ -168,7 +168,6 @@ export type Database = {
           exp_sec_cd: number;
           cust_id: number;
           acc_date: string;
-          acc_time: string | null;
           content: string;
           acc_amt: number;
           claim_amt: number | null;
@@ -208,7 +207,6 @@ export type Database = {
           exp_sec_cd: number;
           cust_id: number;
           acc_date: string;
-          acc_time: string | null;
           content: string;
           acc_amt: number;
           claim_amt: number | null;
