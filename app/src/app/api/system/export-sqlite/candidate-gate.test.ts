@@ -22,7 +22,6 @@ const r = (p: Record<string, unknown>): Record<string, unknown> => ({
   item_sec_cd: 86,
   acc_amt: 0,
   acc_date: "20260101",
-  acc_time: null,
   cust_id: 1,
   ...p,
 });

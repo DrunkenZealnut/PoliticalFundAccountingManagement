@@ -28,7 +28,6 @@ interface AccRecord {
   exp_sec_cd: number;
   cust_id: number;
   acc_date: string;
-  acc_time: string | null;
   content: string;
   acc_amt: number;
   rcp_yn: string;
@@ -157,7 +156,6 @@ function allocateReportRecords(records: AccRecord[]): AccRecord[] {
     acc_sec_cd: r.acc_sec_cd,
     item_sec_cd: r.item_sec_cd,
     acc_date: r.acc_date,
-    acc_time: r.acc_time,
     acc_amt: r.acc_amt,
     content: r.content,
     rcp_no: null,
@@ -628,7 +626,7 @@ function buildLedgerSheet(
   ws.getColumn(13).width = 8;  // 영수증번호
 
   // Sort records by date
-  // 거래일 → 거래 시각(acc_time) → 같은 시각이면 수입(1) 먼저
+  // 거래일 → 같은 날이면 수입(1) 먼저
   const sorted = [...sheetRecords].sort(
     (a, b) => compareAccDateTime(a, b) || a.incm_sec_cd - b.incm_sec_cd,
   );
