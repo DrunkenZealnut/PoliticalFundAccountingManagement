@@ -626,9 +626,12 @@ function buildLedgerSheet(
   ws.getColumn(13).width = 8;  // 영수증번호
 
   // Sort records by date
-  // 거래일 → 같은 날이면 수입(1) 먼저
+  // 거래일 → 같은 날 수입(1) 먼저 → 같은 구분이면 acc_book_id (정렬 SSOT tie-break, 입력순 비결정성 제거)
   const sorted = [...sheetRecords].sort(
-    (a, b) => compareAccDateTime(a, b) || a.incm_sec_cd - b.incm_sec_cd,
+    (a, b) =>
+      compareAccDateTime(a, b) ||
+      a.incm_sec_cd - b.incm_sec_cd ||
+      a.acc_book_id - b.acc_book_id,
   );
 
   // Data rows

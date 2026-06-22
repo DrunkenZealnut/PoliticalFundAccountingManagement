@@ -22,6 +22,7 @@ const getName = (cv: number) => NAMES[cv] ?? `코드${cv}`;
 
 function row(p: Partial<IncomeLedgerInputRow>): IncomeLedgerInputRow {
   return {
+    acc_book_id: 1,
     acc_date: "20260521",
     incm_sec_cd: 1,
     acc_sec_cd: 84,
