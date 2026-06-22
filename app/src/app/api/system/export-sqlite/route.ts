@@ -13,12 +13,7 @@ import {
 import { computeBalances, type AccBookRow } from "@/lib/accounting/settlement-calc";
 import { fillExportReceiptNumbers } from "@/lib/accounting/receipt-no";
 import { fillExportSortNumbers } from "@/lib/accounting/acc-book-sort";
-import {
-  planAllocationPersist,
-  applyPlanInMemory,
-  type AllocTrackedRow,
-} from "@/lib/accounting/persist-allocation";
-import { isFundingSourceAccSecCd } from "@/lib/accounting/funding-source";
+import { buildAdjustedAccBook } from "@/lib/accounting/adjusted-ledger";
 import { ParityError, ParityErrors } from "@/lib/accounting/parity-errors";
 import {
   PFUND2_ENSURE_ANONYMOUS_CUSTOMER_SQL,
@@ -495,31 +490,12 @@ export function stripAppOnlyAccBookColumns(
 }
 
 /**
- * export용 (계정×과목) 분할 — acc_book(데이터)은 실거래 원본 그대로 두고, 보고자료(.db)에서만
- * 금액을 충당 과목/자금원으로 분할한다. 영구화와 동일한 순수 함수(planAllocationPersist/
- * applyPlanInMemory)를 **메모리에서만** 적용(DB write 없음). 후원회/정당 등 비후보자 거래는 무변경.
- * 분할 추적 컬럼은 이후 stripAppOnlyAccBookColumns 가 제거하므로 공식 .db엔 순수 거래 행만 남는다.
+ * export용 (계정×과목) 분할 — 재조정 SSOT `buildAdjustedAccBook` 재사용.
+ * acc_book(데이터)은 실거래 원본 그대로, 보고자료(.db)에서만 분할(메모리, DB write 없음).
+ * 비후보자 무변경. 추적 컬럼은 이후 stripAppOnlyAccBookColumns 가 제거.
+ * 재조정 데이터 뷰어(income-expense-book)와 **같은 함수** → 화면 == .db 정합 보장.
  */
-export function allocateCandidateAccBookForExport(
-  rows: Record<string, unknown>[],
-): Record<string, unknown>[] {
-  // 후보자 자금원(82~85) 코드는 funding-source SSOT predicate로 판정 — 로컬 상수 중복 금지(V3 통합).
-  const isCandidate = rows.some((r) => isFundingSourceAccSecCd(Number(r.acc_sec_cd)));
-  if (!isCandidate) return rows;
-  const input = rows.map((r) => ({
-    ...r,
-    acc_book_id: Number(r.acc_book_id),
-    incm_sec_cd: Number(r.incm_sec_cd),
-    acc_sec_cd: Number(r.acc_sec_cd),
-    item_sec_cd: Number(r.item_sec_cd),
-    acc_amt: Number(r.acc_amt ?? 0),
-    acc_time: (r.acc_time as string | null | undefined) ?? null,
-    // select("*")엔 customer 조인이 없어 undefined → 분할 계산엔 미사용이나 타입 계약상 null 명시.
-    customer: (r.customer as Record<string, unknown> | null | undefined) ?? null,
-  })) as unknown as AllocTrackedRow[];
-  const plan = planAllocationPersist(input, "");
-  return applyPlanInMemory(input, plan) as unknown as Record<string, unknown>[];
-}
+export const allocateCandidateAccBookForExport = buildAdjustedAccBook;
 
 /**
  * data1/data2 export용 CUSTOMER 선정 — 거래(ACC_BOOK/ACC_BOOK_BAK)가 실제 참조하는

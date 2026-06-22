@@ -8,9 +8,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CodeSelect } from "@/components/code-select";
-import { buildLedgerRows } from "@/lib/accounting/ledger-allocation";
-import { compareAccDateTime } from "@/lib/accounting/acc-book-sort";
-import type { ReallocRow } from "@/lib/accounting/fund-realloc";
+import { buildAdjustedAccBook, adjustedOrigins, adjustedNotes, type AdjustedOrigin } from "@/lib/accounting/adjusted-ledger";
+import { fillExportReceiptNumbers, type ReceiptCodeNames } from "@/lib/accounting/receipt-no";
+import { detectCandidateShortfalls, type ReportSummaryRawRow } from "@/lib/accounting/income-expense-report-summary";
+import type { Shortfall } from "@/lib/accounting/fund-realloc";
+import { compareAccDateTime, fillExportSortNumbers } from "@/lib/accounting/acc-book-sort";
 
 interface BookRow {
   acc_book_id: number;
@@ -31,6 +33,9 @@ interface BookRow {
     job: string | null;
     tel: string | null;
   } | null;
+  acc_time?: string | null; // HHmm 거래 시각(같은 날 정렬·채번 정합 키)
+  origin?: AdjustedOrigin; // 재조정 구분: 원본/이동/분할
+  note?: string | null; // 재배분 근거(예: "재배분 보조금→후보자등자산")
 }
 
 interface RowWithTotals extends BookRow {
@@ -40,7 +45,7 @@ interface RowWithTotals extends BookRow {
 }
 
 export default function IncomeExpenseBookPage() {
-  const { orgId, orgSecCd, orgType } = useAuth();
+  const { orgId, orgSecCd } = useAuth();
   const { loading: codesLoading, getName, getAccounts, getItems } = useCodeValues();
 
   const [accSecCd, setAccSecCd] = useState(0);
@@ -48,6 +53,7 @@ export default function IncomeExpenseBookPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [records, setRecords] = useState<BookRow[]>([]);
+  const [shortfalls, setShortfalls] = useState<Shortfall[]>([]);
   const [loading, setLoading] = useState(false);
 
   const incAccounts = orgSecCd ? getAccounts(orgSecCd, 1) : [];
@@ -87,7 +93,7 @@ export default function IncomeExpenseBookPage() {
     // 후보자 (계정×과목) 분할은 전 행 맥락이 필요하므로 계정/과목 필터는 조회 후(JS)에 적용한다.
     const { data, error } = await supabase
       .from("acc_book")
-      .select("acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_date, content, acc_amt, rcp_yn, rcp_no, bigo, acc_print_ok, cust_id, customer:cust_id(name, reg_num, addr, job, tel)")
+      .select("acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_date, acc_time, content, acc_amt, rcp_yn, rcp_no, bigo, acc_print_ok, cust_id, customer:cust_id(name, reg_num, addr, job, tel)")
       .eq("org_id", orgId)
       .gte("acc_date", fromStr)
       .lte("acc_date", toStr);
@@ -97,39 +103,54 @@ export default function IncomeExpenseBookPage() {
       setLoading(false);
       return;
     }
-    const rawRows = (data || []) as unknown as (BookRow & { acc_time: string | null; cust_id: number })[];
+    const rawRecords = (data || []) as unknown as Record<string, unknown>[];
 
-    let rows: BookRow[];
-    if (orgType === "candidate") {
-      // 보고 시점 분할: raw → buildLedgerRows(Pass0→1→2) → acc_book_id로 원본 메타(증빙·거래처) 조인.
-      // acc_book(데이터)은 실거래 원본 그대로, 화면(보고자료)에서만 금액을 과목/자금원으로 분할.
-      const origById = new Map(rawRows.map((r) => [r.acc_book_id, r]));
-      const reallocInput: ReallocRow[] = rawRows.map((r) => ({
-        acc_book_id: r.acc_book_id, incm_sec_cd: r.incm_sec_cd, acc_sec_cd: r.acc_sec_cd,
-        item_sec_cd: r.item_sec_cd, acc_date: r.acc_date, acc_time: r.acc_time ?? null,
-        acc_amt: r.acc_amt, content: r.content, rcp_no: r.rcp_no, bigo: r.bigo,
-        cust_id: r.cust_id, customer: null,
-      }));
-      rows = buildLedgerRows(reallocInput).map((lr) => {
-        const o = origById.get(lr.acc_book_id);
-        return {
-          acc_book_id: lr.acc_book_id, incm_sec_cd: lr.incm_sec_cd,
-          acc_sec_cd: lr.accSecCd, item_sec_cd: lr.itemSecCd,
-          acc_date: lr.acc_date, content: lr.content ?? "", acc_amt: lr.amt,
-          rcp_yn: o?.rcp_yn ?? "", rcp_no: lr.rcp_no, bigo: lr.bigo,
-          acc_print_ok: o?.acc_print_ok ?? null, customer: o?.customer ?? null,
-        };
-      });
-    } else {
-      rows = rawRows.map((r) => ({ ...r }));
+    // 재조정 SSOT(export-sqlite와 동일): 원본 불변, 후보자면 (계정×과목) 분할(이동분 신규 id).
+    const adjusted = buildAdjustedAccBook(rawRecords);
+    // 채번 정렬 키(acc_sort_num)를 export-sqlite와 '동일하게' 재계산한다(같은 날 acc_time→수입먼저→id).
+    //   fillExportReceiptNumbers는 acc_date→acc_sort_num→acc_book_id 순으로 채번하는데, 이 단계를
+    //   빼면 같은 날짜에 acc_time이 다른 거래의 영수증 순번이 .db(export)와 어긋난다. DB의 acc_sort_num은
+    //   신규행이 NULL이라 신뢰 불가 → export처럼 fillExportSortNumbers로 재계산해야 화면==.db 보장.
+    const sorted = fillExportSortNumbers(adjusted);
+    // 영수증번호 = 재조정 행 기준 채번(가: 계산만, 원본 acc_book 미변경). export-sqlite와 동일 함수.
+    const codeNames: ReceiptCodeNames = { acc: {}, item: {} };
+    for (const r of sorted) {
+      const a = Number(r.acc_sec_cd), it = Number(r.item_sec_cd);
+      codeNames.acc[a] = getName(a);
+      codeNames.item[it] = getName(it);
     }
+    const numbered = fillExportReceiptNumbers(sorted, codeNames);
+    const origins = adjustedOrigins(numbered);
+    const notes = adjustedNotes(numbered, getName);
+    let rows: BookRow[] = numbered.map((r, i) => ({
+      acc_book_id: Number(r.acc_book_id),
+      incm_sec_cd: Number(r.incm_sec_cd),
+      acc_sec_cd: Number(r.acc_sec_cd),
+      item_sec_cd: Number(r.item_sec_cd),
+      acc_date: String(r.acc_date ?? ""),
+      acc_time: (r.acc_time as string | null) ?? null,
+      content: String(r.content ?? ""),
+      acc_amt: Number(r.acc_amt ?? 0),
+      rcp_yn: String(r.rcp_yn ?? ""),
+      rcp_no: (r.rcp_no as string | null) ?? null,
+      bigo: (r.bigo as string | null) ?? null,
+      acc_print_ok: (r.acc_print_ok as string | null) ?? null,
+      customer: (r.customer as BookRow["customer"]) ?? null,
+      origin: origins[i],
+      note: notes[i],
+    }));
+    // 통장 부족(데이터 오류) 진단 — 원본 기준(은폐 금지). 정상이면 빈 배열.
+    setShortfalls(detectCandidateShortfalls(rawRecords as unknown as ReportSummaryRawRow[]));
 
     // 계정/과목 필터 + 정규 정렬(같은 날 수입 먼저 — 누계 음수 방지)
     if (accSecCd) rows = rows.filter((r) => r.acc_sec_cd === accSecCd);
     if (itemSecCd) rows = rows.filter((r) => r.item_sec_cd === itemSecCd);
     rows.sort(
       (a, b) =>
-        compareAccDateTime({ acc_date: a.acc_date }, { acc_date: b.acc_date }) ||
+        compareAccDateTime(
+          { acc_date: a.acc_date, acc_time: a.acc_time },
+          { acc_date: b.acc_date, acc_time: b.acc_time },
+        ) ||
         a.incm_sec_cd - b.incm_sec_cd ||
         a.acc_book_id - b.acc_book_id,
     );
@@ -263,7 +284,12 @@ export default function IncomeExpenseBookPage() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold">정치자금 수입지출부</h2>
+      <div className="flex items-center gap-2 flex-wrap">
+        <h2 className="text-2xl font-bold">정치자금 수입지출부</h2>
+        <span className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-700 border border-blue-200">
+          보고용 재조정 데이터 · 원본 불변
+        </span>
+      </div>
 
       <div className="bg-white rounded-lg border p-4 space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -277,9 +303,16 @@ export default function IncomeExpenseBookPage() {
         </div>
         <div className="flex gap-2 pt-4 border-t">
           <Button onClick={handleQuery} disabled={loading}>{loading ? "조회 중..." : "조회"}</Button>
+          <Button variant="outline" onClick={handleQuery} disabled={loading || records.length === 0}>🧾 영수증 일괄생성</Button>
           <Button variant="outline" onClick={handleExcel} disabled={records.length === 0}>엑셀</Button>
         </div>
       </div>
+
+      {shortfalls.length > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
+          ⚠️ 통장 잔액 부족 {shortfalls.length}건 — 재조정으로 충당하지 못한 지출이 있습니다. 원본 데이터(수입·지출)를 점검하세요.
+        </div>
+      )}
 
       {records.length > 0 && (
         <div className="flex gap-6 text-sm bg-gray-50 rounded p-3">
@@ -297,6 +330,7 @@ export default function IncomeExpenseBookPage() {
             <tr>
               <th rowSpan={2} className={th1}>번호</th>
               <th rowSpan={2} className={th1}>전송</th>
+              <th rowSpan={2} className={th1}>구분</th>
               <th rowSpan={2} className={th1}>년월일</th>
               <th rowSpan={2} className={th1}>내 역</th>
               <th colSpan={2} className={th1}>수 입 액</th>
@@ -320,9 +354,9 @@ export default function IncomeExpenseBookPage() {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={16} className="px-3 py-8 text-center text-gray-400">로딩 중...</td></tr>
+              <tr><td colSpan={17} className="px-3 py-8 text-center text-gray-400">로딩 중...</td></tr>
             ) : records.length === 0 ? (
-              <tr><td colSpan={16} className="px-3 py-8 text-center text-gray-400">기간을 설정 후 [조회]를 클릭하세요.</td></tr>
+              <tr><td colSpan={17} className="px-3 py-8 text-center text-gray-400">기간을 설정 후 [조회]를 클릭하세요.</td></tr>
             ) : (
               rows.map((r, i) => {
                 const isIncome = r.incm_sec_cd === 1;
@@ -332,6 +366,11 @@ export default function IncomeExpenseBookPage() {
                     <td className={td}>{i + 1}</td>
                     <td className={`${td} text-center`}>
                       {r.acc_print_ok === "Y" ? <span className="text-green-500">V</span> : ""}
+                    </td>
+                    <td className={`${td} text-center`}>
+                      {r.origin === "이동" ? <span className="text-amber-600">🔀이동</span>
+                        : r.origin === "분할" ? <span className="text-purple-600">✂분할</span>
+                        : ""}
                     </td>
                     <td className={td}>{fmtDate(r.acc_date)}</td>
                     <td className={td}>{r.content}</td>
@@ -346,7 +385,11 @@ export default function IncomeExpenseBookPage() {
                     <td className={td}>{cust.job}</td>
                     <td className={td}>{cust.tel}</td>
                     <td className={td}>{r.rcp_no || ""}</td>
-                    <td className={`${td} text-gray-500`}>{r.bigo || ""}</td>
+                    <td className={`${td} text-gray-500`}>
+                      {r.note && <span className="text-purple-600">{r.note}</span>}
+                      {r.note && r.bigo && " · "}
+                      {r.bigo}
+                    </td>
                   </tr>
                 );
               })
@@ -355,7 +398,7 @@ export default function IncomeExpenseBookPage() {
           {records.length > 0 && (
             <tfoot>
               <tr className="bg-gray-100 font-bold">
-                <td colSpan={4} className={`${td} text-right`}>합 계</td>
+                <td colSpan={5} className={`${td} text-right`}>합 계</td>
                 <td className={tdR}>{fmt(totalIncome)}</td>
                 <td className={tdR} />
                 <td className={tdR}>{fmt(totalExpense)}</td>
