@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.19.1.0] - 2026-06-22
+
+### Fixed
+- 정치자금 수입지출부 페이지 조회 실패(`column acc_book.acc_time does not exist`) 수정. 시분초(거래 시각)를 사용하지 않기로 한 결정에 따라, 직전 변경에서 들어왔던 `acc_time` 컬럼 조회·정렬 의존을 제거. 같은 날 거래는 `acc_book_id` 순으로 채번되며 자료백업(.db)과 동일하게 유지된다.
+
 ## [0.19.0.0] - 2026-06-22
 
 ### Added
