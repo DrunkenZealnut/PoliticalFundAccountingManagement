@@ -20,14 +20,14 @@ import { fillExportReceiptNumbers, type ReceiptCodeNames } from "@/lib/accountin
  * TC-2 (FR-04): 재조정 데이터 뷰어(income-expense-book) 경로와 export-sqlite 경로가
  * 동일 픽스처에서 **동일한 영수증일련번호**를 산출하는지 교차 회귀.
  *
- * 두 경로 모두 채번 전 fillExportSortNumbers로 acc_sort_num을 재계산한다(SSOT 동일):
- * - 뷰어:   buildAdjustedAccBook → fillExportSortNumbers → fillExportReceiptNumbers
+ * - 뷰어:   buildAdjustedAccBook → fillExportReceiptNumbers
  * - export: allocateCandidateAccBookForExport(=동일 함수) → normalizeOfficialExpenseRow
  *           → fillExportSortNumbers → stripAppOnlyAccBookColumns → fillExportReceiptNumbers
  *
- * fillExportReceiptNumbers는 acc_date→acc_sort_num→acc_book_id 순으로 채번하므로, 뷰어가
- * fillExportSortNumbers를 빼면 같은 날 acc_time이 다른 거래의 순번이 .db와 어긋난다(CodeRabbit
- * #90 지적). 아래 "같은 날·다른 acc_time" 케이스가 그 회귀를 고정한다.
+ * 거래 시각(acc_time)은 사용하지 않으므로(시분초 미사용), export의 fillExportSortNumbers는 같은 날
+ * 거래를 날짜→incm→acc_book_id 순으로 정렬한다. fillExportReceiptNumbers가 incm별로 그룹핑하므로
+ * incm 그룹 내에서는 acc_book_id 순이 되어, 뷰어(acc_sort_num 미설정→0→id)와 동일 결과가 된다.
+ * export만 거치는 sort/normalize/strip 단계가 채번에 영향을 주지 않아야 화면 == .db == HWPX 보장.
  */
 const NAMES: ReceiptCodeNames = {
   acc: { 82: "보조금", 84: "후보자등자산" },
@@ -55,9 +55,9 @@ const row = (p: Record<string, unknown>): Record<string, unknown> => ({
 const rcpById = (rows: Record<string, unknown>[]) =>
   new Map(rows.map((r) => [Number(r.acc_book_id), (r.rcp_no as string | null) ?? null]));
 
-/** 뷰어(page.tsx handleQuery) 채번 경로 재현. */
+/** 뷰어(page.tsx handleQuery) 채번 경로 재현(acc_time 미사용 → fillExportSortNumbers 없음). */
 const viewerReceipts = (fixture: Record<string, unknown>[]) =>
-  fillExportReceiptNumbers(fillExportSortNumbers(buildAdjustedAccBook(fixture)), NAMES);
+  fillExportReceiptNumbers(buildAdjustedAccBook(fixture), NAMES);
 
 /** export-sqlite(route.ts) 채번 경로 재현(normalize→sort→strip→fillReceipt). */
 const exportReceipts = (fixture: Record<string, unknown>[]) =>
@@ -90,21 +90,19 @@ describe("재조정 뷰어 == export-sqlite 영수증번호 교차 정합(TC-2)"
     expect(vMap.get(movedIds[0])).toBe("자(비)-1");
   });
 
-  it("같은 날·다른 acc_time: acc_sort_num 재계산 없으면 갈리는 채번을 정합 고정", () => {
-    // 같은 날(20260301) 84/86 수입 2건 — acc_time 순서(0900→1400)와 acc_book_id 순서(1,2)가 불일치.
-    //   export는 fillExportSortNumbers로 acc_time 우선 정렬해 id=2(09:00)가 자(비)-1, id=1(14:00)이 자(비)-2.
-    //   뷰어가 fillExportSortNumbers를 빠뜨리면 id 순서대로 id=1이 자(비)-1이 되어 .db와 어긋난다.
+  it("같은 날 같은 자금원 다건: incm 그룹 내 acc_book_id 순으로 두 경로 동일 채번", () => {
+    // acc_time 미사용이므로 같은 날 84/86 수입 2건은 acc_book_id 순(1→2)으로 채번되어야 하고
+    //   export(fillExportSortNumbers: 날짜→incm→id)와 뷰어(acc_sort_num 0→id)가 동일해야 한다.
     const fixture = [
-      row({ acc_book_id: 1, incm_sec_cd: 1, acc_sec_cd: 84, item_sec_cd: 86, acc_amt: 100000, acc_date: "20260301", acc_time: "1400" }),
-      row({ acc_book_id: 2, incm_sec_cd: 1, acc_sec_cd: 84, item_sec_cd: 86, acc_amt: 30000, acc_date: "20260301", acc_time: "0900" }),
+      row({ acc_book_id: 1, incm_sec_cd: 1, acc_sec_cd: 84, item_sec_cd: 86, acc_amt: 100000, acc_date: "20260301" }),
+      row({ acc_book_id: 2, incm_sec_cd: 1, acc_sec_cd: 84, item_sec_cd: 86, acc_amt: 30000, acc_date: "20260301" }),
     ];
 
     const vMap = rcpById(viewerReceipts(fixture));
     const eMap = rcpById(exportReceipts(fixture));
 
     for (const [id, rcp] of vMap) expect(eMap.get(id)).toBe(rcp);
-    // acc_time 빠른 거래(09:00, id=2)가 자(비)-1, 늦은 거래(14:00, id=1)가 자(비)-2.
-    expect(vMap.get(2)).toBe("자(비)-1");
-    expect(vMap.get(1)).toBe("자(비)-2");
+    expect(vMap.get(1)).toBe("자(비)-1");
+    expect(vMap.get(2)).toBe("자(비)-2");
   });
 });
