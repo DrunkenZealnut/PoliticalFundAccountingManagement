@@ -28,7 +28,6 @@ export interface ReallocRow {
   acc_sec_cd: number; // 자금원
   item_sec_cd: number; // 과목(보존)
   acc_date: string; // YYYYMMDD
-  acc_time: string | null; // HHmm
   acc_amt: number; // 환급은 음수
   content: string | null;
   rcp_no: string | null;

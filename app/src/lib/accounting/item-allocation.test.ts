@@ -12,7 +12,6 @@ function orow(p: Partial<ReallocOutRow> & { acc_book_id: number }): ReallocOutRo
     acc_sec_cd,
     item_sec_cd: 86,
     acc_date: "20260501",
-    acc_time: null,
     acc_amt,
     content: "x",
     rcp_no: null,

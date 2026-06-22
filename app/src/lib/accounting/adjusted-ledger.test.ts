@@ -9,7 +9,6 @@ const row = (p: Record<string, unknown>): Record<string, unknown> => ({
   acc_sec_cd: 84,
   item_sec_cd: 86,
   acc_date: "20260101",
-  acc_time: null,
   content: "x",
   acc_amt: 0,
   rcp_yn: "N",

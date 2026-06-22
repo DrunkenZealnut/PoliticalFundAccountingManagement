@@ -27,7 +27,6 @@ export function buildAdjustedAccBook(rows: Record<string, unknown>[]): Record<st
     acc_sec_cd: Number(r.acc_sec_cd),
     item_sec_cd: Number(r.item_sec_cd),
     acc_amt: Number(r.acc_amt ?? 0),
-    acc_time: (r.acc_time as string | null | undefined) ?? null,
     customer: (r.customer as Record<string, unknown> | null | undefined) ?? null,
   })) as unknown as AllocTrackedRow[];
   const plan = planAllocationPersist(input, "");

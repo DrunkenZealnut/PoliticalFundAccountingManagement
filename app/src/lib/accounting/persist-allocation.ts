@@ -21,7 +21,6 @@ export interface AllocTrackedRow {
   item_sec_cd: number;
   acc_amt: number;
   acc_date: string;
-  acc_time: string | null;
   cust_id: number;
   content: string | null;
   rcp_no: string | null;
@@ -89,7 +88,6 @@ function toReallocRow(r: AllocTrackedRow): ReallocRow {
     acc_sec_cd: r.acc_sec_cd,
     item_sec_cd: r.item_sec_cd,
     acc_date: r.acc_date,
-    acc_time: r.acc_time,
     acc_amt: r.acc_amt,
     content: r.content,
     rcp_no: r.rcp_no,

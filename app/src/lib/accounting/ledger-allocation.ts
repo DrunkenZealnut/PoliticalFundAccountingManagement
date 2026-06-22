@@ -21,7 +21,6 @@ export interface LedgerRow {
   acc_book_id: number;
   incm_sec_cd: number; // Pass0 적용 후(음수 수입은 2로 정규화)
   acc_date: string;
-  acc_time: string | null;
   cust_id: number;
   content: string | null;
   rcp_no: string | null;
@@ -70,7 +69,6 @@ export function buildLedgerRows(rows: ReallocRow[]): LedgerRow[] {
       acc_book_id: r.acc_book_id,
       incm_sec_cd: r.incm_sec_cd,
       acc_date: r.acc_date,
-      acc_time: r.acc_time,
       cust_id: r.cust_id,
       content: r.content,
       rcp_no: r.rcp_no,
