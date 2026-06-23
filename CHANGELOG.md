@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.20.0.1] - 2026-06-23
+
+### Removed
+- 시분초 제거 마무리(Phase 3): `acc_time` 컬럼이 DB에서 DROP(`019` 적용)된 뒤, 자료백업(export-sqlite)의 app-only 컬럼 strip 목록에서 더 이상 존재하지 않는 `acc_time` 항목을 제거하고 관련 테스트를 실재 컬럼(claim_amt·alloc) 기준으로 정리. 동작 영향 없음(strip은 이미 no-op이었음).
+
 ## [0.20.0.0] - 2026-06-22
 
 ### Removed
