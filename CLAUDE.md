@@ -116,7 +116,9 @@ The display format branches **by `acc_sec_cd` alone** (no `incm_sec_cd` needed) 
 - 후원회 지출 (`acc_sec_cd===2`): `{과목약자}-n` (기/모/인/사/그 — `supporterExpenseAbbr`: 후원금모금경비→모, else first char).
 - 후원회 수입 (`acc_sec_cd===1`)·기타: legacy fallback `{계정약자}({과목약자})-n`.
 
-Combination sequence (`{prefix}-n`) is per-key, per-`incm_sec_cd` scope, continuing from existing max. Only missing numbers are assigned — existing `rcp_no` is preserved, and historical values are **not** retroactively re-numbered.
+Combination sequence (`{prefix}-n`) continues from the existing max per prefix; existing `rcp_no` is preserved and historical values are **not** retroactively re-numbered. **The two consumers scope the sequence differently** (`receipt-no-income-expense-dedup`, v0.20.1.0):
+- **`batch_receipt`** (`assignReceiptNumbers`, input-time): per-key, **per-`incm_sec_cd`** scope — income and expense numbered independently (matches the separate 수입/지출 일괄생성 pages).
+- **`fillExportReceiptNumbers`** (report/export-time, used by export-sqlite AND the 재조정 데이터 viewer): **unified income+expense single scope**, keyed by each row's *current* (계정×과목) `formatKey`. Assigns to `rcp_yn='Y'` rows that are either missing a number **or** whose prefix no longer matches their account (Pass1 재배분 이동조각이 원본 접두사를 물려받아 stale). Prefix-matching manual numbers are preserved. This dedups income↔expense collisions (income rows often lack a source `rcp_no` → would otherwise restart each prefix at 1 and clash with manual expense numbers) and re-homes moved fragments to their new 자금원 prefix. Stale detection assumes `formatKey` is stable over time. (`parseRcpNo` is the shared prefix/seq parser.)
 
 ### Excel Export Patterns
 
