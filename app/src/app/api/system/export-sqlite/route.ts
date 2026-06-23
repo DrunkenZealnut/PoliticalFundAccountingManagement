@@ -462,6 +462,9 @@ export function normalizeOfficialExpenseRow(
  * - `claim_amt`(보전청구액, scripts/015의 BIGINT)
  * - `alloc_src_id`·`alloc_seq`·`raw_incm_sec_cd`·`raw_acc_sec_cd`·`raw_item_sec_cd`·`raw_acc_amt`·`alloc_gen`
  *   (과목 배분 추적/raw 복원용, scripts/016) — 분할된 ACC_BOOK 행은 공식 .db에선 순수 거래 행만 남아야 함.
+ * - `customer`(거래처 조인 객체): `buildAdjustedAccBook`(=allocateCandidateAccBookForExport)이 후보자
+ *   재조정 행마다 주입한다(adjusted-ledger.ts). 제거 안 하면 insertRows가
+ *   "table ACC_BOOK has no column named CUSTOMER"로 export 전체가 실패.
  * (과거 `acc_time`[scripts/014]도 여기 있었으나 acc-time-removal/scripts/019로 컬럼 자체를 DROP해 제거.)
  */
 const APP_ONLY_ACC_BOOK_COLUMNS = [
@@ -473,6 +476,7 @@ const APP_ONLY_ACC_BOOK_COLUMNS = [
   "raw_item_sec_cd",
   "raw_acc_amt",
   "alloc_gen",
+  "customer",
 ] as const;
 
 /**

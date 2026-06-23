@@ -87,6 +87,21 @@ describe("export .db 수입·지출 분할 계약 — ACC_BOOK 분할 / ACC_BOOK
     expect(acc.length).toBeGreaterThan(FIXTURE.length);
   });
 
+  it("회귀: ACC_BOOK 산출 행에 공식 DDL 외 키 누출 없음 (customer→CUSTOMER 방지)", () => {
+    // buildAdjustedAccBook이 후보자 행에 customer 키를 주입(adjusted-ledger.ts) →
+    // strip이 제거 못하면 insertRows가 "table ACC_BOOK has no column named CUSTOMER"로 실패.
+    const acc = accBookExport(FIXTURE);
+    const forbidden = [
+      "customer", "claim_amt", "alloc_src_id", "alloc_seq",
+      "raw_incm_sec_cd", "raw_acc_sec_cd", "raw_item_sec_cd", "raw_acc_amt", "alloc_gen",
+    ];
+    for (const r of acc) {
+      for (const k of forbidden) {
+        expect(`${k} present? ${k in r}`).toBe(`${k} present? false`);
+      }
+    }
+  });
+
   it("FR-02: ACC_BOOK_BAK은 원본 보존 — 분할 없이 행 수·자금원 유지", () => {
     const bak = accBookBakExport(FIXTURE);
 
