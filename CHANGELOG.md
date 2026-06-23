@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.21.1.0] - 2026-06-23
+
+### Fixed
+- **제출파일(.db) 생성 오류 `table ACC_BOOK has no column named CUSTOMER` 수정**: 후보자 자료백업(.db) 생성 시 재조정(분할) 과정에서 거래처 조인 정보(`customer`)가 보고용 장부 행에 따라붙어, 공식 ACC_BOOK 형식에 없는 컬럼으로 새어 들어가 백업 전체가 실패하던 문제를 해결. 해당 임시 필드를 export 직전에 제거하도록 정정(`acc_time` 제거 후 드러난 같은 부류의 잠복 결함). 재발 방지 회귀 테스트 추가. 후원회 등 비후보자 백업은 영향 없음.
+
 ## [0.21.0.0] - 2026-06-23
 
 ### Fixed
