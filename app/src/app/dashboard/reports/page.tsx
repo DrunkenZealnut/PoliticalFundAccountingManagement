@@ -10,8 +10,7 @@ import { Label } from "@/components/ui/label";
 import { PageGuide } from "@/components/page-guide";
 import { PAGE_GUIDES } from "@/lib/page-guides";
 import { compareAccDateTime } from "@/lib/accounting/acc-book-sort";
-import { buildLedgerRows } from "@/lib/accounting/ledger-allocation";
-import type { ReallocRow } from "@/lib/accounting/fund-realloc";
+import { buildReportLedgerRecords } from "@/lib/accounting/report-ledger";
 import { buildReportCombos, type AccItemCombo } from "@/lib/excel-template/report-combos";
 import { aggregateSummaryByAccount } from "@/lib/hwpx/report-summary-builder";
 
@@ -143,32 +142,6 @@ function applyDataCellStyle(
 /**
  * Sheet 1: 정치자금 수입지출보고서 (총괄표)
  */
-/**
- * 후보자 보고자료: raw acc_book 행 → buildLedgerRows(Pass0→1→2)로 (계정×과목) 분할,
- * acc_book_id로 원본 메타(거래처·증빙·exp_sec_cd) 조인. acc_book(데이터)은 실거래 원본 그대로,
- * 보고서 생성 시점에만 금액 분할. 비후보자는 호출하지 않는다.
- */
-function allocateReportRecords(records: AccRecord[]): AccRecord[] {
-  const origById = new Map(records.map((r) => [r.acc_book_id, r]));
-  const input: ReallocRow[] = records.map((r) => ({
-    acc_book_id: r.acc_book_id,
-    incm_sec_cd: r.incm_sec_cd,
-    acc_sec_cd: r.acc_sec_cd,
-    item_sec_cd: r.item_sec_cd,
-    acc_date: r.acc_date,
-    acc_amt: r.acc_amt,
-    content: r.content,
-    rcp_no: null,
-    bigo: null,
-    cust_id: r.cust_id,
-    customer: null,
-  }));
-  return buildLedgerRows(input).map((lr) => {
-    const o = origById.get(lr.acc_book_id)!;
-    return { ...o, acc_sec_cd: lr.accSecCd, item_sec_cd: lr.itemSecCd, acc_amt: lr.amt, incm_sec_cd: lr.incm_sec_cd };
-  });
-}
-
 function buildSummarySheet(
   wb: ExcelJS_Workbook,
   records: AccRecord[],
@@ -861,10 +834,16 @@ export default function ReportsPage() {
         return;
       }
 
-      // 후보자: 보고자료(총괄표·계정과목별 수입지출부)는 보고 시점에 (계정×과목) 분할 적용.
-      //   acc_book(데이터)은 실거래 원본 그대로. 비후보자는 원본 그대로 집계.
-      const reportRecords: AccRecord[] =
-        orgType === "candidate" ? allocateReportRecords(records) : records;
+      // 후보자: 보고자료(총괄표·계정과목별 수입지출부)는 보고 시점에 (계정×과목) 분할 +
+      //   영수증번호 재채번을 적용한다. income-expense-book 뷰어·api/system/export-sqlite 와
+      //   동일 SSOT(buildAdjustedAccBook + fillExportReceiptNumbers) → 화면·Excel·.db 영수증번호 일치.
+      //   분할/이동 조각은 신규 고유 acc_book_id 를 받아 자금원별로 올바르게 재채번된다(중복·접두사 stale 제거).
+      //   acc_book(데이터)은 실거래 원본 그대로(메모리 전용 계산). 비후보자는 원본 그대로 집계.
+      const reportRecords: AccRecord[] = buildReportLedgerRecords(
+        records as unknown as Record<string, unknown>[],
+        getName,
+        orgType === "candidate",
+      ) as unknown as AccRecord[];
 
       // Fetch this org's customers via server API (org_id 격리, bypasses RLS)
       const custRes = await fetch(`/api/customers?orgId=${orgId}`);
