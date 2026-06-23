@@ -459,13 +459,12 @@ export function normalizeOfficialExpenseRow(
  * 공식 SQLite 스키마(ACC_BOOK/ACC_BOOK_BAK DDL)에 존재하지 않는 컬럼은 export 직전 제거해야 한다.
  * fetch가 `SELECT *`라 이 컬럼들이 따라오는데, insertRows가 컬럼명을 그대로 대문자화해 INSERT하면
  * "table ACC_BOOK has no column named ..."로 export 전체가 실패하기 때문이다.
- * - `acc_time`(거래 시각 HHmm, scripts/014의 CHAR(4))
  * - `claim_amt`(보전청구액, scripts/015의 BIGINT)
  * - `alloc_src_id`·`alloc_seq`·`raw_incm_sec_cd`·`raw_acc_sec_cd`·`raw_item_sec_cd`·`raw_acc_amt`·`alloc_gen`
  *   (과목 배분 추적/raw 복원용, scripts/016) — 분할된 ACC_BOOK 행은 공식 .db에선 순수 거래 행만 남아야 함.
+ * (과거 `acc_time`[scripts/014]도 여기 있었으나 acc-time-removal/scripts/019로 컬럼 자체를 DROP해 제거.)
  */
 const APP_ONLY_ACC_BOOK_COLUMNS = [
-  "acc_time",
   "claim_amt",
   "alloc_src_id",
   "alloc_seq",
@@ -764,8 +763,8 @@ export async function GET(request: NextRequest) {
       cvNameById[Number(c.cv_id)] = String(c.cv_name ?? "");
     }
     const exportCodeNames = { acc: cvNameById, item: cvNameById };
-    // acc_sort_num 정규순서 재부여(수입먼저)는 acc_time 제거(strip) 전에 — 공식 프로그램이 acc_time 없이
-    //   acc_date→acc_sort_num으로 정렬해도 수입이 지출보다 먼저 와 수입지출부 누계가 음수가 안 되게.
+    // acc_sort_num 정규순서 재부여(수입먼저) — 공식 프로그램이 acc_date→acc_sort_num으로 정렬해도
+    //   수입이 지출보다 먼저 와 수입지출부 누계가 음수가 안 되게(시분초 미사용, acc_time 컬럼 없음).
     const finalAccBook = fillExportReceiptNumbers(
       fillExportSortNumbers(
         allocateCandidateAccBookForExport(filterByExportOrgId(remapOrgId(accBook, orgIdMap)))
