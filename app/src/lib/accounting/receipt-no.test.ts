@@ -281,6 +281,18 @@ describe("fillExportReceiptNumbers (export 자동 채번)", () => {
     expect(new Set(out.map((r) => r.rcp_no)).size).toBe(3);
   });
 
+  it("TC-11 공백 포함 수기번호도 접두사 정합이면 보존(재채번 안 함)", () => {
+    // "자(비)-1 " 후행 공백 — trim 없이 파싱하면 stale 오인 → 잘못 재채번되던 회귀(CodeRabbit)
+    const rows = [
+      row(1, 2, 84, 86, "Y", "자(비)-1 "), // 후행 공백 수기 → 보존
+      row(2, 2, 84, 86, "Y"), // 미부여 → max(1)+1 = 자(비)-2
+    ];
+    const out = fillExportReceiptNumbers(rows, NAMES);
+    const byId = Object.fromEntries(out.map((r) => [r.acc_book_id, r.rcp_no]));
+    expect(byId[1]).toBe("자(비)-1 "); // 원본 보존(재채번 안 됨)
+    expect(byId[2]).toBe("자(비)-2"); // 공백 번호도 max 산출에 반영
+  });
+
   it("TC-4 no-op — rcp_yn='N' 또는 이미 채워짐 → 입력==출력", () => {
     const rows = [
       row(1, 2, 84, 86, "N"), // 영수증 아님
