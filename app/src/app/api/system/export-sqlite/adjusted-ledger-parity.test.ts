@@ -25,9 +25,10 @@ import { fillExportReceiptNumbers, type ReceiptCodeNames } from "@/lib/accountin
  *           → fillExportSortNumbers → stripAppOnlyAccBookColumns → fillExportReceiptNumbers
  *
  * 거래 시각(acc_time)은 사용하지 않으므로(시분초 미사용), export의 fillExportSortNumbers는 같은 날
- * 거래를 날짜→incm→acc_book_id 순으로 정렬한다. fillExportReceiptNumbers가 incm별로 그룹핑하므로
- * incm 그룹 내에서는 acc_book_id 순이 되어, 뷰어(acc_sort_num 미설정→0→id)와 동일 결과가 된다.
- * export만 거치는 sort/normalize/strip 단계가 채번에 영향을 주지 않아야 화면 == .db == HWPX 보장.
+ * 거래를 날짜→incm→acc_book_id 순으로 정렬한다. fillExportReceiptNumbers는 수입·지출 통합 단일
+ * 스코프(receipt-no-income-expense-dedup)로 날짜→acc_sort_num→incm→id 순 채번하므로, 뷰어
+ * (acc_sort_num 미설정→0→incm→id)와 동일 결과가 된다. export만 거치는 sort/normalize/strip
+ * 단계가 채번에 영향을 주지 않아야 화면 == .db == HWPX 보장.
  */
 const NAMES: ReceiptCodeNames = {
   acc: { 82: "보조금", 84: "후보자등자산" },
@@ -82,11 +83,12 @@ describe("재조정 뷰어 == export-sqlite 영수증번호 교차 정합(TC-2)"
     expect([...eMap.keys()].sort()).toEqual([...vMap.keys()].sort());
     for (const [id, rcp] of vMap) expect(eMap.get(id)).toBe(rcp);
 
-    // 회귀 고정값: 82 지출(잔류)=보(비)-1, 84 지출(이동분)=자(비)-1
+    // 회귀 고정값(통합 스코프): 수입 id2(82/86)=보(비)-1·id1(84/86)=자(비)-1을 시간순 선점
+    //   → 82 지출(잔류)=보(비)-2, 84 지출(이동분)=자(비)-2. 핵심은 위의 두 경로 완전 일치(정합).
     const movedIds = [...vMap.keys()].filter((id) => id !== 1 && id !== 2 && id !== 3);
     expect(movedIds).toHaveLength(1); // 분할 이동분이 정확히 1행 생성됨을 명시 검증
-    expect(vMap.get(3)).toBe("보(비)-1");
-    expect(vMap.get(movedIds[0])).toBe("자(비)-1");
+    expect(vMap.get(3)).toBe("보(비)-2");
+    expect(vMap.get(movedIds[0])).toBe("자(비)-2");
   });
 
   it("같은 날 같은 자금원 다건: incm 그룹 내 acc_book_id 순으로 두 경로 동일 채번", () => {

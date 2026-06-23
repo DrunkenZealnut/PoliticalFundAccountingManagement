@@ -98,9 +98,11 @@ describe("재조정 + 영수증 채번 (화면==export 동일 경로)", () => {
     ]);
     const numbered = fillExportReceiptNumbers(adjusted, NAMES);
     const byId = new Map(numbered.map((r) => [Number(r.acc_book_id), r.rcp_no]));
-    // 84 선거비용 지출 → 자(비)-1, 84 선거비용외 → 자-1 (스킴 A)
-    expect(byId.get(2)).toBe("자(비)-1");
-    expect(byId.get(3)).toBe("자-1");
+    // 통합 스코프(수입·지출 공통): 수입 id1(84/86)이 자(비)-1, 분할 이동된 수입분(84/87)이
+    //   자-1을 시간순으로 선점 → 84 선거비용 지출=자(비)-2, 84 선거비용외 지출=자-2.
+    //   (접두사는 계정×과목 정합. 분할 슬라이스도 자기 (계정×과목) 접두사로 채번)
+    expect(byId.get(2)).toBe("자(비)-2");
+    expect(byId.get(3)).toBe("자-2");
   });
 
   // TC-3: 채번은 (가) 계산만 — 멱등·기존 rcp_no 시드 보존·미부여만 채움.

@@ -94,12 +94,8 @@ export function assignReceiptNumbers(
   let globalMax = 0;
   for (const e of existing) {
     if (typeof e.rcp_no2 === "number" && e.rcp_no2 > globalMax) globalMax = e.rcp_no2;
-    const m = (e.rcp_no ?? "").match(/^(.+)-(\d+)$/);
-    if (m) {
-      const key = m[1];
-      const n = parseInt(m[2], 10);
-      if (!Number.isNaN(n)) comboSeq.set(key, Math.max(comboSeq.get(key) ?? 0, n));
-    }
+    const parsed = parseRcpNo(e.rcp_no);
+    if (parsed) comboSeq.set(parsed.prefix, Math.max(comboSeq.get(parsed.prefix) ?? 0, parsed.seq));
   }
 
   const result: ReceiptAssignment[] = [];
@@ -141,19 +137,46 @@ function isMissingRcpNo(v: unknown): boolean {
   return v == null || String(v).trim() === "";
 }
 
+/** rcp_no("자(비)-12") → {prefix:"자(비)", seq:12}. 형식 불일치면 null. 채번 파싱 SSOT.
+ *  공백 정규화: 수기 입력의 앞뒤 공백("자(비)-1 ")이 파싱 실패→stale 오인→재채번되는 것을 방지. */
+function parseRcpNo(rcpNo: string | null | undefined): { prefix: string; seq: number } | null {
+  const m = String(rcpNo ?? "").trim().match(/^(.+)-(\d+)$/);
+  if (!m) return null;
+  const seq = parseInt(m[2], 10);
+  const prefix = m[1].trim();
+  return !prefix || Number.isNaN(seq) ? null : { prefix, seq };
+}
+
+/** 행을 ReceiptTarget(채번 입력)으로 변환. */
+function toReceiptTarget(r: Record<string, unknown>): ReceiptTarget {
+  return {
+    acc_book_id: Number(r.acc_book_id),
+    acc_sec_cd: Number(r.acc_sec_cd),
+    item_sec_cd: Number(r.item_sec_cd),
+  };
+}
+
 /**
- * export용 — RCP_NO 미부여(rcp_yn='Y' ∧ rcp_no 빈) acc_book 행에 조합별 영수증번호를 채운다(순수).
+ * export/보고용 — 영수증번호 미부여·접두사 불일치 행에 **수입·지출 통합 스코프**로 채번(순수).
  *
- * 자료백업(export-sqlite)이 「영수증 일괄생성」 실행 여부와 무관하게 항상 올바른 조합별
- * 영수증번호를 담도록, insert 직전 행 집합에 적용한다. 빈 RCP_NO로 export되면 윈도우 선관위
- * 프로그램이 수입지출부 영수증일련번호를 단일 버킷으로 폴백 생성하는 문제를 회피한다.
+ * 자료백업(export-sqlite)·재조정 뷰어가 「영수증 일괄생성」 실행 여부와 무관하게 항상 올바른
+ * 영수증번호를 담도록, (계정×과목) 분할·정렬 후 행 집합에 적용한다. 빈 RCP_NO로 export되면
+ * 윈도우 선관위 프로그램이 수입지출부 영수증일련번호를 단일 버킷으로 폴백 생성하는 문제를 회피한다.
  *
- * - `incm_sec_cd`별 스코프 분리(앱 batch_receipt와 동일 — 수입 1 / 지출 2 순번 독립).
- * - 정렬 `acc_date → acc_sort_num → acc_book_id`(batch_receipt와 동일).
- * - **미부여분만** 채번 — 기존(수기/사전) rcp_no는 보존, 조합별 max+1부터 이어서.
- * - 입력 rows는 변경하지 않고 새 배열을 반환(immutable). 미매칭 행은 원본 그대로 통과.
+ * - **수입·지출 통합 단일 스코프**(receipt-no-income-expense-dedup). 접두사(키)는 각 행의 현재
+ *   (계정×과목) `formatKey` 기준. → 지출엔 수기번호가 있는데 수입은 번호가 없어 자동채번이 같은
+ *   접두사(자(비)…)를 1부터 다시 매겨 수입↔지출이 충돌하던 버그를 해소.
+ * - **보존(채번 안 함)**: rcp_no가 있고 접두사가 현재 행 `formatKey`와 일치(이동 안 한 수기·기존
+ *   번호). 소급 재채번 금지 — 기존 rcp_no는 그대로 두고 접두사별 max+1부터 이어 부여.
+ * - **채번 대상**: rcp_yn='Y' ∧ (rcp_no 없음[수입 등] ∨ 접두사가 현재 계정과 불일치[Pass1 재배분
+ *   이동조각이 원본 접두사를 물려받아 stale]). → 현재 계정 접두사로 max+1부터 재부여.
+ *   (export-sqlite는 채번 전 추적컬럼[alloc_src_id]을 strip하므로, 이동조각 식별은 접두사 비교로 한다.)
+ *   ⚠️ 보존/stale 판정은 `formatKey` 규칙이 시간에 불변임을 전제한다 — 스킴·약자 매핑을 바꾸면
+ *   과거 정상 번호가 stale로 오판돼 보고 시점마다 재채번될 수 있다(규칙 변경 시 이 전제 재검토).
+ * - 정렬 `acc_date → acc_sort_num → incm(수입 먼저) → acc_book_id`. rcp_no2(정수)는 전체 고유 순번.
+ * - 입력 rows는 변경하지 않고 새 배열을 반환(immutable). 채번 대상 없으면 동일 참조 반환.
  *
- * @param rows export 직전 acc_book 행(snake_case 키: incm_sec_cd, acc_sec_cd, item_sec_cd,
+ * @param rows 분할·정렬 후 acc_book 행(snake_case 키: incm_sec_cd, acc_sec_cd, item_sec_cd,
  *             rcp_yn, rcp_no, rcp_no2, acc_book_id, acc_date, acc_sort_num).
  * @param codeNames acc_sec_cd/item_sec_cd → 코드명(약자 매핑용).
  */
@@ -161,43 +184,41 @@ export function fillExportReceiptNumbers(
   rows: Record<string, unknown>[],
   codeNames: ReceiptCodeNames,
 ): Record<string, unknown>[] {
-  // incm_sec_cd별 그룹
-  const byIncm = new Map<number, Record<string, unknown>[]>();
+  // 통합 스코프: 보존(existing)·채번(targetRows)을 incm 구분 없이 한 번에 분류.
+  const existing: { rcp_no: string | null; rcp_no2: number | null }[] = [];
+  const targetRows: Record<string, unknown>[] = [];
   for (const r of rows) {
-    const incm = Number(r.incm_sec_cd);
-    const list = byIncm.get(incm) ?? [];
-    list.push(r);
-    byIncm.set(incm, list);
-  }
-
-  // acc_book_id → 부여값
-  const assignmentById = new Map<number, ReceiptAssignment>();
-  for (const group of byIncm.values()) {
-    const existing = group
-      .filter((r) => !isMissingRcpNo(r.rcp_no))
-      .map((r) => ({ rcp_no: String(r.rcp_no), rcp_no2: Number(r.rcp_no2) || 0 }));
-
-    const targets: ReceiptTarget[] = group
-      .filter((r) => String(r.rcp_yn ?? "") === "Y" && isMissingRcpNo(r.rcp_no))
-      .sort(
-        (a, b) =>
-          String(a.acc_date ?? "").localeCompare(String(b.acc_date ?? "")) ||
-          (Number(a.acc_sort_num ?? 0) - Number(b.acc_sort_num ?? 0)) ||
-          (Number(a.acc_book_id ?? 0) - Number(b.acc_book_id ?? 0)),
-      )
-      .map((r) => ({
-        acc_book_id: Number(r.acc_book_id),
-        acc_sec_cd: Number(r.acc_sec_cd),
-        item_sec_cd: Number(r.item_sec_cd),
-      }));
-
-    if (targets.length === 0) continue;
-    for (const a of assignReceiptNumbers(targets, codeNames, existing)) {
-      assignmentById.set(a.acc_book_id, a);
+    const wantNumber = String(r.rcp_yn ?? "") === "Y";
+    if (!isMissingRcpNo(r.rcp_no)) {
+      const cur = String(r.rcp_no);
+      // 접두사가 현재 (계정×과목)과 일치하거나, 애초에 영수증 대상이 아니면 보존.
+      if (!wantNumber || parseRcpNo(cur)?.prefix === formatKey(toReceiptTarget(r), codeNames)) {
+        existing.push({ rcp_no: cur, rcp_no2: Number(r.rcp_no2) || 0 });
+        continue;
+      }
+      // 접두사 불일치 + 영수증 대상 → 재채번(재배분 이동조각 stale).
+      targetRows.push(r);
+      continue;
     }
+    if (wantNumber) targetRows.push(r);
   }
 
-  if (assignmentById.size === 0) return rows;
+  if (targetRows.length === 0) return rows;
+
+  // targetRows는 함수-로컬 신규 배열 → in-place 정렬 안전(입력 rows 불변은 아래 map이 보장).
+  targetRows.sort(
+    (a, b) =>
+      String(a.acc_date ?? "").localeCompare(String(b.acc_date ?? "")) ||
+      Number(a.acc_sort_num ?? 0) - Number(b.acc_sort_num ?? 0) ||
+      Number(a.incm_sec_cd ?? 0) - Number(b.incm_sec_cd ?? 0) ||
+      Number(a.acc_book_id ?? 0) - Number(b.acc_book_id ?? 0),
+  );
+
+  const assignmentById = new Map<number, ReceiptAssignment>();
+  for (const a of assignReceiptNumbers(targetRows.map(toReceiptTarget), codeNames, existing)) {
+    assignmentById.set(a.acc_book_id, a);
+  }
+
   return rows.map((r) => {
     const a = assignmentById.get(Number(r.acc_book_id));
     return a ? { ...r, rcp_no: a.rcp_no, rcp_no2: a.rcp_no2 } : r;
