@@ -14,7 +14,8 @@ interface Props {
 /**
  * 자금원별 충당 현황 패널 (후보자 전용).
  * org 전체 누적 기준으로 자금원별 수입·지출·가용잔액을 보여준다.
- * 가용잔액 음수(초과충당)는 경고 톤으로만 표시 — 입력 차단 없음.
+ * **재배분(buildAdjustedAccBook) 후 금액** — 보고서·수입지출부·.db와 동일. 과지출 초과분이 잔여
+ * 자금원으로 이동돼 후보자 자금원은 가용잔액 ≥ 0(음수 톤은 기타 자금원 등 방어용으로 유지).
  */
 export function FundingAllocationPanel({ allocation, loading }: Props) {
   const { rows, totalIncome, totalExpense, totalAvailable } = allocation;
@@ -30,7 +31,7 @@ export function FundingAllocationPanel({ allocation, loading }: Props) {
               </span>
             </HelpTooltip>
           </span>
-          <span className="text-xs text-muted-foreground">전체 기준</span>
+          <span className="text-xs text-muted-foreground">전체 기준 · 재배분 반영</span>
         </div>
 
         {rows.length === 0 ? (
