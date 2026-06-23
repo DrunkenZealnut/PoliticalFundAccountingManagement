@@ -21,6 +21,7 @@ import { EvidenceFileManager, type PendingFile } from "@/components/evidence/evi
 import { buildExpenseSummary } from "@/lib/accounting/ledger-summary";
 import { LedgerSummaryHeader } from "@/components/dashboard/LedgerSummaryHeader";
 import { buildFundingAllocation } from "@/lib/accounting/funding-allocation";
+import { buildAdjustedAccBook } from "@/lib/accounting/adjusted-ledger";
 import { FundingAllocationPanel } from "@/components/dashboard/FundingAllocationPanel";
 import { FundingDraftPreview } from "@/components/dashboard/FundingDraftPreview";
 import type { AsOfRow } from "@/lib/accounting/funding-balance-asof";
@@ -495,15 +496,17 @@ export default function ExpensePage() {
     [records, summary.balance, getName, orgType],
   );
 
-  // 자금원별 충당 현황 (org 전체 누적 기준 — 후보자 전용)
-  const fundingAllocation = useMemo(
-    () =>
-      buildFundingAllocation(
-        allRows.map((r) => ({ ...r, acc_date: "" })),
-        { getName },
-      ),
-    [allRows, getName],
-  );
+  // 자금원별 충당 현황 (org 전체 누적 기준 — 후보자 전용).
+  //   보고서·수입지출부·.db와 동일한 재배분 SSOT(buildAdjustedAccBook)로 집계해 per-source 금액이
+  //   보고서와 일치하게 한다(과지출 자금원의 초과분이 잔여 자금원으로 이동 → available ≥ 0).
+  //   재배분 전 raw 집계는 잔액 0인 후보자도 일부 자금원을 음수로 보여 보고서와 갈렸다(expense-dashboard-realloc-consistency).
+  //   Pass0(음수수입 보정)는 buildAdjustedAccBook이 이미 적용 → applyNegativeIncomeRule:false로 중복 방지.
+  const fundingAllocation = useMemo(() => {
+    const adjusted = buildAdjustedAccBook(
+      allRows as unknown as Record<string, unknown>[],
+    ) as unknown as FundingRow[];
+    return buildFundingAllocation(adjusted, { getName, applyNegativeIncomeRule: false });
+  }, [allRows, getName]);
 
   if (codesLoading) {
     return (

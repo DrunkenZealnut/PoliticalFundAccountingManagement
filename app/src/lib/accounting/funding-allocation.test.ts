@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildFundingAllocation } from "./funding-allocation";
+import { buildAdjustedAccBook } from "./adjusted-ledger";
 import { computeBalances, type AccBookRow } from "./settlement-calc";
 
 // 후보자 코드: 82=보조금, 83=보조금외, 84=후보자자산, 85=후원회기부금 (자금원 매핑은 코드 우선)
@@ -130,5 +131,34 @@ describe("buildFundingAllocation", () => {
     expect(a.totalIncome).toBe(settle.incomeTotal);
     expect(a.totalExpense).toBe(settle.expenseTotal);
     expect(a.totalAvailable).toBe(settle.balance);
+  });
+});
+
+describe("buildFundingAllocation — 재배분 후 집계 (지출내역 패널 ↔ 보고서 정합)", () => {
+  // 84 수입 100k + 85 수입 100k, 84 지출 150k(선거비용).
+  //   raw: 84 available -50k(과지출). 재배분 후: 84 지출 100k·85 지출 50k → 84=0/85=50k.
+  const fixture: Record<string, unknown>[] = [
+    { acc_book_id: 1, incm_sec_cd: 1, acc_sec_cd: 84, item_sec_cd: 86, acc_amt: 100000, acc_date: "20260101" },
+    { acc_book_id: 2, incm_sec_cd: 1, acc_sec_cd: 85, item_sec_cd: 86, acc_amt: 100000, acc_date: "20260102" },
+    { acc_book_id: 3, incm_sec_cd: 2, acc_sec_cd: 84, item_sec_cd: 86, acc_amt: 150000, acc_date: "20260103" },
+  ];
+
+  it("현행 raw 집계는 84 과지출 음수 (패널이 보고서와 갈리던 원인 재현)", () => {
+    const raw = buildFundingAllocation(fixture as unknown as AccBookRow[], { getName });
+    expect(raw.rows.find((r) => r.source === "후보자자산")!.available).toBe(-50000);
+  });
+
+  it("재배분 후 집계는 자금원별 available ≥ 0 + 총액 보존 (패널 == 보고서)", () => {
+    const adjusted = buildAdjustedAccBook(fixture);
+    const realloc = buildFundingAllocation(adjusted as unknown as AccBookRow[], {
+      getName,
+      applyNegativeIncomeRule: false,
+    });
+    for (const r of realloc.rows) expect(r.available).toBeGreaterThanOrEqual(0);
+    expect(realloc.rows.find((r) => r.source === "후보자자산")!.available).toBe(0);
+    expect(realloc.rows.find((r) => r.source === "후원회기부금")!.available).toBe(50000);
+    // 총액(수입/지출)은 재배분 불변
+    expect(realloc.totalIncome).toBe(200000);
+    expect(realloc.totalExpense).toBe(150000);
   });
 });
