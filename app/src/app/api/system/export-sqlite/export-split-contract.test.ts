@@ -11,6 +11,7 @@ import {
   allocateCandidateAccBookForExport,
   normalizeOfficialExpenseRow,
   stripAppOnlyAccBookColumns,
+  splitOfficialReceiptNo,
 } from "./route";
 import { fillExportSortNumbers } from "@/lib/accounting/acc-book-sort";
 import { fillExportReceiptNumbers, type ReceiptCodeNames } from "@/lib/accounting/receipt-no";
@@ -47,14 +48,14 @@ const row = (p: Record<string, unknown>): Record<string, unknown> => ({
   ...p,
 });
 
-/** ACC_BOOK 경로(route.ts:768~774, full 모드): allocate(분할)→normalize→sort→strip→receipt. */
+/** ACC_BOOK 경로(route.ts, full 모드): allocate(분할)→normalize→sort→strip→receipt→공식 분리. */
 const accBookExport = (fixture: Record<string, unknown>[]) =>
   fillExportReceiptNumbers(
     fillExportSortNumbers(
       allocateCandidateAccBookForExport(fixture).map(normalizeOfficialExpenseRow),
     ).map(stripAppOnlyAccBookColumns),
     NAMES,
-  );
+  ).map(splitOfficialReceiptNo);
 
 /** ACC_BOOK_BAK 경로(route.ts:775~780): allocate **없이** normalize→sort→strip→receipt. */
 const accBookBakExport = (fixture: Record<string, unknown>[]) =>
@@ -125,5 +126,34 @@ describe("export .db 수입·지출 분할 계약 — ACC_BOOK 분할 / ACC_BOOK
       row({ acc_book_id: 2, acc_sec_cd: 2, incm_sec_cd: 2, item_sec_cd: 97, acc_amt: 500, acc_ins_type: "118" }),
     ];
     expect(accBookExport(nonCandidate)).toHaveLength(nonCandidate.length);
+  });
+
+  // ── 영수증번호 공식 분리 포맷(윈도우 프로그램 RCP_NO+RCP_NO2 덧붙임 방지) ──
+  it("splitOfficialReceiptNo: '자(비)-24' → RCP_NO='자(비)-', RCP_NO2=24 (덧붙음 버그 단위 재현)", () => {
+    // 버그 전: RCP_NO='자(비)-24' + RCP_NO2=67 → 윈도우 표시 '자(비)-2467'
+    expect(splitOfficialReceiptNo({ rcp_no: "자(비)-24", rcp_no2: 67 })).toMatchObject({
+      rcp_no: "자(비)-",
+      rcp_no2: 24,
+    });
+    // 선거비용외(자-N), 후원회(후-N)도 동일
+    expect(splitOfficialReceiptNo({ rcp_no: "자-4", rcp_no2: 99 })).toMatchObject({ rcp_no: "자-", rcp_no2: 4 });
+    // 숫자형 영수증 아님(빈값/미지급) → RCP_NO2=0 (덧붙음 방지)
+    expect(splitOfficialReceiptNo({ rcp_no: null, rcp_no2: 5 }).rcp_no2).toBe(0);
+    expect(splitOfficialReceiptNo({ rcp_no: "미지급", rcp_no2: 5 }).rcp_no2).toBe(0);
+  });
+
+  it("회귀: ACC_BOOK export 영수증 행은 공식 분리 포맷 — RCP_NO은 접두사('-'로 끝), RCP_NO2은 숫자", () => {
+    const acc = accBookExport(FIXTURE);
+    const numbered = acc.filter(
+      (r) => String(r.rcp_yn) === "Y" && String(r.rcp_no ?? "") !== "",
+    );
+    expect(numbered.length).toBeGreaterThan(0);
+    for (const r of numbered) {
+      const no = String(r.rcp_no);
+      expect(no.endsWith("-")).toBe(true); // 접두사만 (예 '자(비)-')
+      expect(/\d/.test(no)).toBe(false); // 숫자가 RCP_NO에 남아있지 않음 (덧붙음 방지)
+      expect(Number.isInteger(r.rcp_no2 as number)).toBe(true);
+      expect(Number(r.rcp_no2)).toBeGreaterThan(0); // 숫자 시퀀스는 RCP_NO2에
+    }
   });
 });
