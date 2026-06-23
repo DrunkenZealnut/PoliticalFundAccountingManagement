@@ -234,7 +234,7 @@ describe("fillExportReceiptNumbers (export 자동 채번)", () => {
     expect(out.find((r) => r.acc_book_id === 3)?.rcp_no).toBe("보(비)-3");
   });
 
-  it("TC-3 incm 스코프 분리 — 수입/지출 독립 채번·rcp_no2 스코프별", () => {
+  it("TC-3 통합 스코프 — 수입/지출 공통 채번·rcp_no2 전체 순번", () => {
     const rows = [
       row(1, 1, 85, 50, "Y"), // 수입 후(후)-1
       row(2, 1, 85, 50, "Y"), // 수입 후(후)-2
@@ -243,10 +243,42 @@ describe("fillExportReceiptNumbers (export 자동 채번)", () => {
     const out = fillExportReceiptNumbers(rows, NAMES);
     const inc = out.filter((r) => r.incm_sec_cd === 1);
     const exp = out.filter((r) => r.incm_sec_cd === 2);
+    // 접두사가 다르면 rcp_no는 그대로지만, rcp_no2(정수)는 통합 전체 순번
     expect(inc.map((r) => r.rcp_no)).toEqual(["후(후)-1", "후(후)-2"]);
     expect(inc.map((r) => r.rcp_no2)).toEqual([1, 2]);
     expect(exp.map((r) => r.rcp_no)).toEqual(["자(비)-1"]);
-    expect(exp.map((r) => r.rcp_no2)).toEqual([1]); // 스코프별 독립 순번
+    expect(exp.map((r) => r.rcp_no2)).toEqual([3]); // 통합 스코프 — 수입 뒤를 이어 3
+  });
+
+  it("TC-9 통합 스코프 — 수입이 지출 수기번호와 충돌하지 않음", () => {
+    // 지출엔 수기번호(자(비)-1·2), 수입(자산이 선거비용으로 재분류된 행)은 번호 없음.
+    const rows = [
+      row(1, 2, 84, 86, "Y", "자(비)-1"), // 지출 수기(보존)
+      row(2, 2, 84, 86, "Y", "자(비)-2"), // 지출 수기(보존)
+      row(3, 1, 84, 86, "Y"), // 수입 자산(선거비용) 미부여 → 자(비)-3
+    ];
+    const out = fillExportReceiptNumbers(rows, NAMES);
+    const byId = Object.fromEntries(out.map((r) => [r.acc_book_id, r.rcp_no]));
+    expect(byId[1]).toBe("자(비)-1"); // 보존
+    expect(byId[2]).toBe("자(비)-2"); // 보존
+    expect(byId[3]).toBe("자(비)-3"); // 수입이 지출 max 이어서 — 충돌 0 (구: 자(비)-1 중복)
+  });
+
+  it("TC-10 stale 이동조각 — 접두사가 현재 계정과 다르면 현재 계정으로 재채번", () => {
+    // Pass1 재배분: 후원회기부금(85) 인형탈대여가 후보자자산(84)·보조금외(83)로 이동.
+    // 이동조각이 원본 영수증번호 '후(비)-10'을 그대로 물려받음 → 현재 계정 접두사로 교정.
+    const rows = [
+      row(1, 2, 85, 86, "Y", "후(비)-10"), // slice0(후원회기부금, 접두사 정합) 보존
+      row(2, 2, 84, 86, "Y", "후(비)-10"), // 이동조각: 현재 84(자(비)) → 재채번
+      row(3, 2, 83, 86, "Y", "후(비)-10"), // 이동조각: 현재 83(외(비)) → 재채번
+    ];
+    const out = fillExportReceiptNumbers(rows, NAMES);
+    const byId = Object.fromEntries(out.map((r) => [r.acc_book_id, r.rcp_no]));
+    expect(byId[1]).toBe("후(비)-10"); // 접두사 정합 → 보존
+    expect(byId[2]).toBe("자(비)-1"); // 84 계정 접두사로 재채번
+    expect(byId[3]).toBe("외(비)-1"); // 83 계정 접두사로 재채번
+    // 중복 0 — 세 행 모두 고유
+    expect(new Set(out.map((r) => r.rcp_no)).size).toBe(3);
   });
 
   it("TC-4 no-op — rcp_yn='N' 또는 이미 채워짐 → 입력==출력", () => {
