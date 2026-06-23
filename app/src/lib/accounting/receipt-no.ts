@@ -139,7 +139,7 @@ function isMissingRcpNo(v: unknown): boolean {
 
 /** rcp_no("자(비)-12") → {prefix:"자(비)", seq:12}. 형식 불일치면 null. 채번 파싱 SSOT.
  *  공백 정규화: 수기 입력의 앞뒤 공백("자(비)-1 ")이 파싱 실패→stale 오인→재채번되는 것을 방지. */
-function parseRcpNo(rcpNo: string | null | undefined): { prefix: string; seq: number } | null {
+export function parseRcpNo(rcpNo: string | null | undefined): { prefix: string; seq: number } | null {
   const m = String(rcpNo ?? "").trim().match(/^(.+)-(\d+)$/);
   if (!m) return null;
   const seq = parseInt(m[2], 10);

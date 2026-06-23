@@ -11,7 +11,7 @@ import {
   type CandidateCredentials,
 } from "@/lib/accounting/organ-pair";
 import { computeBalances, type AccBookRow } from "@/lib/accounting/settlement-calc";
-import { fillExportReceiptNumbers } from "@/lib/accounting/receipt-no";
+import { fillExportReceiptNumbers, parseRcpNo } from "@/lib/accounting/receipt-no";
 import { fillExportSortNumbers } from "@/lib/accounting/acc-book-sort";
 import { buildAdjustedAccBook } from "@/lib/accounting/adjusted-ledger";
 import { ParityError, ParityErrors } from "@/lib/accounting/parity-errors";
@@ -501,6 +501,25 @@ export function stripAppOnlyAccBookColumns(
 export const allocateCandidateAccBookForExport = buildAdjustedAccBook;
 
 /**
+ * 영수증 일련번호를 선관위 PFund2 공식 분리 포맷으로 변환.
+ *
+ * 우리 내부 모델: `rcp_no`="자(비)-24"(전체 문자열), `rcp_no2`=전역 카운터(정렬·중복방지용).
+ * 공식 포맷(윈도우 프로그램이 만든 Fund_Data_*.db로 확인): **RCP_NO=접두사(끝 `-` 포함, 예 "자(비)-"),
+ * RCP_NO2=숫자 시퀀스(예 24)**. 윈도우 프로그램은 수입·지출부 인쇄 시 `RCP_NO + RCP_NO2`를
+ * 이어붙여 표시한다. 따라서 전체 문자열을 RCP_NO에 넣고 카운터를 RCP_NO2에 넣으면
+ * "자(비)-24" + "67" = "자(비)-2467"처럼 뒤에 카운터가 덧붙는다.
+ * → export 직전 `rcp_no`를 접두사/숫자로 분리한다. 숫자형 영수증이 아니면(빈값·"미지급" 등)
+ *   RCP_NO2=0(공식: 숫자부 없음)으로 두어 덧붙음을 방지한다.
+ */
+export function splitOfficialReceiptNo(
+  row: Record<string, unknown>,
+): Record<string, unknown> {
+  const parsed = parseRcpNo(row.rcp_no as string | null | undefined);
+  if (parsed) return { ...row, rcp_no: `${parsed.prefix}-`, rcp_no2: parsed.seq };
+  return { ...row, rcp_no2: 0 };
+}
+
+/**
  * data1/data2 export용 CUSTOMER 선정 — 거래(ACC_BOOK/ACC_BOOK_BAK)가 실제 참조하는
  * cust_id 집합으로 필터한다.
  *
@@ -769,19 +788,21 @@ export async function GET(request: NextRequest) {
     const exportCodeNames = { acc: cvNameById, item: cvNameById };
     // acc_sort_num 정규순서 재부여(수입먼저) — 공식 프로그램이 acc_date→acc_sort_num으로 정렬해도
     //   수입이 지출보다 먼저 와 수입지출부 누계가 음수가 안 되게(시분초 미사용, acc_time 컬럼 없음).
+    // 채번(fillExportReceiptNumbers) 후 splitOfficialReceiptNo로 공식 분리 포맷(RCP_NO=접두사,
+    //   RCP_NO2=숫자)으로 변환 — 윈도우 프로그램의 RCP_NO+RCP_NO2 덧붙임 표시("자(비)-2467") 방지.
     const finalAccBook = fillExportReceiptNumbers(
       fillExportSortNumbers(
         allocateCandidateAccBookForExport(filterByExportOrgId(remapOrgId(accBook, orgIdMap)))
           .map(normalizeOfficialExpenseRow),
       ).map(stripAppOnlyAccBookColumns),
       exportCodeNames,
-    );
+    ).map(splitOfficialReceiptNo);
     const finalAccBookBak = fillExportReceiptNumbers(
       fillExportSortNumbers(
         filterByExportOrgId(remapOrgId(accBookBak, orgIdMap)).map(normalizeOfficialExpenseRow),
       ).map(stripAppOnlyAccBookColumns),
       exportCodeNames,
-    );
+    ).map(splitOfficialReceiptNo);
 
     // Customer — data1/data2 모드는 "거래(ACC_BOOK/ACC_BOOK_BAK)가 참조하는 cust_id"로 선정한다.
     //   org_id 필터는 org_id=NULL(공유)·타 org 참조 거래처를 빠뜨려 FK 고아→수입지출부 누락을
