@@ -297,6 +297,18 @@ export type Database = {
           position: string | null;
           addr: string | null;
           name: string | null;
+          position02: string | null;
+          addr02: string | null;
+          name02: string | null;
+          position03: string | null;
+          addr03: string | null;
+          name03: string | null;
+          position04: string | null;
+          addr04: string | null;
+          name04: string | null;
+          position05: string | null;
+          addr05: string | null;
+          name05: string | null;
           judge_from: string | null;
           judge_to: string | null;
           incm_from: string | null;
