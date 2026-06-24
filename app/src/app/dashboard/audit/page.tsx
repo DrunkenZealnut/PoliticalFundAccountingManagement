@@ -74,6 +74,34 @@ export default function AuditPage() {
     })();
   }, [orgId, supabase, loaded]);
 
+  // 결산 금액(재산·수입·지출·잔액) 자동 동기화.
+  // 사용자가 수동 입력하지 않아도 감사의견서·심사의결서에 최신 결산값이 표기되도록
+  // opinion 로드 완료 후 결산을 1회 재계산한다(recompute-settlement = settlement-calc SSOT,
+  // 보고서·총괄표와 동일 기준). 실패해도 저장된 값으로 표기되므로 비치명적.
+  useEffect(() => {
+    if (!orgId || !loaded) return;
+    (async () => {
+      try {
+        const res = await fetch("/api/system/recompute-settlement", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orgId }),
+        });
+        if (!res.ok) return;
+        const d = await res.json();
+        setOpinion((prev) => ({
+          ...prev,
+          estate_amt: Number(d.estate ?? prev.estate_amt) || 0,
+          in_amt: Number(d.income ?? prev.in_amt) || 0,
+          cm_amt: Number(d.expense ?? prev.cm_amt) || 0,
+          balance_amt: Number(d.balance ?? prev.balance_amt) || 0,
+        }));
+      } catch {
+        // 자동 동기화 실패는 무시 — 저장된 값으로 표기
+      }
+    })();
+  }, [orgId, loaded]);
+
   async function handleSaveOpinion() {
     if (!orgId) return;
     const { error } = await supabase.from("opinion").upsert({ org_id: orgId, ...opinion });
@@ -151,8 +179,13 @@ export default function AuditPage() {
           <p><b>1. 감사개요</b></p>
           <p style="margin: 10px 0 5px 20px;">가. 감사기간 ： &nbsp;&nbsp;${fmtDot(opinion.audit_from)} &nbsp;~ &nbsp;${fmtDot(opinion.audit_to)}</p>
           <p style="margin: 5px 0 5px 20px;">나. 감사대상</p>
-          <p style="margin: 3px 0 3px 40px;">○ &nbsp;재산상황</p>
+          <p style="margin: 3px 0 3px 40px;">○ &nbsp;재산상황 ： &nbsp;${formatAmt(opinion.estate_amt)} 원</p>
           <p style="margin: 3px 0 3px 40px;">○ &nbsp;정치자금의 수입과 지출에 관한 내역 및 결산내역</p>
+          <table class="no-border" style="margin: 3px 0 3px 60px;">
+            <tr><td style="width:90px">- 수입 ：</td><td style="text-align:right; width:160px;">${formatAmt(opinion.in_amt)} 원</td></tr>
+            <tr><td>- 지출 ：</td><td style="text-align:right">${formatAmt(opinion.cm_amt)} 원</td></tr>
+            <tr><td>- 잔액 ：</td><td style="text-align:right">${formatAmt(opinion.balance_amt)} 원</td></tr>
+          </table>
         </div>
 
         <div style="margin: 20px 0;">
