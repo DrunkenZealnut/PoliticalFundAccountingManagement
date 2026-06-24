@@ -11,18 +11,15 @@ import { HelpTooltip } from "@/components/help-tooltip";
 import { PageGuide } from "@/components/page-guide";
 import { EmptyState } from "@/components/empty-state";
 import { PAGE_GUIDES } from "@/lib/page-guides";
+import {
+  buildSettlementSummary,
+  type SettlementAccountSummary,
+} from "@/lib/accounting/settlement-summary";
+import type { ReportSummaryRawRow } from "@/lib/accounting/income-expense-report-summary";
+import type { Shortfall } from "@/lib/accounting/fund-realloc";
 
 function fmt(n: number) {
   return n.toLocaleString("ko-KR");
-}
-
-interface AccountSummary {
-  acc_sec_cd: number;
-  item_sec_cd: number;
-  income: number;
-  expense: number;
-  incomeCount: number;
-  expenseCount: number;
 }
 
 interface SettlementResult {
@@ -32,7 +29,8 @@ interface SettlementResult {
   estateAmt: number;
   estateDebt: number;
   netEstate: number;
-  accounts: AccountSummary[];
+  accounts: SettlementAccountSummary[];
+  shortfalls: Shortfall[];
 }
 
 export default function SettlementPage() {
@@ -57,10 +55,11 @@ export default function SettlementPage() {
     const to = dateTo.replace(/-/g, "");
 
     try {
-    // Fetch all accounting data for the period
+    // Fetch all accounting data for the period.
+    // 재배분(allocateCandidateLedgerRows)은 자금원의 시간순 잔액을 풀므로 acc_book_id·acc_date가 필요하다.
     const { data: accData, error: accErr } = await supabase
       .from("acc_book")
-      .select("incm_sec_cd, acc_sec_cd, item_sec_cd, acc_amt")
+      .select("acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_amt, acc_date")
       .eq("org_id", orgId)
       .gte("acc_date", from)
       .lte("acc_date", to);
@@ -79,16 +78,12 @@ export default function SettlementPage() {
       return;
     }
 
-    const records = accData || [];
+    const records = (accData || []) as unknown as ReportSummaryRawRow[];
 
-    // Total income/expense
-    const income = records
-      .filter((r) => r.incm_sec_cd === 1)
-      .reduce((s, r) => s + r.acc_amt, 0);
-    const expense = records
-      .filter((r) => r.incm_sec_cd === 2)
-      .reduce((s, r) => s + r.acc_amt, 0);
-    const balance = income - expense;
+    // 수입/지출/계정·과목별 집계는 22-1 보고서·수입·지출부·.db와 동일한 재배분 SSOT를 거친다.
+    // (원본 직접 집계 시 자금원별로 현실에선 불가능한 음수 차액이 표시됐던 버그를 해소)
+    const summary = buildSettlementSummary(records);
+    const { income, expense, balance } = summary;
 
     // Estate: 현금및예금(47) and 차입금(49)
     const estates = estateData || [];
@@ -100,36 +95,16 @@ export default function SettlementPage() {
       .reduce((s, r) => s + Math.abs(r.amt), 0);
     const netEstate = estates.reduce((s, r) => s + r.amt, 0);
 
-    // Account-by-account breakdown
-    const accountMap = new Map<string, AccountSummary>();
-    for (const r of records) {
-      const key = `${r.acc_sec_cd}-${r.item_sec_cd}`;
-      const existing = accountMap.get(key);
-      if (existing) {
-        if (r.incm_sec_cd === 1) {
-          existing.income += r.acc_amt;
-          existing.incomeCount += 1;
-        } else {
-          existing.expense += r.acc_amt;
-          existing.expenseCount += 1;
-        }
-      } else {
-        accountMap.set(key, {
-          acc_sec_cd: r.acc_sec_cd,
-          item_sec_cd: r.item_sec_cd,
-          income: r.incm_sec_cd === 1 ? r.acc_amt : 0,
-          expense: r.incm_sec_cd === 2 ? r.acc_amt : 0,
-          incomeCount: r.incm_sec_cd === 1 ? 1 : 0,
-          expenseCount: r.incm_sec_cd === 2 ? 1 : 0,
-        });
-      }
-    }
-
-    const accounts = Array.from(accountMap.values()).sort(
-      (a, b) => a.acc_sec_cd - b.acc_sec_cd || a.item_sec_cd - b.item_sec_cd
-    );
-
-    setResult({ income, expense, balance, estateAmt, estateDebt, netEstate, accounts });
+    setResult({
+      income,
+      expense,
+      balance,
+      estateAmt,
+      estateDebt,
+      netEstate,
+      accounts: summary.accounts,
+      shortfalls: summary.shortfalls,
+    });
     setSettled(false);
 
     // Balance vs estate mismatch warning
@@ -286,6 +261,27 @@ export default function SettlementPage() {
                 )}
               </div>
             </div>
+
+            {/* 통장(현금풀) 부족 = 실제 데이터 오류. 재배분으로도 메울 수 없는 과지출. */}
+            {result.shortfalls.length > 0 && (
+              <div className="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-800">
+                <p className="font-semibold mb-1">
+                  ⚠️ 통장 잔액 부족(데이터 오류) {result.shortfalls.length}건
+                </p>
+                <p className="text-xs mb-2">
+                  특정 시점에 받은 자금보다 더 많이 지출된 거래가 있습니다. 수입 누락 또는
+                  거래일자 오류일 수 있으니 수입/지출 내역을 확인하세요.
+                </p>
+                <ul className="text-xs space-y-0.5">
+                  {result.shortfalls.map((s, i) => (
+                    <li key={i}>
+                      {s.acc_date.replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3")} ·{" "}
+                      {getName(s.accSecCd)} · 부족 {fmt(s.shortAmt)}원
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {/* 계정/과목별 상세 */}
             {result.accounts.length > 0 && (
