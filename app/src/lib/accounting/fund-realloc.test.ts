@@ -125,6 +125,44 @@ describe("reallocateFundSources", () => {
     expect(res83.redistributions[0].toAccSecCd).toBe(83);
   });
 
+  it("T15: 우선순위 1번이 부족분보다 작은 소액이면, 부족분을 단독으로 덮는 자금원을 우선 사용(자투리 조각 방지)", () => {
+    // 실제 사례(인형탈대여 265,000) 모사: 원 자금원(85=후원회기부금) 186,040 + 부족분 78,960.
+    // 후보자등자산(84)에 소액 58(이자+계좌확인)만, 보조금외(83)에 충분(3,000,000).
+    // 기존(greedy): 84(58 부분) + 83(78,902) = 자투리 58원 조각 발생.
+    // 개선(단독충당 우선): 83이 부족분 78,960 전체를 단독 충당, 84의 58은 안 씀.
+    const rows = [
+      inc(1, 85, "20260501", 186040),
+      inc(2, 84, "20260501", 58),
+      inc(3, 83, "20260501", 3000000),
+      exp(4, 85, "20260522", 265000),
+    ];
+    const res = reallocateFundSources(rows, { overflowPriority: [84, 83, 82] });
+    // 후보자등자산(84)으로의 자투리 이동이 없어야 함
+    expect(res.redistributions.some((m) => m.toAccSecCd === 84)).toBe(false);
+    // 보조금외(83)가 부족분 전체(78,960)를 단독 충당(1개 이동)
+    const to83 = res.redistributions.filter((m) => m.toAccSecCd === 83);
+    expect(to83).toHaveLength(1);
+    expect(to83[0].movedAmt).toBe(78960);
+    // 총액 보존·잔액 음수 없음(불변식 유지)
+    expect(totalEffExpense(res)).toBe(totalExpense(rows));
+    for (const s of Object.keys(minBalances(res))) expect(minBalances(res)[Number(s)]).toBeGreaterThanOrEqual(0);
+  });
+
+  it("T16: 단독으로 덮을 자금원이 없으면 기존 greedy 캐스케이드로 여러 자금원 분할(통장≥0 유지)", () => {
+    // 부족분 200을 단독으로 못 대는 경우(84=120, 83=120) → 둘 다 부분 충당(분할 불가피).
+    const rows = [
+      inc(1, 85, "20260501", 100),
+      inc(2, 84, "20260501", 120),
+      inc(3, 83, "20260501", 120),
+      exp(4, 85, "20260502", 300), // 85 가용 100, 부족 200, 단독 불가(84·83 각 120)
+    ];
+    const res = reallocateFundSources(rows, { overflowPriority: [84, 83, 82] });
+    expect(totalEffExpense(res)).toBe(totalExpense(rows));
+    expect(res.shortfalls).toEqual([]);
+    expect(res.redistributions.some((m) => m.toAccSecCd === 84)).toBe(true);
+    expect(res.redistributions.some((m) => m.toAccSecCd === 83)).toBe(true);
+  });
+
   it("환급(음수 지출)은 원 자금원 유지·가용 복원, 재배분 안 함", () => {
     const rows = [
       inc(1, 85, "20260501", 500),
