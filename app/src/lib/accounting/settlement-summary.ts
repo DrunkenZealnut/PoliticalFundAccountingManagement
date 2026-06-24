@@ -19,6 +19,7 @@ import {
 } from "./income-expense-report-summary";
 import type { Shortfall } from "./fund-realloc";
 
+/** 결산 (계정×과목) 한 칸의 수입·지출 집계(재배분 적용 후). */
 export interface SettlementAccountSummary {
   acc_sec_cd: number;
   item_sec_cd: number;
@@ -28,6 +29,7 @@ export interface SettlementAccountSummary {
   expenseCount: number;
 }
 
+/** 결산 총괄(재배분 적용): 총수입·총지출·잔액·계정과목별 내역·통장부족. */
 export interface SettlementSummary {
   income: number;
   expense: number;
