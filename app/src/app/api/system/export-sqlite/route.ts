@@ -493,6 +493,35 @@ export function stripAppOnlyAccBookColumns(
 }
 
 /**
+ * PFund2/선관위 공식 OPINION 포맷에 없는 앱 전용 확장 컬럼 목록(복수 감사자 2~5번).
+ *
+ * 공식 OPINION DDL 에는 감사자가 POSITION/ADDR/NAME 단일 세트뿐이다(1명). 앱은 감사 2명 이상을
+ * 위해 position02~05 / addr02~05 / name02~05 (scripts/020)를 두는데, fetch 가 `SELECT *`라
+ * 이 컬럼들이 따라온다. insertRows 가 컬럼명을 대문자화(POSITION02 등)해 INSERT 하면 공식 DDL 에
+ * 없어 "table OPINION has no column named ..."로 export 전체가 실패한다(ACC_BOOK 의
+ * acc_time/customer 사례와 동일 클래스). → export 직전 제거해 공식 포맷엔 1번 감사자만 내보낸다.
+ */
+const APP_ONLY_OPINION_COLUMNS = [
+  "position02", "addr02", "name02",
+  "position03", "addr03", "name03",
+  "position04", "addr04", "name04",
+  "position05", "addr05", "name05",
+] as const;
+
+/**
+ * 앱 전용 감사자 2~5번 컬럼 제거(공식 OPINION 포맷 정렬). stripAppOnlyAccBookColumns 와 동일 패턴.
+ * 제거 대상이 하나도 없으면 원본 참조를 그대로 반환(불변).
+ */
+export function stripAppOnlyOpinionColumns(
+  row: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!APP_ONLY_OPINION_COLUMNS.some((c) => c in row)) return row;
+  const rest = { ...row };
+  for (const c of APP_ONLY_OPINION_COLUMNS) delete rest[c];
+  return rest;
+}
+
+/**
  * export용 (계정×과목) 분할 — 재조정 SSOT `buildAdjustedAccBook` 재사용.
  * acc_book(데이터)은 실거래 원본 그대로, 보고자료(.db)에서만 분할(메모리, DB write 없음).
  * 비후보자 무변경. 추적 컬럼은 이후 stripAppOnlyAccBookColumns 가 제거.
@@ -851,7 +880,11 @@ export async function GET(request: NextRequest) {
 
     // ESTATE/OPINION: ORGAN(ORG_ID) FK·PK 매핑 일관성 위해 data1/data2면 필터.
     insertRows(db, "ESTATE", filterByExportOrgId(remapOrgId(estate, orgIdMap)));
-    insertRows(db, "OPINION", filterByExportOrgId(remapOrgId(syncedOpinion, orgIdMap)));
+    insertRows(
+      db,
+      "OPINION",
+      filterByExportOrgId(remapOrgId(syncedOpinion, orgIdMap)).map(stripAppOnlyOpinionColumns),
+    );
 
     // SUM_REPT: PK = SUM_REPT_ID. fetch 단에서 org_id 필터 적용했지만,
     // data1/data2 모드에서는 ORGAN과 ORG_ID 매핑 정합 유지를 위해 추가 필터.

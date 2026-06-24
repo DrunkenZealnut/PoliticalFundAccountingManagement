@@ -10,6 +10,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 interface OpinionData {
   acc_from: string; acc_to: string; audit_from: string; audit_to: string;
   opinion: string; position: string; addr: string; name: string;
+  position02: string; addr02: string; name02: string;
+  position03: string; addr03: string; name03: string;
+  position04: string; addr04: string; name04: string;
+  position05: string; addr05: string; name05: string;
   judge_from: string; judge_to: string; incm_from: string; incm_to: string;
   estate_amt: number; in_amt: number; cm_amt: number; balance_amt: number;
   print_01: string; print_02: string;
@@ -23,6 +27,10 @@ const DEFAULT_OPINION: OpinionData = {
   acc_from: "", acc_to: "", audit_from: "", audit_to: "",
   opinion: "정치자금법 및 정치자금사무관리 규칙과 일반적으로 인정된 회계원칙에 따라 적정하게 처리함",
   position: "", addr: "", name: "",
+  position02: "", addr02: "", name02: "",
+  position03: "", addr03: "", name03: "",
+  position04: "", addr04: "", name04: "",
+  position05: "", addr05: "", name05: "",
   judge_from: "", judge_to: "", incm_from: "", incm_to: "",
   estate_amt: 0, in_amt: 0, cm_amt: 0, balance_amt: 0,
   print_01: "", print_02: "",
@@ -108,6 +116,26 @@ export default function AuditPage() {
       if (!d || d.length !== 8) return d;
       return `${d.slice(0, 4)}. ${d.slice(4, 6)}. ${d.slice(6, 8)}.`;
     };
+    // 감사자 1~5명: 값(직위/주소/성명 중 하나라도)이 있는 감사자만 서명란에 출력.
+    // 전원 비어 있으면 빈 1명 블록을 둬 양식 형태는 유지한다.
+    const auditors = [
+      { position: opinion.position, addr: opinion.addr, name: opinion.name },
+      { position: opinion.position02, addr: opinion.addr02, name: opinion.name02 },
+      { position: opinion.position03, addr: opinion.addr03, name: opinion.name03 },
+      { position: opinion.position04, addr: opinion.addr04, name: opinion.name04 },
+      { position: opinion.position05, addr: opinion.addr05, name: opinion.name05 },
+    ].filter((a) => a.position || a.addr || a.name);
+    if (auditors.length === 0) auditors.push({ position: "", addr: "", name: "" });
+    const auditorBlocks = auditors
+      .map(
+        (a) => `
+          <table class="no-border" style="width: 50%; margin: 0 auto 18px;">
+            <tr><td style="width:80px">(직 위)</td><td>${a.position || ""}</td><td></td></tr>
+            <tr><td>(주 소)</td><td>${a.addr || ""}</td><td></td></tr>
+            <tr><td>(성 명)</td><td>${a.name || ""}</td><td style="text-align:right">(인)</td></tr>
+          </table>`,
+      )
+      .join("");
     const html = `
       <div style="border: 2px solid #000; padding: 40px 50px; margin: 20px;">
         <div class="title" style="border-bottom: 2px solid #000; padding-bottom: 10px;">감 사 의 견 서</div>
@@ -139,11 +167,7 @@ export default function AuditPage() {
 
         <div class="center" style="margin: 20px 0;">
           <p style="letter-spacing: 10px; margin-bottom: 15px;">감 사 자</p>
-          <table class="no-border" style="width: 50%; margin: 0 auto;">
-            <tr><td style="width:80px">(직 위)</td><td>${opinion.position || ""}</td><td></td></tr>
-            <tr><td>(주 소)</td><td>${opinion.addr || ""}</td><td></td></tr>
-            <tr><td>(성 명)</td><td>${opinion.name || ""}</td><td style="text-align:right">(인)</td></tr>
-          </table>
+          ${auditorBlocks}
         </div>
       </div>
 
@@ -297,10 +321,28 @@ export default function AuditPage() {
           <div className="grid grid-cols-2 gap-4">
             <div><Label>출력일자</Label><Input value={opinion.print_01} onChange={e => u("print_01", e.target.value)} placeholder="YYYYMMDD" /></div>
           </div>
-          <div className="grid grid-cols-3 gap-4">
-            <div><Label>감사자 직위</Label><Input value={opinion.position} onChange={e => u("position", e.target.value)} /></div>
-            <div><Label>감사자 주소</Label><Input value={opinion.addr} onChange={e => u("addr", e.target.value)} /></div>
-            <div><Label>감사자 성명</Label><Input value={opinion.name} onChange={e => u("name", e.target.value)} /></div>
+          <div className="space-y-2">
+            <Label className="font-semibold">
+              감사자{" "}
+              <span className="text-xs font-normal text-muted-foreground">(감사가 2명 이상이면 아래에 모두 입력하세요)</span>
+            </Label>
+            <div className="grid grid-cols-[3rem_1fr_1fr_1fr] gap-2 text-xs text-muted-foreground">
+              <span /><span>직위</span><span>주소</span><span>성명</span>
+            </div>
+            {[1, 2, 3, 4, 5].map((n) => {
+              const sfx = n === 1 ? "" : `0${n}`;
+              const field = (base: string) => `${base}${sfx}` as keyof OpinionData;
+              const get = (base: string) =>
+                ((opinion as unknown as Record<string, string | number>)[`${base}${sfx}`] as string) || "";
+              return (
+                <div key={n} className="grid grid-cols-[3rem_1fr_1fr_1fr] gap-2 items-center">
+                  <span className="text-sm text-muted-foreground">감사 {n}</span>
+                  <Input value={get("position")} onChange={e => u(field("position"), e.target.value)} />
+                  <Input value={get("addr")} onChange={e => u(field("addr"), e.target.value)} />
+                  <Input value={get("name")} onChange={e => u(field("name"), e.target.value)} />
+                </div>
+              );
+            })}
           </div>
           <div className="flex gap-2">
             <Button onClick={handleSaveOpinion}>저장</Button>

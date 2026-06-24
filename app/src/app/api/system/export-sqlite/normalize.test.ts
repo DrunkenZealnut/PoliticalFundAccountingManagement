@@ -7,7 +7,7 @@ vi.hoisted(() => {
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "test-anon-key";
 });
 
-import { normalizeOfficialExpenseRow, stripAppOnlyAccBookColumns, selectReferencedCustomers } from "./route";
+import { normalizeOfficialExpenseRow, stripAppOnlyAccBookColumns, stripAppOnlyOpinionColumns, selectReferencedCustomers } from "./route";
 
 /**
  * 지출부 미표시 버그 회귀 테스트.
@@ -130,6 +130,43 @@ describe("stripAppOnlyAccBookColumns", () => {
     const out = stripAppOnlyAccBookColumns({ acc_book_id: 5, alloc_src_id: 130, alloc_seq: 1 });
     expect("alloc_src_id" in out).toBe(false);
     expect("alloc_seq" in out).toBe(false);
+  });
+});
+
+describe("stripAppOnlyOpinionColumns", () => {
+  it("감사자 2~5번 컬럼(position02~05/addr02~05/name02~05)을 제거한다 (공식 OPINION 포맷엔 1명뿐, scripts/020)", () => {
+    const out = stripAppOnlyOpinionColumns({
+      org_id: 1,
+      position: "감사", addr: "서울시", name: "홍길동",
+      position02: "감사", addr02: "부산시", name02: "이순신",
+      name05: "강감찬",
+    });
+    // 1번 감사자(공식 컬럼)는 보존
+    expect(out.position).toBe("감사");
+    expect(out.addr).toBe("서울시");
+    expect(out.name).toBe("홍길동");
+    // 2~5번 감사자(앱 전용)는 제거 — 살아있으면 OPINION DDL에 POSITION02 없어 INSERT abort
+    for (const k of ["position02", "addr02", "name02", "name05"]) {
+      expect(k in out).toBe(false);
+    }
+  });
+
+  it("값이 null이어도 키 자체를 제거한다 (INSERT 컬럼 목록에서 빠져야 함)", () => {
+    const out = stripAppOnlyOpinionColumns({ org_id: 2, position02: null, addr02: null, name02: null });
+    expect("position02" in out).toBe(false);
+    expect("addr02" in out).toBe(false);
+    expect("name02" in out).toBe(false);
+  });
+
+  it("감사자 2~5번 키가 없는 행은 동일 참조로 그대로 둔다 (불변, 1명 기관)", () => {
+    const row = { org_id: 3, position: "감사", addr: "대구시", name: "유관순" };
+    expect(stripAppOnlyOpinionColumns(row)).toBe(row);
+  });
+
+  it("원본 행을 변형하지 않는다 (불변)", () => {
+    const row = { org_id: 4, name02: "이순신" };
+    stripAppOnlyOpinionColumns(row);
+    expect(row.name02).toBe("이순신"); // 원본 유지
   });
 });
 
