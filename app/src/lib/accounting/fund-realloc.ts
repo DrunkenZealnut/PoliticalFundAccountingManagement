@@ -117,7 +117,25 @@ export function reallocateFundSources(
     need -= useS;
 
     const moves: { to: number; amt: number }[] = [];
-    // 1) 우선순위 자금원
+    // 1) 자투리 조각 방지: 부족분을 "단독으로" 덮을 수 있는 자금원이 우선순위에 있으면
+    //    한 번에 충당한다. 소액 자금원을 부분 충당해 1~수십 원짜리 자투리 행을 만드는 대신,
+    //    부족분 전체를 댈 수 있는 자금원을 우선순위 순서로 선택해 분할 조각 수를 최소화한다.
+    //    (예: 인형탈대여 부족분 78,960을 후보자등자산 가용 58원으로 부분 충당하지 않고
+    //     보조금외에서 통째로 충당. 후보자등자산 58원은 후속 자기 지출에서 정산됨.)
+    //    우선순위는 "단독 충당 가능한 자금원들 중에서" 그대로 존중한다(T13 유지).
+    if (need > 0) {
+      for (const O of priority) {
+        if (O === S) continue;
+        const a = Math.max(0, get(O));
+        if (a >= need) {
+          avail.set(O, get(O) - need);
+          moves.push({ to: O, amt: need });
+          need = 0;
+          break;
+        }
+      }
+    }
+    // 2) 단독 충당 가능한 자금원이 없으면 우선순위 순서로 greedy 부분 충당(통장≥0 보장).
     for (const O of priority) {
       if (need <= 0) break;
       if (O === S) continue;
@@ -128,7 +146,7 @@ export function reallocateFundSources(
       need -= u;
       moves.push({ to: O, amt: u });
     }
-    // 2) 우선순위에 없는 나머지 자금원(가용 있는 것) — 음수 0 보장 위해
+    // 3) 우선순위에 없는 나머지 자금원(가용 있는 것) — 음수 0 보장 위해
     if (need > 0) {
       for (const O of [...avail.keys()]) {
         if (need <= 0) break;
