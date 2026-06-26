@@ -114,11 +114,11 @@ The `useCodeValues()` hook (via `useSyncExternalStore`) provides code lookups fe
 The display format branches **by `acc_sec_cd` alone** (no `incm_sec_cd` needed) in `formatKey`:
 - 후보 자금원 (82–85): 선거비용 → `{계정약자}(비)-n` (자/후/보/외); 선거비용외 → `{계정약자}-n` (no parenthetical).
 - 후원회 지출 (`acc_sec_cd===2`): `{과목약자}-n` (기/모/인/사/그 — `supporterExpenseAbbr`: 후원금모금경비→모, else first char).
-- 후원회 수입 (`acc_sec_cd===1`)·기타: legacy fallback `{계정약자}({과목약자})-n`.
+- 후원회 수입 (`acc_sec_cd===1`)·기타: legacy fallback `{계정약자}({과목약자})-n` (단, **수입은 채번 생략** — 아래 참조. 스킴 C는 `formatKey` 기록용으로만 남음).
 
-Combination sequence (`{prefix}-n`) continues from the existing max per prefix; existing `rcp_no` is preserved and historical values are **not** retroactively re-numbered. **The two consumers scope the sequence differently** (`receipt-no-income-expense-dedup`, v0.20.1.0):
-- **`batch_receipt`** (`assignReceiptNumbers`, input-time): per-key, **per-`incm_sec_cd`** scope — income and expense numbered independently (matches the separate 수입/지출 일괄생성 pages).
-- **`fillExportReceiptNumbers`** (report/export-time, used by export-sqlite AND the 재조정 데이터 viewer): **unified income+expense single scope**, keyed by each row's *current* (계정×과목) `formatKey`. Assigns to `rcp_yn='Y'` rows that are either missing a number **or** whose prefix no longer matches their account (Pass1 재배분 이동조각이 원본 접두사를 물려받아 stale). Prefix-matching manual numbers are preserved. This dedups income↔expense collisions (income rows often lack a source `rcp_no` → would otherwise restart each prefix at 1 and clash with manual expense numbers) and re-homes moved fragments to their new 자금원 prefix. Stale detection assumes `formatKey` is stable over time. (`parseRcpNo` is the shared prefix/seq parser.)
+**수입은 영수증번호 생략 (v0.25.0.0, `income-receipt-no-omitted`)**: 공식 양식·`Fund_Data_*.db` 검증상 수입(`incm_sec_cd=1`)은 영수증 일련번호를 부여하지 않고 **"생략"**으로 표기한다. 표시는 `displayReceiptNo(incmSecCd, rcpNo)`(`receipt-no.ts`, 렌더 SSOT — `RECEIPT_OMITTED_LABEL="생략"`)로 화면 뷰어·reports 과목별 수입지출부 Excel·개별 수입부 Excel·HWPX 회계장부/22-4가 수입 행에 "생략"을 찍는다. `.db`/제출 TSV 등 **데이터 export는 수입 `RCP_NO`를 빈값**으로 둔다(윈도우 프로그램이 자체 "생략" 인쇄, ground truth 정합). 채번은 **지출 전용**이라 다음 두 소비처 모두 수입을 제외한다:
+- **`batch_receipt`** (`assignReceiptNumbers`, input-time): 수입(`incmSecCd=1`) 요청은 즉시 no-op(채번 안 함), 지출만 per-key 채번. 수입 페이지 「영수증일괄입력」 버튼은 제거됨.
+- **`fillExportReceiptNumbers`** (report/export-time, export-sqlite·재조정 뷰어·reports 과목별 수입지출부 공용): 수입을 채번/보존 대상에서 제외하고 기존 수입 번호가 있으면 빈값(`rcp_no="", rcp_no2=0`)으로 되돌린다. 지출만 (계정×과목) `formatKey` prefix로 채번 — `rcp_yn='Y'` ∧ (번호 없음 ∨ prefix가 현재 계정과 불일치[Pass1 재배분 이동조각이 원본 접두사를 물려받아 stale]). prefix 일치 수기번호는 보존(소급 재채번 금지). 이전의 "수입·지출 통합 스코프"(`receipt-no-income-expense-dedup`)는 수입을 채번하지 않으므로 수입↔지출 충돌 자체가 사라졌다. Stale 판정은 `formatKey`가 시간에 불변임을 전제. (`parseRcpNo`는 공유 prefix/seq 파서.)
 
 ### Excel Export Patterns
 
