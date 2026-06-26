@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CodeSelect } from "@/components/code-select";
 import { buildAdjustedAccBook, adjustedOrigins, adjustedNotes, type AdjustedOrigin } from "@/lib/accounting/adjusted-ledger";
-import { fillExportReceiptNumbers, type ReceiptCodeNames } from "@/lib/accounting/receipt-no";
+import { fillExportReceiptNumbers, displayReceiptNo, type ReceiptCodeNames } from "@/lib/accounting/receipt-no";
 import { detectCandidateShortfalls, type ReportSummaryRawRow } from "@/lib/accounting/income-expense-report-summary";
 import type { Shortfall } from "@/lib/accounting/fund-realloc";
 import { compareAccDateTime } from "@/lib/accounting/acc-book-sort";
@@ -376,7 +376,7 @@ export default function IncomeExpenseBookPage() {
                     <td className={td}>{cust.addr}</td>
                     <td className={td}>{cust.job}</td>
                     <td className={td}>{cust.tel}</td>
-                    <td className={td}>{r.rcp_no || ""}</td>
+                    <td className={td}>{displayReceiptNo(r.incm_sec_cd, r.rcp_no)}</td>
                     <td className={`${td} text-gray-500`}>
                       {r.note && <span className="text-purple-600">{r.note}</span>}
                       {r.note && r.bigo && " · "}

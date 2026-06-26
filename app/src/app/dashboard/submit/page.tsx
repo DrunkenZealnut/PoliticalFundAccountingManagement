@@ -234,7 +234,8 @@ export default function SubmitPage() {
             cust?.addr || "",
             cust?.job || "",
             cust?.tel || "",
-            r.rcp_no || "",
+            // 수입은 영수증번호 생략(공식 .db: RCP_NO 빈값) — stale 잔존번호 누출 방지로 항상 빈값.
+            (r.incm_sec_cd as number) === 1 ? "" : (r.rcp_no || ""),
           ].join("\t")
         );
       }

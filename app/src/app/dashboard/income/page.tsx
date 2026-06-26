@@ -134,25 +134,6 @@ export default function IncomePage() {
     window.open(`/api/excel/export?orgId=${orgId}&type=income`, "_blank");
   }
 
-  async function handleBatchReceiptNumbers() {
-    if (!orgId) return;
-
-    const res = await fetch("/api/acc-book", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "batch_receipt", orgId, incmSecCd: 1 }),
-    });
-    const result = await res.json();
-
-    if (result.count === 0) {
-      alert("영수증번호를 일괄 부여할 대상이 없습니다.\n(증빙서첨부=Y이고 번호 미입력인 건)");
-      return;
-    }
-
-    alert(`${result.count}건에 영수증번호 ${result.startNum}~${result.endNum}을 부여했습니다.`);
-    loadRecords(activeFilters);
-  }
-
   function resetForm() {
     setSelected(null);
     setSelectedCustomerName("");
@@ -469,11 +450,6 @@ export default function IncomePage() {
             </Button>
           </HelpTooltip>
           <div className="flex-1" />
-          <HelpTooltip id="income.receipt-batch">
-            <Button variant="outline" size="sm" onClick={handleBatchReceiptNumbers}>
-              영수증일괄입력
-            </Button>
-          </HelpTooltip>
           <HelpTooltip id="income.book-print">
             <Button variant="outline" size="sm" onClick={handleExcelExport}>
               수입부 엑셀

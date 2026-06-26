@@ -246,7 +246,7 @@ describe("buildIncomeExpenseBookModel", () => {
     expect(m.otherCount).toBe(0); // 수입 기타는 경고 카운트 아님
   });
 
-  it("T-16 수입 행은 영수증 첨부/생략 집계 제외 + rcpNo 빈칸", () => {
+  it("T-16 수입 행은 영수증 첨부/생략 집계 제외 + rcpNo '생략' 표기", () => {
     const m = buildIncomeExpenseBookModel(
       [
         row({ acc_book_id: 1, acc_sec_cd: 84, incm_sec_cd: 1, acc_amt: 500000, rcp_yn: "Y", rcp_no: "9", acc_ins_type: "118" }),
@@ -257,7 +257,7 @@ describe("buildIncomeExpenseBookModel", () => {
     const a = m.accounts[0];
     expect(a.attachedAmt).toBe(100000); // 지출만
     expect(a.attachedCount).toBe(1);
-    expect(a.rows[0].rcpNo).toBe(""); // 수입 행은 영수증 일련번호 없음
+    expect(a.rows[0].rcpNo).toBe("생략"); // 수입 행은 영수증 일련번호 생략(공식 양식)
     expect(a.rows[1].rcpNo).toBe("자(비)-4\n계좌입금");
   });
 

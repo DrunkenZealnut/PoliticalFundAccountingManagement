@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { createClient } from "@supabase/supabase-js";
+import { RECEIPT_OMITTED_LABEL } from "@/lib/accounting/receipt-no";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -149,7 +150,10 @@ function generateLedgerBook(
     row.getCell(8).value = customer?.tel || "";
     row.getCell(9).value = amt;
     row.getCell(10).value = cumulative;
-    row.getCell(11).value = rcpYn === "Y" ? (r.rcp_no as string || "") : "생략";
+    // 수입은 영수증 일련번호 생략(공식 양식·Fund_Data_*.db 기준) — rcp_yn 무관하게 생략.
+    //   지출은 첨부(Y)면 번호, 미첨부면 생략(생략분).
+    row.getCell(11).value =
+      Number(r.incm_sec_cd) === 1 || rcpYn !== "Y" ? RECEIPT_OMITTED_LABEL : (r.rcp_no as string) || "";
 
     for (let col = 1; col <= 11; col++) {
       const cell = row.getCell(col);

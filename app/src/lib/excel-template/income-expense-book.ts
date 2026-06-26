@@ -23,6 +23,7 @@ import { classifyFundingSource, type FundingSource } from "@/lib/accounting/fund
 import { formatLedgerDate, isAnonymousCustomer } from "@/lib/hwpx/income-ledger-builder";
 import { PAY_METHODS } from "@/lib/expense-types";
 import { compareAccDateTime } from "@/lib/accounting/acc-book-sort";
+import { RECEIPT_OMITTED_LABEL } from "@/lib/accounting/receipt-no";
 
 /* ===================== 타입 ===================== */
 
@@ -244,7 +245,7 @@ export function buildIncomeExpenseBookModel(rows: IebInputRow[], ctx: IebCtx): I
         addr: anon ? "" : (r.customer?.addr ?? ""),
         job: anon ? "" : (r.customer?.job ?? ""),
         tel: anon ? "" : (r.customer?.tel ?? ""),
-        rcpNo: kind === "expense" ? formatRcpNo(r, src) : "",
+        rcpNo: kind === "expense" ? formatRcpNo(r, src) : RECEIPT_OMITTED_LABEL,
         bigo: r.bigo ?? "",
       };
     });
