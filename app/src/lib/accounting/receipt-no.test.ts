@@ -6,6 +6,8 @@ import {
   formatReceiptNo,
   assignReceiptNumbers,
   fillExportReceiptNumbers,
+  displayReceiptNo,
+  RECEIPT_OMITTED_LABEL,
   type ReceiptTarget,
   type ReceiptCodeNames,
 } from "./receipt-no";
@@ -61,6 +63,19 @@ describe("receipt-no 약자", () => {
     expect(supporterExpenseAbbr("사무소설치운영비_기본경비")).toBe("사");
     expect(supporterExpenseAbbr("그밖의경비")).toBe("그");
     expect(supporterExpenseAbbr(null)).toBe("");
+  });
+});
+
+describe("displayReceiptNo (수입·지출부 표시값)", () => {
+  it("수입(incm_sec_cd=1)은 '생략'", () => {
+    expect(displayReceiptNo(1, "자(비)-1")).toBe(RECEIPT_OMITTED_LABEL);
+    expect(displayReceiptNo(1, null)).toBe("생략");
+    expect(displayReceiptNo("1", "")).toBe("생략"); // 문자열 "1"도 수입으로 인식
+  });
+  it("지출은 rcp_no, 없으면 빈칸", () => {
+    expect(displayReceiptNo(2, "자(비)-3")).toBe("자(비)-3");
+    expect(displayReceiptNo(2, null)).toBe("");
+    expect(displayReceiptNo(2, undefined)).toBe("");
   });
 });
 
@@ -234,34 +249,56 @@ describe("fillExportReceiptNumbers (export 자동 채번)", () => {
     expect(out.find((r) => r.acc_book_id === 3)?.rcp_no).toBe("보(비)-3");
   });
 
-  it("TC-3 통합 스코프 — 수입/지출 공통 채번·rcp_no2 전체 순번", () => {
+  it("TC-3 수입은 영수증번호 생략(빈값) — 지출만 채번", () => {
     const rows = [
-      row(1, 1, 85, 50, "Y"), // 수입 후(후)-1
-      row(2, 1, 85, 50, "Y"), // 수입 후(후)-2
+      row(1, 1, 85, 50, "Y"), // 수입 → 생략(빈값)
+      row(2, 1, 85, 50, "Y"), // 수입 → 생략(빈값)
       row(3, 2, 84, 86, "Y"), // 지출 자(비)-1
     ];
     const out = fillExportReceiptNumbers(rows, NAMES);
     const inc = out.filter((r) => r.incm_sec_cd === 1);
     const exp = out.filter((r) => r.incm_sec_cd === 2);
-    // 접두사가 다르면 rcp_no는 그대로지만, rcp_no2(정수)는 통합 전체 순번
-    expect(inc.map((r) => r.rcp_no)).toEqual(["후(후)-1", "후(후)-2"]);
-    expect(inc.map((r) => r.rcp_no2)).toEqual([1, 2]);
+    expect(inc.map((r) => r.rcp_no)).toEqual(["", ""]); // 수입 생략(공식 양식: RCP_NO 빈값)
+    expect(inc.map((r) => r.rcp_no2)).toEqual([0, 0]);
     expect(exp.map((r) => r.rcp_no)).toEqual(["자(비)-1"]);
-    expect(exp.map((r) => r.rcp_no2)).toEqual([3]); // 통합 스코프 — 수입 뒤를 이어 3
+    expect(exp.map((r) => r.rcp_no2)).toEqual([1]); // 수입이 순번을 소비하지 않음
   });
 
-  it("TC-9 통합 스코프 — 수입이 지출 수기번호와 충돌하지 않음", () => {
-    // 지출엔 수기번호(자(비)-1·2), 수입(자산이 선거비용으로 재분류된 행)은 번호 없음.
+  it("TC-9 수입은 자산 재분류(선거비용) 행이어도 생략 — 지출 수기번호 보존", () => {
+    // 지출엔 수기번호(자(비)-1·2). 수입(자산이 선거비용으로 재분류된 행)도 생략 → 충돌 자체가 없음.
     const rows = [
       row(1, 2, 84, 86, "Y", "자(비)-1"), // 지출 수기(보존)
       row(2, 2, 84, 86, "Y", "자(비)-2"), // 지출 수기(보존)
-      row(3, 1, 84, 86, "Y"), // 수입 자산(선거비용) 미부여 → 자(비)-3
+      row(3, 1, 84, 86, "Y"), // 수입(선거비용 재분류) → 생략(빈값)
     ];
     const out = fillExportReceiptNumbers(rows, NAMES);
     const byId = Object.fromEntries(out.map((r) => [r.acc_book_id, r.rcp_no]));
     expect(byId[1]).toBe("자(비)-1"); // 보존
     expect(byId[2]).toBe("자(비)-2"); // 보존
-    expect(byId[3]).toBe("자(비)-3"); // 수입이 지출 max 이어서 — 충돌 0 (구: 자(비)-1 중복)
+    expect(byId[3]).toBe(""); // 수입은 생략(번호 미부여)
+  });
+
+  it("TC-12 수입에 기존 영수증번호가 있어도 생략(빈값으로 비움) — 지출 채번 영향 없음", () => {
+    const rows = [
+      row(1, 1, 85, 50, "Y", "후(후)-9"), // 수입에 기존 번호 → 비움
+      row(2, 2, 84, 86, "Y"), // 지출 → 자(비)-1
+    ];
+    const out = fillExportReceiptNumbers(rows, NAMES);
+    const byId = Object.fromEntries(out.map((r) => [r.acc_book_id, r.rcp_no]));
+    expect(byId[1]).toBe(""); // 수입 기존 번호 제거(생략)
+    expect(out.find((r) => r.acc_book_id === 1)?.rcp_no2).toBe(0); // rcp_no2도 비움
+    expect(byId[2]).toBe("자(비)-1"); // 수입 기존 번호가 지출 채번을 오염시키지 않음
+  });
+
+  it("TC-13 수입 rcp_no는 비었지만 rcp_no2만 남은 행도 0으로 정규화(채번 대상 없어도)", () => {
+    // CodeRabbit: rcp_no=""인데 rcp_no2≠0인 수입 행이 fast-path로 빠져나가 잔존 순번이 export까지 새던 경우.
+    const rows = [
+      { acc_book_id: 1, incm_sec_cd: 1, acc_sec_cd: 85, item_sec_cd: 50, rcp_yn: "Y", rcp_no: "", rcp_no2: 5, acc_date: "20260101", acc_sort_num: 1 },
+    ];
+    const out = fillExportReceiptNumbers(rows, NAMES);
+    expect(out[0].rcp_no).toBe(""); // 빈값 유지
+    expect(out[0].rcp_no2).toBe(0); // 잔존 순번 정규화
+    expect(out[0]).not.toBe(rows[0]); // 정규화된 새 객체
   });
 
   it("TC-10 stale 이동조각 — 접두사가 현재 계정과 다르면 현재 계정으로 재채번", () => {

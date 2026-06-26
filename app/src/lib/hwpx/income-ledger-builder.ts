@@ -16,6 +16,7 @@
 /* ------------------------------------------------------------------ */
 
 import { compareAccDateTime } from "@/lib/accounting/acc-book-sort";
+import { displayReceiptNo } from "@/lib/accounting/receipt-no";
 
 /** form-7 표의 셀 토큰명 (form-7-fill.hwpx 템플릿의 {{토큰}}과 일치). */
 export const LEDGER_GROUP_TOKENS = {
@@ -215,7 +216,7 @@ function buildGroupRows(groupRows: IncomeLedgerInputRow[]): LedgerCellRow[] {
       addr: anon ? "" : joinAddr(r.customer),
       job: anon ? "" : (r.customer?.job ?? ""),
       tel: anon ? "" : (r.customer?.tel ?? ""),
-      receiptNo: r.rcp_no ?? "",
+      receiptNo: displayReceiptNo(r.incm_sec_cd, r.rcp_no),
       remark: "",
     };
   });

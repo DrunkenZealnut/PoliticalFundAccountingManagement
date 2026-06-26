@@ -174,13 +174,26 @@ describe("buildIncomeLedgerModel", () => {
     expect(r.addr).toBe("");
   });
 
-  it("영수증번호 매핑 (null→공란)", () => {
+  it("영수증번호 매핑 — 지출은 rcp_no (null→공란)", () => {
     const model = buildIncomeLedgerModel(
-      [row({ rcp_no: "12", cust_id: 1 }), row({ rcp_no: null, item_sec_cd: 11 })],
+      [
+        row({ incm_sec_cd: 2, rcp_no: "12", cust_id: 1 }),
+        row({ incm_sec_cd: 2, rcp_no: null, item_sec_cd: 11 }),
+      ],
       getName,
     );
     expect(model.groups[0].rows[0].receiptNo).toBe("12");
     expect(model.groups[1].rows[0].receiptNo).toBe("");
+  });
+
+  it("수입 행은 영수증번호 생략 (rcp_no 무시)", () => {
+    // 공식 양식·Fund_Data_*.db: 수입(incm_sec_cd=1)은 영수증 일련번호를 "생략"으로 표기.
+    const model = buildIncomeLedgerModel(
+      [row({ incm_sec_cd: 1, rcp_no: "9" }), row({ incm_sec_cd: 1, rcp_no: null })],
+      getName,
+    );
+    expect(model.groups[0].rows[0].receiptNo).toBe("생략");
+    expect(model.groups[0].rows[1].receiptNo).toBe("생략");
   });
 });
 

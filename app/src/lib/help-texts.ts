@@ -26,8 +26,7 @@ export const HELP_TEXTS: Record<string, HelpText> = {
   "income.provider": { title: "수입제공자", description: "🔍 버튼으로 기존 등록된 수입지출처를 검색하거나, [수입제공자 등록]으로 새로 등록할 수 있습니다." },
   "income.content": { title: "수입내역", description: "수입에 대한 설명을 입력합니다. 당비/기명후원금/익명후원금 과목은 자동으로 입력됩니다." },
   "income.receipt-yn": { title: "증빙서첨부", description: "영수증 등 증빙서류의 첨부 여부를 체크합니다." },
-  "income.receipt-no": { title: "증빙서번호", description: "증빙서류의 일련번호를 입력합니다. [영수증일괄입력]으로 일괄 부여할 수도 있습니다." },
-  "income.receipt-batch": { title: "영수증일괄입력", description: "증빙서첨부가 '첨부(Y)'이면서 증빙서번호가 비어 있는 모든 수입내역에 대해, 기존 최대 번호의 다음 번호부터 순차적으로 영수증 번호를 일괄 부여합니다. 부여 순서는 수입일자 → 정렬순서 기준입니다. 실행 전 대상 건수와 시작 번호를 확인하는 팝업이 표시됩니다." },
+  "income.receipt-no": { title: "증빙서번호", description: "증빙서류의 일련번호를 입력합니다. 단, 수입은 공식 양식상 영수증 일련번호를 생략하므로 수입·지출부에는 '생략'으로 표기됩니다." },
   "income.book-print": { title: "수입부", description: "전체 또는 계정별로 조회된 수입내역에 대한 수입부를 프린터 출력 또는 엑셀 다운로드합니다." },
   "income.summary": { title: "수입액/지출액/잔액", description: "현재 사용기관의 전체 수입액 합계, 지출액 합계, 잔액(수입-지출)을 표시합니다." },
 

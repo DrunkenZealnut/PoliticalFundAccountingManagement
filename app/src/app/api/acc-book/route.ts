@@ -146,6 +146,11 @@ export async function POST(request: NextRequest) {
 
   if (action === "batch_receipt") {
     const { orgId: oid, incmSecCd: isc } = payload;
+    // 수입(incm_sec_cd=1)은 영수증번호 생략(공식 양식·Fund_Data_*.db 기준) — 채번하지 않는다.
+    //   지출만 채번하므로 수입 요청은 즉시 no-op으로 응답한다.
+    if (Number(isc) === 1) {
+      return NextResponse.json({ count: 0, omitted: true });
+    }
     // 미부여 대상 (rcp_yn=Y, rcp_no 없음) — 계정·과목 포함
     const { data: targets, error: targetsErr } = await supabase
       .from("acc_book")

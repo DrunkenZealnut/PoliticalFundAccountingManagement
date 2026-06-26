@@ -11,6 +11,7 @@ import { PageGuide } from "@/components/page-guide";
 import { PAGE_GUIDES } from "@/lib/page-guides";
 import { compareAccDateTime } from "@/lib/accounting/acc-book-sort";
 import { buildReportLedgerRecords } from "@/lib/accounting/report-ledger";
+import { displayReceiptNo } from "@/lib/accounting/receipt-no";
 import { buildReportCombos, type AccItemCombo } from "@/lib/excel-template/report-combos";
 import { aggregateSummaryByAccount } from "@/lib/hwpx/report-summary-builder";
 
@@ -646,7 +647,7 @@ function buildLedgerSheet(
     row.getCell(10).value = cust?.addr || "";
     row.getCell(11).value = cust?.job || "";
     row.getCell(12).value = cust?.tel || "";
-    row.getCell(13).value = r.rcp_no || "";
+    row.getCell(13).value = displayReceiptNo(r.incm_sec_cd, r.rcp_no);
 
     applyDataCellStyle(ws, rowIdx, 1, COLS, [3, 4, 5, 6, 7]);
     rowIdx++;
