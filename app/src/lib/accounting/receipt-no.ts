@@ -214,11 +214,11 @@ export function fillExportReceiptNumbers(
   // 보존(existing)·채번(targetRows) 분류. 수입(incm_sec_cd=1)은 영수증번호 생략 → 채번/보존 제외.
   const existing: { rcp_no: string | null; rcp_no2: number | null }[] = [];
   const targetRows: Record<string, unknown>[] = [];
-  let incomeHasNumber = false; // 비울 기존 수입 번호 존재 여부(불변 최적화 판정용)
+  let incomeNeedsClear = false; // 비울 기존 수입 번호/순번(rcp_no 또는 rcp_no2) 존재 여부(불변 최적화 판정용)
   for (const r of rows) {
     if (Number(r.incm_sec_cd) === 1) {
-      // 수입: 채번/보존 제외. 기존 번호가 있으면 아래 map에서 비운다.
-      if (!isMissingRcpNo(r.rcp_no)) incomeHasNumber = true;
+      // 수입: 채번/보존 제외. 기존 rcp_no 또는 rcp_no2가 남아 있으면 아래 map에서 비운다.
+      if (!isMissingRcpNo(r.rcp_no) || Number(r.rcp_no2 ?? 0) !== 0) incomeNeedsClear = true;
       continue;
     }
     const wantNumber = String(r.rcp_yn ?? "") === "Y";
@@ -236,8 +236,8 @@ export function fillExportReceiptNumbers(
     if (wantNumber) targetRows.push(r);
   }
 
-  // 채번 대상도, 비울 수입 번호도 없으면 원본 그대로 반환(불변 최적화).
-  if (targetRows.length === 0 && !incomeHasNumber) return rows;
+  // 채번 대상도, 비울 수입 번호/순번도 없으면 원본 그대로 반환(불변 최적화).
+  if (targetRows.length === 0 && !incomeNeedsClear) return rows;
 
   // targetRows는 함수-로컬 신규 배열 → in-place 정렬 안전(입력 rows 불변은 아래 map이 보장).
   targetRows.sort(
@@ -255,8 +255,10 @@ export function fillExportReceiptNumbers(
 
   return rows.map((r) => {
     if (Number(r.incm_sec_cd) === 1) {
-      // 수입: 영수증번호 생략 → 빈값으로(이미 빈값이면 원본 유지). 표시 "생략"은 렌더 측 책임.
-      return isMissingRcpNo(r.rcp_no) ? r : { ...r, rcp_no: "", rcp_no2: 0 };
+      // 수입: 영수증번호 생략 → rcp_no·rcp_no2 비움(이미 둘 다 비어 있으면 원본 유지). 표시 "생략"은 렌더 측 책임.
+      return isMissingRcpNo(r.rcp_no) && Number(r.rcp_no2 ?? 0) === 0
+        ? r
+        : { ...r, rcp_no: "", rcp_no2: 0 };
     }
     const a = assignmentById.get(Number(r.acc_book_id));
     return a ? { ...r, rcp_no: a.rcp_no, rcp_no2: a.rcp_no2 } : r;

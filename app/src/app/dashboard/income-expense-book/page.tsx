@@ -235,7 +235,7 @@ export default function IncomeExpenseBookPage() {
       row.getCell(11).value = cust.addr;
       row.getCell(12).value = cust.job;
       row.getCell(13).value = cust.tel;
-      row.getCell(14).value = r.rcp_no || "";
+      row.getCell(14).value = displayReceiptNo(r.incm_sec_cd, r.rcp_no); // 수입은 "생략"(화면 표와 동일)
       row.getCell(15).value = r.bigo || "";
       for (let c = 1; c <= 15; c++) {
         row.getCell(c).border = border;

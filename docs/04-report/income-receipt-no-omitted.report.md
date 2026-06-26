@@ -23,7 +23,7 @@
 | 지표 | 값 |
 |------|-----|
 | **최종 Match Rate** | 100% (gap-detector 1차 88% → 2개 Gap 해소) |
-| **테스트** | 825 passed (70 files) |
+| **테스트** | 826 passed (70 files) |
 | **Lint** | Clean (ESLint v9) |
 | **코드 변경** | +146 / -76 lines |
 | **반복 횟수** | 0회 (Check 단계에서 직접 완전 해소) |
@@ -108,7 +108,7 @@
 ### 검증
 - ✅ ground truth 정합 (Fund_Data_1.db, 인쇄 PDF)
 - ✅ gap-detector 독립 검증: 최종 100% Match Rate
-- ✅ 전체 테스트 825 passed, ESLint clean
+- ✅ 전체 테스트 826 passed, ESLint clean
 - ✅ 회귀 고정: receipt-no·adjusted-ledger·parity·income-expense-book 테스트
 
 ### 정리·최적화
@@ -143,7 +143,7 @@
 ## 검증 결과
 
 ### 테스트
-- **825 passed** (70 files) — 전체 suite 통과
+- **826 passed** (70 files) — 전체 suite 통과
 - **회귀 고정**: receipt-no·adjusted-ledger·parity·income-expense-book·income-ledger-builder 테스트 유지
 - **새 테스트**: displayReceiptNo 단위 테스트 + Gap 재검증 TC 추가
 
@@ -209,7 +209,7 @@
 | **최종 Match Rate** | 100% (gap-detector 1차 88% → 2개 Gap 해소) |
 | **변경 파일** | 15개 (소스 10 + 테스트 5) |
 | **코드 변경** | +146 / -76 lines |
-| **테스트 통과** | 825/825 passed (70 files) |
+| **테스트 통과** | 826/826 passed (70 files) |
 | **반복 횟수** | 0회 |
 | **소요 기간** | 단일 세션 (~3시간) |
 | **Lint** | Clean (ESLint v9) |
@@ -225,6 +225,6 @@
 - **공식 양식 정합 완료**: 수입·지출부 어디서나 수입은 "생략", 지출만 실제 번호
 - **선관위 ground truth 검증**: Fund_Data_1.db 및 인쇄 PDF와 1:1 일치
 - **반복 0회**: Check 단계에서 직접 100% 달성 (차단 없음)
-- **모든 테스트 통과**: 825 passed, ESLint clean
+- **모든 테스트 통과**: 826 passed, ESLint clean
 
 다음 버전 배포 시 **app/VERSION 0.24.1.0 → 0.25.0.0** 로 feature MINOR bump 예정 (아직 미커밋).

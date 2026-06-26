@@ -290,6 +290,17 @@ describe("fillExportReceiptNumbers (export 자동 채번)", () => {
     expect(byId[2]).toBe("자(비)-1"); // 수입 기존 번호가 지출 채번을 오염시키지 않음
   });
 
+  it("TC-13 수입 rcp_no는 비었지만 rcp_no2만 남은 행도 0으로 정규화(채번 대상 없어도)", () => {
+    // CodeRabbit: rcp_no=""인데 rcp_no2≠0인 수입 행이 fast-path로 빠져나가 잔존 순번이 export까지 새던 경우.
+    const rows = [
+      { acc_book_id: 1, incm_sec_cd: 1, acc_sec_cd: 85, item_sec_cd: 50, rcp_yn: "Y", rcp_no: "", rcp_no2: 5, acc_date: "20260101", acc_sort_num: 1 },
+    ];
+    const out = fillExportReceiptNumbers(rows, NAMES);
+    expect(out[0].rcp_no).toBe(""); // 빈값 유지
+    expect(out[0].rcp_no2).toBe(0); // 잔존 순번 정규화
+    expect(out[0]).not.toBe(rows[0]); // 정규화된 새 객체
+  });
+
   it("TC-10 stale 이동조각 — 접두사가 현재 계정과 다르면 현재 계정으로 재채번", () => {
     // Pass1 재배분: 후원회기부금(85) 인형탈대여가 후보자자산(84)·보조금외(83)로 이동.
     // 이동조각이 원본 영수증번호 '후(비)-10'을 그대로 물려받음 → 현재 계정 접두사로 교정.

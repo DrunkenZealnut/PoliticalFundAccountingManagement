@@ -31,7 +31,7 @@
 
 | # | 심각도 | 위치 | 내용 | 조치 |
 |---|:------:|------|------|------|
-| G-1 | P1 | `reports/page.tsx:649` | 「과목별 정치자금 수입지출부」 Excel이 공유 빌더가 아닌 **인라인 루프**로 렌더 → 수입칸 빈칸(생략 미표기). 비후보자(후원회)는 정규화도 안 거쳐 잔존 번호 노출 위험 | ✅ `isIncome ? RECEIPT_OMITTED_LABEL : (rcp_no||"")`로 수정(표기 단에서 보장, 데이터 무관) |
+| G-1 | P1 | `reports/page.tsx:649` | 「과목별 정치자금 수입지출부」 Excel이 공유 빌더가 아닌 **인라인 루프**로 렌더 → 수입칸 빈칸(생략 미표기). 비후보자(후원회)는 정규화도 안 거쳐 잔존 번호 노출 위험 | ✅ `displayReceiptNo(incm_sec_cd, rcp_no)`로 수정(표기 단에서 보장, 데이터 무관) |
 | G-2 | P2 | `submit/page.tsx:237` | 선관위 제출 TSV가 raw `records`의 수입 영수증번호를 그대로 출력 → stale 잔존번호 누출 여지 | ✅ 수입은 항상 빈값(데이터 export, .db ground truth 정합) |
 
 ## 정확성 검증 (결함 0)
@@ -44,7 +44,7 @@
 
 - **최종 Match Rate: 100%** (gap-detector 1차 88% → P1/P2 갭 2건 해소 후 100%)
 - P0=0, P1=0(해소), P2=0(해소)
-- 전체 테스트 **823 passed**, ESLint clean
+- 전체 테스트 **826 passed**, ESLint clean
 - 회귀 고정: `receipt-no.test.ts`(TC-3/9/12), `adjusted-ledger.test.ts`, `adjusted-ledger-parity.test.ts`(뷰어==export), `income-expense-book.test.ts`(T-16), `income-ledger-builder.test.ts`
 
 ## 변경 파일 (15)
