@@ -10,6 +10,11 @@
 
 export const SUPPORTER_SEC_CDS: ReadonlySet<number> = new Set([
   91, 92, 107, 108, 109, 587, 588,
+  // 지방선거(제9회) 광역/기초의회 후원회 — codeset cs_id=6
+  593, // 광역의회의원후원회
+  594, // 기초의회의원후원회
+  595, // 광역의회의원(예비)후보자후원회
+  596, // 기초의회의원(예비)후보자후원회
 ]);
 
 export const CANDIDATE_SEC_CDS: ReadonlySet<number> = new Set([54, 90, 106]);

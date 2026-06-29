@@ -6,6 +6,8 @@ import { readFileSync } from "fs";
 import {
   parseOrganImport,
   type ExportOrganRow,
+  SUPPORTER_SEC_CDS,
+  CANDIDATE_SEC_CDS,
 } from "@/lib/accounting/organ-pair";
 import { ParityError, ParityErrors } from "@/lib/accounting/parity-errors";
 import { computeBalances } from "@/lib/accounting/settlement-calc";
@@ -341,10 +343,8 @@ export async function POST(request: NextRequest) {
     if (existingTables.has("ORGAN")) {
       const rows = readSqliteTable(db, "ORGAN");
       if (rows.length > 0) {
-        // 후보자 vs 후원회 분류
-        const SUPPORTER_SEC_CDS = new Set([91, 92, 107, 108, 109, 587, 588]);
-        const CANDIDATE_SEC_CDS = new Set([54, 90, 106]);
-
+        // 후보자 vs 후원회 분류 (SSOT: organ-pair.ts — 코드 누락 시 후원회가
+        // 단일 org로 잘못 분류되어 ORG_ID·페어가 어긋나므로 공유 상수를 사용)
         let supporterRow: Record<string, unknown> | null = null;
         let candidateRow: Record<string, unknown> | null = null;
 

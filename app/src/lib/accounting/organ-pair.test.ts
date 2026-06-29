@@ -403,4 +403,35 @@ describe("상수 sanity check", () => {
   it("90은 후원회가 아님", () => {
     expect(SUPPORTER_SEC_CDS.has(90)).toBe(false);
   });
+  // 회귀: 지방선거(제9회) 광역/기초의회 후원회 코드 누락 → 후원회가 단일 org로
+  // 잘못 분류되어 ORG_ID=1(후보자 슬롯)에 들어가고 후보자 페어가 안 생김.
+  it.each([593, 594, 595, 596])(
+    "SUPPORTER_SEC_CDS는 지방선거 후원회 코드 %i 포함",
+    (cd) => {
+      expect(SUPPORTER_SEC_CDS.has(cd)).toBe(true);
+    },
+  );
+});
+
+describe("buildOrganExport - 기초의회의원 후원회(596) 회귀", () => {
+  const supporter596: SupabaseOrgan = {
+    ...baseSupporter,
+    org_id: 21,
+    org_sec_cd: 596, // 기초의회의원(예비)후보자후원회
+    org_name: "동대문구라선거구구의회의원예비후보자오준석후원회",
+  };
+
+  it("후보자 페어(ORG_ID=1) + 후원회(ORG_ID=2) = 2행 반환", () => {
+    const { organRows } = buildOrganExport(supporter596);
+    expect(organRows).toHaveLength(2);
+    expect(organRows[0].ORG_ID).toBe(1); // 후보자 슬롯
+    expect(organRows[0].ORG_SEC_CD).toBe(90);
+    expect(organRows[1].ORG_ID).toBe(2); // 후원회 자신
+    expect(organRows[1].ORG_SEC_CD).toBe(596);
+  });
+
+  it("orgIdMap: 후원회 거래는 ORG_ID=2로 매핑 (Fund_Data_2)", () => {
+    const { orgIdMap } = buildOrganExport(supporter596);
+    expect(orgIdMap.get(21)).toBe(2);
+  });
 });
