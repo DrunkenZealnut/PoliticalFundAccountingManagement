@@ -47,14 +47,52 @@ export const PFUND2_ENSURE_ANONYMOUS_CUSTOMER_SQL =
 export const PFUND2_CANDIDATE_ORG_ID = 1 as const;
 export const PFUND2_SUPPORTER_ORG_ID = 2 as const;
 
-/** PFund2 export 모드 — Fund_Master.db / Fund_Data_N.db 호환 구분 */
-export type Pfund2ExportMode = "full" | "master" | "data1" | "data2";
+/**
+ * PFund2 export 모드 — Fund_Master.db / Fund_Data_N.db 호환 구분.
+ * - restore: 단일기관 보관자료 스냅샷. 프로그램 [자료 복구]로 적재(Data 폴더 직접 교체 아님).
+ */
+export type Pfund2ExportMode = "full" | "master" | "data1" | "data2" | "restore";
 
-/** 모드별 다운로드 파일명. full 모드는 자체분(-YYYY).db 형식 별도. */
+/** 프로그램 보관자료 파일명용 타임스탬프(로컬시간 분해). */
+export interface RestoreTimestamp {
+  y: number;
+  mo: number;
+  d: number;
+  h: number;
+  mi: number;
+  s: number;
+}
+
+const pad2 = (n: number): string => String(n).padStart(2, "0");
+
+/**
+ * 선관위 프로그램 네이티브 보관자료 파일명 모사 (순수).
+ * 형식: `정치자금【 {기관명} 】보관자료_YYYY-MM-DD HH시MM분SS초.db`
+ * - 대괄호 안 공백 포함(프로그램 [자료 복구] 목록 인식 위해).
+ * - ts는 호출부가 명시(테스트 결정성). 라우트는 클라이언트/서버 로컬시간 전달.
+ */
+export function pfund2RestoreFilename(orgName: string, ts: RestoreTimestamp): string {
+  return `정치자금【 ${orgName} 】보관자료_${ts.y}-${pad2(ts.mo)}-${pad2(ts.d)} ${pad2(ts.h)}시${pad2(ts.mi)}분${pad2(ts.s)}초.db`;
+}
+
+/** 현재 로컬시간 → RestoreTimestamp (라우트/클라이언트 전용; 순수함수 테스트에선 미사용). */
+export function nowRestoreTimestamp(d: Date = new Date()): RestoreTimestamp {
+  return {
+    y: d.getFullYear(),
+    mo: d.getMonth() + 1,
+    d: d.getDate(),
+    h: d.getHours(),
+    mi: d.getMinutes(),
+    s: d.getSeconds(),
+  };
+}
+
+/** 모드별 다운로드 파일명. full=자체분(-YYYY).db, restore=보관자료 형식(타임스탬프). */
 export function pfund2DownloadFilename(
   mode: Pfund2ExportMode,
   orgName: string,
   year?: string,
+  ts?: RestoreTimestamp,
 ): string {
   switch (mode) {
     case "master":
@@ -65,5 +103,7 @@ export function pfund2DownloadFilename(
       return "Fund_Data_2.db";
     case "full":
       return year ? `${orgName}(자체분-${year}).db` : `${orgName}(자체분).db`;
+    case "restore":
+      return pfund2RestoreFilename(orgName, ts ?? nowRestoreTimestamp());
   }
 }

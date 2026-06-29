@@ -413,6 +413,45 @@ describe("상수 sanity check", () => {
   );
 });
 
+describe("buildOrganExport - singleOrgId (restore 단일기관 모드)", () => {
+  it("singleOrgId 지정 시 페어 없이 그 ORG_ID로 1행만", () => {
+    const { organRows, orgIdMap } = buildOrganExport(baseSupporter, {
+      maskPasswd: false,
+      singleOrgId: 3,
+    });
+    expect(organRows).toHaveLength(1);
+    expect(organRows[0].ORG_ID).toBe(3);
+    expect(organRows[0].ORG_ORDER).toBe(3);
+    expect(organRows[0].ORG_SEC_CD).toBe(109); // 후원회 sec_cd 보존(가짜 후보자 90 미생성)
+    expect(orgIdMap.get(baseSupporter.org_id)).toBe(3);
+  });
+
+  it("후원회여도 가짜 후보자 페어를 만들지 않음", () => {
+    const { organRows } = buildOrganExport(baseSupporter, { singleOrgId: 5 });
+    expect(organRows).toHaveLength(1);
+    expect(organRows.some((r) => r.ORG_SEC_CD === 90)).toBe(false);
+  });
+
+  it("후보자 organ도 임의 ID로 단일 export", () => {
+    const { organRows, orgIdMap } = buildOrganExport(baseCandidate, {
+      maskPasswd: false,
+      singleOrgId: 1,
+    });
+    expect(organRows).toHaveLength(1);
+    expect(organRows[0].ORG_ID).toBe(1);
+    expect(organRows[0].ORG_SEC_CD).toBe(90);
+    expect(orgIdMap.get(baseCandidate.org_id)).toBe(1);
+  });
+
+  it("maskPasswd=false면 단일기관 행에 PASSWD 보존", () => {
+    const { organRows } = buildOrganExport(baseSupporter, {
+      maskPasswd: false,
+      singleOrgId: 3,
+    });
+    expect(organRows[0].PASSWD).toBe("secret-cloud-only");
+  });
+});
+
 describe("buildOrganExport - 기초의회의원 후원회(596) 회귀", () => {
   const supporter596: SupabaseOrgan = {
     ...baseSupporter,

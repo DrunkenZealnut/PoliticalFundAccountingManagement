@@ -146,6 +146,13 @@ export interface BuildOrganExportOptions {
    * 정당/단일 organ에서는 무시.
    */
   candidateCredentials?: CandidateCredentials;
+  /**
+   * 단일기관 모드(restore export). 지정 시 페어 생성/분류 분기를 타지 않고
+   * supabaseOrgan 1개만 이 ORG_ID로 내보낸다(가짜 후보자/후원회 행 미생성).
+   * 선관위 [자료 복구]는 ORGAN을 이 ORG_ID 그대로 INSERT하므로, 호출부는 프로그램의
+   * 실제 ORG_ID(예: Fund_Master.db에서 읽은 값)를 넘겨야 UNIQUE 충돌이 안 난다.
+   */
+  singleOrgId?: number;
 }
 
 /**
@@ -172,9 +179,20 @@ export function buildOrganExport(
   supabaseOrgan: SupabaseOrgan,
   options: BuildOrganExportOptions = {},
 ): BuildOrganExportResult {
-  const { maskPasswd = true, candidateCredentials } = options;
+  const { maskPasswd = true, candidateCredentials, singleOrgId } = options;
   const passwd = maskPasswd ? null : supabaseOrgan.passwd ?? null;
   const orgIdMap = new Map<number, number>();
+
+  // 단일기관 모드: 페어/분류 분기 전부 우회. 지정 ORG_ID로 1행만.
+  if (singleOrgId != null) {
+    const row = makeOrganRow(supabaseOrgan, {
+      ORG_ID: singleOrgId,
+      PASSWD: passwd,
+      ORG_ORDER: singleOrgId,
+    });
+    orgIdMap.set(supabaseOrgan.org_id, singleOrgId);
+    return { organRows: [row], orgIdMap };
+  }
 
   if (SUPPORTER_SEC_CDS.has(supabaseOrgan.org_sec_cd)) {
     // PFund2 호환: 후보자 행(ORG_ID=1) 데이터.

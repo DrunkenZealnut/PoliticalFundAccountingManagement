@@ -6,6 +6,9 @@ import {
   PFUND2_CANDIDATE_ORG_ID,
   PFUND2_SUPPORTER_ORG_ID,
   pfund2DownloadFilename,
+  pfund2RestoreFilename,
+  nowRestoreTimestamp,
+  type RestoreTimestamp,
 } from "./pfund2-constants";
 
 describe("PFund2 reserved 상수", () => {
@@ -57,5 +60,32 @@ describe("pfund2DownloadFilename", () => {
 
   it("master는 year 인자 무시 (거래 비움)", () => {
     expect(pfund2DownloadFilename("master", "오준석후보", "2026")).toBe("Fund_Master.db");
+  });
+});
+
+describe("pfund2RestoreFilename (보관자료 형식)", () => {
+  const ts: RestoreTimestamp = { y: 2026, mo: 6, d: 29, h: 1, mi: 40, s: 24 };
+
+  it("프로그램 네이티브 보관자료 파일명 형식 (대괄호 안 공백·HH시MM분SS초)", () => {
+    expect(pfund2RestoreFilename("동대문구라선거구구의회의원예비후보자오준석후원회", ts)).toBe(
+      "정치자금【 동대문구라선거구구의회의원예비후보자오준석후원회 】보관자료_2026-06-29 01시40분24초.db",
+    );
+  });
+
+  it("월·일·시·분·초 0패딩", () => {
+    expect(pfund2RestoreFilename("기관", { y: 2026, mo: 1, d: 3, h: 9, mi: 5, s: 7 })).toBe(
+      "정치자금【 기관 】보관자료_2026-01-03 09시05분07초.db",
+    );
+  });
+
+  it("pfund2DownloadFilename('restore', ...)도 동일 형식", () => {
+    expect(pfund2DownloadFilename("restore", "기관", undefined, ts)).toBe(
+      "정치자금【 기관 】보관자료_2026-06-29 01시40분24초.db",
+    );
+  });
+
+  it("nowRestoreTimestamp는 주어진 Date를 로컬시간으로 분해", () => {
+    const d = new Date(2026, 5, 29, 1, 40, 24); // month 0-based: 5=6월
+    expect(nowRestoreTimestamp(d)).toEqual({ y: 2026, mo: 6, d: 29, h: 1, mi: 40, s: 24 });
   });
 });
