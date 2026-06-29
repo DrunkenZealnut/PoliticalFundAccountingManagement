@@ -18,7 +18,9 @@ import { ParityError, ParityErrors } from "@/lib/accounting/parity-errors";
 import {
   PFUND2_ENSURE_ANONYMOUS_CUSTOMER_SQL,
   pfund2DownloadFilename,
+  nowRestoreTimestamp,
   type Pfund2ExportMode,
+  type RestoreTimestamp,
 } from "@/lib/accounting/pfund2-constants";
 
 const supabase = createClient(
@@ -91,6 +93,27 @@ const COL_MAP: Record<string, string> = {
 
 function toUpper(col: string): string {
   return COL_MAP[col] || col.toUpperCase();
+}
+
+/**
+ * restore 파일명 타임스탬프 파싱. 클라이언트가 로컬시간을 "YYYY-MM-DD-HH-mm-ss"로 전달.
+ * 유효하지 않으면 서버 로컬시간(nowRestoreTimestamp) fallback.
+ */
+export function parseRestoreTs(raw: string | null): RestoreTimestamp {
+  if (raw) {
+    const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})$/);
+    if (m) {
+      return {
+        y: Number(m[1]),
+        mo: Number(m[2]),
+        d: Number(m[3]),
+        h: Number(m[4]),
+        mi: Number(m[5]),
+        s: Number(m[6]),
+      };
+    }
+  }
+  return nowRestoreTimestamp();
 }
 
 // SQLite DDL matching the 선관위 Fund_Master.db format.
@@ -411,10 +434,12 @@ type SupabaseOrgan = OrganRowShared & { [key: string]: unknown };
 const buildOrganExport = (
   org: SupabaseOrgan,
   candidateCredentials?: CandidateCredentials,
+  singleOrgId?: number,
 ) =>
   buildOrganExportShared(org, {
     maskPasswd: false,
     candidateCredentials,
+    singleOrgId,
   }) as unknown as {
     organRows: Record<string, unknown>[];
     orgIdMap: Map<number, number>;
@@ -622,26 +647,60 @@ export async function GET(request: NextRequest) {
   const candUseridParam = request.nextUrl.searchParams.get("candUserid");
   const candPasswdParam = request.nextUrl.searchParams.get("candPasswd");
   const yearParam = request.nextUrl.searchParams.get("year");
+  const restoreOrgIdParam = request.nextUrl.searchParams.get("restoreOrgId");
+  const tsParam = request.nextUrl.searchParams.get("ts");
   // mode 옵션 (PFund2 운영 .db 구조와 1:1 대응):
   //   full   (default)  → 우리 통합본 (ORGAN 페어 + 모든 거래 + reference)
   //   master            → Fund_Master.db 호환 (ORGAN 페어 + reference + CUSTOMER, 거래 0)
   //   data1             → Fund_Data_1.db 호환 (후보자 ORGAN 단행 + 그 organ 거래만)
   //   data2             → Fund_Data_2.db 호환 (후원회 ORGAN 단행 + 그 organ 거래만)
+  //   restore           → 단일기관 보관자료 스냅샷. ORGAN 1행(프로그램 실제 ORG_ID) +
+  //                       그 organ 거래 + reference 풀세트. [자료 복구]로 적재(Data 폴더 교체 X).
   const modeParam = request.nextUrl.searchParams.get("mode");
   const mode: Pfund2ExportMode =
-    modeParam === "master" || modeParam === "data1" || modeParam === "data2"
+    modeParam === "master" ||
+    modeParam === "data1" ||
+    modeParam === "data2" ||
+    modeParam === "restore"
       ? modeParam
       : "full";
   const isMasterMode = mode === "master";
   const isData1Mode = mode === "data1";
   const isData2Mode = mode === "data2";
-  // data1=후보자(ORG_ID=1), data2=후원회(ORG_ID=2), full/master=필터 없음.
-  // ESTATE/OPINION/SUM_REPT/COL_ORGAN/ALARM 등 org_id 종속 테이블 일괄 필터에 사용.
-  const targetExportOrgId: number | null = isData1Mode ? 1 : isData2Mode ? 2 : null;
+  const isRestoreMode = mode === "restore";
 
   if (!orgId) {
     return NextResponse.json({ error: "orgId required" }, { status: 400 });
   }
+
+  // restore 모드: 프로그램 실제 ORG_ID 필수(복구는 ORGAN을 이 ID 그대로 INSERT).
+  let restoreOrgId: number | null = null;
+  if (isRestoreMode) {
+    const n = Number(restoreOrgIdParam);
+    if (!restoreOrgIdParam || !Number.isInteger(n) || n <= 0) {
+      return NextResponse.json(
+        {
+          error: {
+            code: "RESTORE_ORG_ID_REQUIRED",
+            message:
+              "restore 모드는 restoreOrgId(프로그램 기관번호, 양의 정수)가 필요합니다. Fund_Master.db에서 해당 기관의 ORG_ID를 확인하세요.",
+          },
+        },
+        { status: 400 },
+      );
+    }
+    restoreOrgId = n;
+  }
+
+  // data1=후보자(ORG_ID=1), data2=후원회(ORG_ID=2), restore=프로그램 실제 ID, full/master=필터 없음.
+  // ESTATE/OPINION/SUM_REPT/COL_ORGAN/ALARM 등 org_id 종속 테이블 일괄 필터에 사용.
+  const targetExportOrgId: number | null = isData1Mode
+    ? 1
+    : isData2Mode
+      ? 2
+      : isRestoreMode
+        ? restoreOrgId
+        : null;
 
   // year은 옵션. 형식 YYYY (1900~2099). 잘못된 값은 400.
   let yearFilter: { col: string; year: string } | undefined;
@@ -742,7 +801,12 @@ export async function GET(request: NextRequest) {
     const supabaseOrgan = organList[0] as SupabaseOrgan;
 
     // Build ORGAN export rows + org_id remap (supports 후보자+후원회 pair)
-    const { organRows, orgIdMap } = buildOrganExport(supabaseOrgan, candidateCredentials);
+    // restore 모드: 페어 생성 없이 프로그램 실제 ORG_ID로 단일기관만 export.
+    const { organRows, orgIdMap } = buildOrganExport(
+      supabaseOrgan,
+      candidateCredentials,
+      restoreOrgId ?? undefined,
+    );
 
     // OPINION 결산 동기화: 마이너스 수입 보정 후 in_amt/cm_amt/balance_amt + estate 합계
     const accBookRows: AccBookRow[] = (accBook as Record<string, unknown>[])
@@ -920,9 +984,12 @@ export async function GET(request: NextRequest) {
     const dbBinary = db.export();
     db.close();
 
-    // mode별 파일명 — pfund2-constants.ts의 pfund2DownloadFilename 사용
+    // mode별 파일명 — pfund2-constants.ts의 pfund2DownloadFilename 사용.
+    //   restore: 보관자료 형식(타임스탬프). ts 파라미터(클라이언트 로컬시간 "YYYY-MM-DD-HH-mm-ss")가
+    //   있으면 사용, 없으면 서버 시간. 프로그램 [자료 복구] 목록 표시·정렬용이라 정확 형식이 중요.
+    const restoreTs = isRestoreMode ? parseRestoreTs(tsParam) : undefined;
     const filename = encodeURIComponent(
-      pfund2DownloadFilename(mode, orgName, yearFilter?.year),
+      pfund2DownloadFilename(mode, orgName, yearFilter?.year, restoreTs),
     );
 
     return new NextResponse(dbBinary.buffer as ArrayBuffer, {
