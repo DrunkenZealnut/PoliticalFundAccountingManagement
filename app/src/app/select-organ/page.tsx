@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
 import { useAuth } from "@/stores/auth";
+import { electionCycleOf, currentCycleOf, isOldCycle } from "@/lib/accounting/acc-period";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -74,6 +75,8 @@ export default function SelectOrganPage() {
   const { user, orgId, setOrgan, clearOrgan } = useAuth();
   const [organs, setOrgans] = useState<UserOrganRow[]>([]);
   const [loading, setLoading] = useState(true);
+  // 옛 주기 사용기관 표시 여부 (year-separation-p2 FR-05) — 기본은 현 주기만.
+  const [showOldCycle, setShowOldCycle] = useState(false);
 
   // 삭제 모달 상태
   const [deleteTarget, setDeleteTarget] = useState<UserOrganRow | null>(null);
@@ -201,6 +204,22 @@ export default function SelectOrganPage() {
   // 삭제 가능 조건: 미리보기 성공(preview 존재 + 에러 없음) + 기관명 일치 + 비진행
   const canDelete = confirmMatches && !!preview && !deleteError && !deleting;
 
+  // 선거주기 파생 + 현 주기 계산 (year-separation-p2 FR-05).
+  // 각 org의 주기는 acc_from 연도(electionCycleOf), 현 주기는 그중 최신.
+  const cycleOf = (o: UserOrganRow): string | null =>
+    electionCycleOf({ acc_from: o.organ.acc_from });
+  const currentCycle = useMemo(
+    () => currentCycleOf(organs.map(cycleOf)),
+    [organs],
+  );
+  const oldCycleCount = useMemo(
+    () => organs.filter((o) => isOldCycle(cycleOf(o), currentCycle)).length,
+    [organs, currentCycle],
+  );
+  const visibleOrgans = showOldCycle
+    ? organs
+    : organs.filter((o) => !isOldCycle(cycleOf(o), currentCycle));
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center text-gray-400">
@@ -228,7 +247,12 @@ export default function SelectOrganPage() {
             </div>
           ) : (
             <>
-              {organs.map((item) => (
+              {visibleOrgans.length === 0 && (
+                <div className="text-center py-4 text-sm text-gray-500">
+                  현 주기({currentCycle}년) 사용기관이 없습니다. 아래에서 옛 주기를 표시할 수 있습니다.
+                </div>
+              )}
+              {visibleOrgans.map((item) => (
                 <div
                   key={item.org_id}
                   className="flex items-stretch rounded-lg border hover:border-blue-300 transition-colors overflow-hidden"
@@ -239,9 +263,23 @@ export default function SelectOrganPage() {
                   >
                     <div className="flex items-start justify-between">
                       <div>
-                        <p className="font-semibold text-lg">
-                          {item.organ.org_name}
-                        </p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-semibold text-lg">
+                            {item.organ.org_name}
+                          </p>
+                          {cycleOf(item) && (
+                            <span
+                              className={
+                                isOldCycle(cycleOf(item), currentCycle)
+                                  ? "text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full whitespace-nowrap"
+                                  : "text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full whitespace-nowrap"
+                              }
+                            >
+                              {cycleOf(item)}년 주기
+                              {isOldCycle(cycleOf(item), currentCycle) ? " · 옛" : ""}
+                            </span>
+                          )}
+                        </div>
                         <p className="text-sm text-gray-500 mt-0.5">
                           {ORG_TYPE_LABELS[item.organ.org_sec_cd] ||
                             `코드: ${item.organ.org_sec_cd}`}
@@ -273,6 +311,18 @@ export default function SelectOrganPage() {
                   </button>
                 </div>
               ))}
+              {oldCycleCount > 0 && (
+                <div className="text-center">
+                  <button
+                    onClick={() => setShowOldCycle((v) => !v)}
+                    className="text-xs text-gray-500 hover:text-gray-700 underline underline-offset-2"
+                  >
+                    {showOldCycle
+                      ? "옛 주기 사용기관 숨기기"
+                      : `옛 주기 사용기관 ${oldCycleCount}곳 보기`}
+                  </button>
+                </div>
+              )}
               <div className="pt-4 border-t text-center">
                 <Button variant="outline" onClick={handleRegisterNew}>
                   사용기관 신규등록

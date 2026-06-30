@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
 import { useAuth } from "@/stores/auth";
+import { useOrgCycleLock } from "@/hooks/use-org-cycle-lock";
 import { useBeginnerMode, type WorkflowStep } from "@/stores/beginner-mode";
 import { HelpTooltip } from "@/components/help-tooltip";
 import { Switch } from "@/components/ui/switch";
@@ -151,6 +152,7 @@ export default function DashboardLayout({
   const router = useRouter();
   const pathname = usePathname();
   const { user, orgName, orgType, orgId, orgSecCd, accFrom, accTo, setUser } = useAuth();
+  const cycleLock = useOrgCycleLock();
 
   const ORG_TYPE_LABELS: Record<number, string> = {
     50: "중앙당", 51: "정책연구소", 52: "시도당", 53: "정당선거사무소",
@@ -267,10 +269,17 @@ export default function DashboardLayout({
           <p className="text-sm font-bold text-black truncate">{orgName || "기관 미선택"}</p>
           {orgSecCd && <p className="text-xs font-semibold text-blue-700">{ORG_TYPE_LABELS[orgSecCd] || ""}</p>}
           {accFrom && (
-            <p className="text-xs text-gray-500 mt-0.5">
-              {accFrom.slice(0, 4) === accTo?.slice(0, 4)
-                ? `${accFrom.slice(0, 4)}년 회계`
-                : `${accFrom.slice(0, 4)}~${accTo?.slice(0, 4)}년`}
+            <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1.5">
+              <span>
+                {accFrom.slice(0, 4) === accTo?.slice(0, 4)
+                  ? `${accFrom.slice(0, 4)}년 회계`
+                  : `${accFrom.slice(0, 4)}~${accTo?.slice(0, 4)}년`}
+              </span>
+              {cycleLock.locked && (
+                <span className="bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-full font-semibold whitespace-nowrap">
+                  🔒 옛 주기·읽기전용
+                </span>
+              )}
             </p>
           )}
           <Link href="/select-organ" className="text-xs text-blue-500 hover:underline mt-1 inline-block">

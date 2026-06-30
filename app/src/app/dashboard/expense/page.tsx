@@ -20,6 +20,8 @@ import { PAGE_GUIDES } from "@/lib/page-guides";
 import { EvidenceFileManager, type PendingFile } from "@/components/evidence/evidence-file-manager";
 import { buildExpenseSummary } from "@/lib/accounting/ledger-summary";
 import { isAccDateInOrgPeriod, type OrgPeriod } from "@/lib/accounting/acc-period";
+import { useOrgCycleLock } from "@/hooks/use-org-cycle-lock";
+import { OrgCycleLockBanner } from "@/components/dashboard/OrgCycleLockBanner";
 import { LedgerSummaryHeader } from "@/components/dashboard/LedgerSummaryHeader";
 import { buildFundingAllocation } from "@/lib/accounting/funding-allocation";
 import { buildAdjustedAccBook } from "@/lib/accounting/adjusted-ledger";
@@ -64,6 +66,7 @@ interface FundingRow {
 export default function ExpensePage() {
   const supabase = createSupabaseBrowser();
   const { orgId, orgSecCd, orgType } = useAuth();
+  const cycleLock = useOrgCycleLock();
   const {
     loading: codesLoading,
     getName,
@@ -321,6 +324,10 @@ export default function ExpensePage() {
 
   async function handleSave() {
     if (!orgId) return;
+    if (cycleLock.locked) {
+      alert("옛 선거주기 사용기관은 읽기전용입니다. 상단 '잠금 해제' 후 입력하세요.");
+      return;
+    }
     if (!form.acc_sec_cd) {
       alert("계정을 선택하세요.");
       return;
@@ -538,6 +545,7 @@ export default function ExpensePage() {
   return (
     <div className="space-y-6">
       <PageGuide {...PAGE_GUIDES.expense} />
+      <OrgCycleLockBanner {...cycleLock} />
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">지출내역 관리</h2>
         <div className="flex gap-4 text-sm">
