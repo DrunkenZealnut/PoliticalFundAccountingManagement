@@ -3,6 +3,8 @@
 import { useState, useRef } from "react";
 import { useAuth } from "@/stores/auth";
 import { postAccBook } from "@/lib/acc-book-client";
+import { useOrgCycleLock } from "@/hooks/use-org-cycle-lock";
+import { OrgCycleLockBanner } from "@/components/dashboard/OrgCycleLockBanner";
 import { useCodeValues } from "@/hooks/use-code-values";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -69,6 +71,7 @@ function cellStr(v: unknown): string {
 
 export default function BatchImportPage() {
   const { orgId, orgType, orgSecCd } = useAuth();
+  const cycleLock = useOrgCycleLock();
   const { codeValues, accRels, loading: codesLoading } = useCodeValues();
 
   const [tab, setTab] = useState("income");
@@ -219,6 +222,10 @@ export default function BatchImportPage() {
 
   /* ---- Save ---- */
   async function handleSave() {
+    if (cycleLock.locked) {
+      alert("옛 선거주기 사용기관은 읽기전용입니다. 상단 '잠금 해제' 후 입력하세요.");
+      return;
+    }
     if (!orgId || errorCount > 0 || !validated) {
       alert("먼저 [저장 전 자료확인]을 실행하세요.");
       return;
@@ -382,6 +389,7 @@ export default function BatchImportPage() {
   return (
     <div className="space-y-4">
       <PageGuide {...PAGE_GUIDES["batch-import"]} />
+      <OrgCycleLockBanner {...cycleLock} />
       {/* Header + actions */}
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">수입 지출내역 일괄등록</h2>

@@ -4,6 +4,8 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/stores/auth";
 import { postAccBook } from "@/lib/acc-book-client";
+import { useOrgCycleLock } from "@/hooks/use-org-cycle-lock";
+import { OrgCycleLockBanner } from "@/components/dashboard/OrgCycleLockBanner";
 import { useCodeValues } from "@/hooks/use-code-values";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -58,6 +60,7 @@ const NO_CUSTOMER_ID = -999;
 export default function DocumentRegisterPage() {
   const searchParams = useSearchParams();
   const { orgId, orgSecCd, orgType } = useAuth();
+  const cycleLock = useOrgCycleLock();
   const { loading: codesLoading, getName, getAccounts, getItems } = useCodeValues();
 
   const [tab, setTab] = useState(searchParams.get("tab") || "expense");
@@ -161,6 +164,10 @@ export default function DocumentRegisterPage() {
   /* ---- Save ---- */
   async function handleSave() {
     if (!orgId) return;
+    if (cycleLock.locked) {
+      alert("옛 선거주기 사용기관은 읽기전용입니다. 상단 '잠금 해제' 후 입력하세요.");
+      return;
+    }
     const valid = entries.filter(
       (e) => e.acc_sec_cd && e.item_sec_cd && e.acc_date && e.acc_amt > 0
     );
@@ -373,6 +380,7 @@ export default function DocumentRegisterPage() {
   return (
     <div className="space-y-4">
       <PageGuide {...PAGE_GUIDES["document-register"]} />
+      <OrgCycleLockBanner {...cycleLock} />
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">영수증/계약서 등록</h2>
         <div className="flex gap-2">

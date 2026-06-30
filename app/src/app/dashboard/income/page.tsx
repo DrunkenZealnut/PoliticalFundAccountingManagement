@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/stores/auth";
 import { postAccBook } from "@/lib/acc-book-client";
+import { useOrgCycleLock } from "@/hooks/use-org-cycle-lock";
+import { OrgCycleLockBanner } from "@/components/dashboard/OrgCycleLockBanner";
 import { useCodeValues } from "@/hooks/use-code-values";
 import { useUndo } from "@/hooks/use-undo";
 import { useDonationLimit } from "@/hooks/use-donation-limit";
@@ -42,6 +44,7 @@ interface AccBook {
 
 export default function IncomePage() {
   const { orgId, orgSecCd, orgType } = useAuth();
+  const cycleLock = useOrgCycleLock();
   const { loading: codesLoading, getName, getAccounts, getItems } = useCodeValues();
   const { checkLimit } = useDonationLimit();
 
@@ -176,6 +179,10 @@ export default function IncomePage() {
 
   async function handleSave() {
     if (!orgId) return;
+    if (cycleLock.locked) {
+      alert("옛 선거주기 사용기관은 읽기전용입니다. 상단 '잠금 해제' 후 입력하세요.");
+      return;
+    }
     if (!form.acc_sec_cd) {
       alert("계정을 선택하세요.");
       return;
@@ -376,6 +383,7 @@ export default function IncomePage() {
   return (
     <div className="space-y-6">
       <PageGuide {...PAGE_GUIDES.income} />
+      <OrgCycleLockBanner {...cycleLock} />
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">수입내역 관리</h2>
         <HelpTooltip id="income.summary">
