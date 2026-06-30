@@ -577,7 +577,8 @@ export default function ExpensePage() {
         <FundingAllocationPanel allocation={fundingAllocation} loading={loading} />
       )}
 
-      <div className="bg-white rounded-lg border p-4">
+      {/* 입력 폼 (선택 항목 상세) — 리스트 스크롤 시에도 보이도록 데스크톱에서 상단 고정 */}
+      <div className="bg-white rounded-lg border p-4 md:sticky md:top-0 z-10 shadow-sm">
         <div className="flex gap-2 mb-4">
           <HelpTooltip id="btn.reset">
             <Button variant="outline" size="sm" onClick={resetForm}>
