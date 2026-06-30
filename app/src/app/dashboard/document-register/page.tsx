@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/stores/auth";
+import { postAccBook } from "@/lib/acc-book-client";
 import { useCodeValues } from "@/hooks/use-code-values";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -211,10 +212,7 @@ export default function DocumentRegisterPage() {
       }
 
       try {
-        const res = await fetch("/api/acc-book", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "insert", data: payload }),
-        });
+        const res = await postAccBook({ action: "insert", data: payload });
         if (!res.ok) { failed++; continue; }
         const accBook = await res.json();
         success++;
