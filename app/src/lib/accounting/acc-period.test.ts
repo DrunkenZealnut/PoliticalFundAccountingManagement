@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { isAccDateInOrgPeriod, orgValidRange, electionCycleOf } from "./acc-period";
+import {
+  isAccDateInOrgPeriod,
+  orgValidRange,
+  electionCycleOf,
+  currentCycleOf,
+  isOldCycle,
+} from "./acc-period";
 
 // 2022 후보자 org 기간(실제 org 9): 이월 2021 ~ 회계 2022
 const p2022 = { pre_acc_from: "20210101", acc_from: "20220419", acc_to: "20220621" };
@@ -59,5 +65,35 @@ describe("electionCycleOf", () => {
   });
   it("없으면 null", () => {
     expect(electionCycleOf({ acc_to: "20261231" })).toBeNull();
+  });
+});
+
+describe("currentCycleOf", () => {
+  it("최신 주기 반환 (2022·2026 → 2026)", () => {
+    expect(currentCycleOf(["2022", "2026"])).toBe("2026");
+  });
+  it("null/빈값 무시", () => {
+    expect(currentCycleOf([null, "2022", "", undefined, "2026"])).toBe("2026");
+  });
+  it("전부 없으면 null", () => {
+    expect(currentCycleOf([null, "", undefined])).toBeNull();
+    expect(currentCycleOf([])).toBeNull();
+  });
+  it("단일 주기", () => {
+    expect(currentCycleOf(["2026"])).toBe("2026");
+  });
+});
+
+describe("isOldCycle", () => {
+  it("2022 < 2026 → 옛 주기", () => {
+    expect(isOldCycle("2022", "2026")).toBe(true);
+  });
+  it("현 주기 = 최신이면 옛 주기 아님", () => {
+    expect(isOldCycle("2026", "2026")).toBe(false);
+  });
+  it("하나라도 없으면 false(보수적 — 잠그지 않음)", () => {
+    expect(isOldCycle(null, "2026")).toBe(false);
+    expect(isOldCycle("2022", null)).toBe(false);
+    expect(isOldCycle("", "")).toBe(false);
   });
 });

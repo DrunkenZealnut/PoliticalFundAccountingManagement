@@ -57,3 +57,26 @@ export function electionCycleOf(p: OrgPeriod): string | null {
   const f = ymd(p.acc_from);
   return /^\d{4}/.test(f) ? f.slice(0, 4) : null;
 }
+
+/**
+ * 사용자 사용기관들의 주기 목록에서 "현 주기"(최신) — 선거 종료 후 감사기간에도 현 주기는 편집 가능.
+ * null/빈 문자열은 무시. 모두 없으면 null.
+ */
+export function currentCycleOf(cycles: (string | null | undefined)[]): string | null {
+  const valid = cycles.map((c) => (c ?? "").toString().trim()).filter((c) => c.length > 0);
+  if (valid.length === 0) return null;
+  return valid.reduce((max, c) => (c > max ? c : max));
+}
+
+/**
+ * org가 옛 주기인지 = orgCycle < currentCycle. 둘 중 하나라도 없으면 false(보수적 — 잠그지 않음).
+ */
+export function isOldCycle(
+  orgCycle: string | null | undefined,
+  currentCycle: string | null | undefined,
+): boolean {
+  const o = (orgCycle ?? "").toString().trim();
+  const c = (currentCycle ?? "").toString().trim();
+  if (!o || !c) return false;
+  return o < c;
+}
