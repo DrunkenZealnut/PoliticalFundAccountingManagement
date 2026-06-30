@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/stores/auth";
+import { postAccBook } from "@/lib/acc-book-client";
 import { useCodeValues } from "@/hooks/use-code-values";
 import { useUndo } from "@/hooks/use-undo";
 import { useDonationLimit } from "@/hooks/use-donation-limit";
@@ -240,23 +241,17 @@ export default function IncomePage() {
         }}),
       });
 
-      const res = await fetch("/api/acc-book", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "update", acc_book_id: selected.acc_book_id, data: payload }),
-      });
+      const res = await postAccBook({ action: "update", acc_book_id: selected.acc_book_id, data: payload });
       if (!res.ok) {
         const err = await res.json();
-        alert(`수정 실패: ${err.error}`);
+        alert(`수정 실패: ${err.error?.message ?? err.error}`);
         return;
       }
     } else {
-      const res = await fetch("/api/acc-book", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "insert", data: payload }),
-      });
+      const res = await postAccBook({ action: "insert", data: payload });
       if (!res.ok) {
         const err = await res.json();
-        alert(`등록 실패: ${err.error}`);
+        alert(`등록 실패: ${err.error?.message ?? err.error}`);
         return;
       }
     }

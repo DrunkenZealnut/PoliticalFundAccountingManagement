@@ -11,6 +11,7 @@ import {
   type AnonymousCustomerClient,
 } from "./anonymous-customer";
 import { assignReceiptNumbers } from "@/lib/accounting/receipt-no";
+import { isAccDateInOrgPeriod, type OrgPeriod, type PeriodCheck } from "@/lib/accounting/acc-period";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -22,6 +23,27 @@ const supabase = createClient(
 // 받는다. supabase-js 의 깊은 제네릭 체인을 이 인터페이스에 직접 구조적 매칭하면
 // TS2589(과도한 타입 인스턴스화)가 나므로 경계에서 한 번 좁힌다.
 const anonClient = supabase as unknown as AnonymousCustomerClient;
+
+// 거래일 ↔ 회계기간 검증 (year-data-separation 가드). org 회계기간 조회 + 표준 에러.
+async function fetchOrgPeriod(orgId: number): Promise<OrgPeriod | null> {
+  const { data } = await supabase
+    .from("organ")
+    .select("acc_from, acc_to, pre_acc_from")
+    .eq("org_id", orgId)
+    .maybeSingle();
+  return (data as OrgPeriod) ?? null;
+}
+function outOfPeriodBody(orgId: number, accDate: string, chk: PeriodCheck) {
+  return {
+    error: {
+      code: "OUT_OF_PERIOD",
+      message: `거래일 ${accDate}가 사용기관 회계기간(${chk.lo}~${chk.hi}) 밖입니다. 연도가 맞는 사용기관인지 확인하세요.`,
+      org_id: orgId,
+      acc_date: accDate,
+      range: [chk.lo, chk.hi],
+    },
+  };
+}
 
 export async function GET(request: NextRequest) {
   const orgId = request.nextUrl.searchParams.get("orgId");
@@ -103,6 +125,21 @@ export async function POST(request: NextRequest) {
 
   if (action === "insert") {
     const data0 = payload.data as Record<string, unknown>;
+    // 거래일↔회계기간 검증 (year-data-separation). override(_allowOutOfPeriod) 시 통과.
+    const allowOOP = data0._allowOutOfPeriod === true;
+    delete data0._allowOutOfPeriod;
+    if (data0.acc_date && data0.org_id != null && !allowOOP) {
+      const period = await fetchOrgPeriod(Number(data0.org_id));
+      if (period) {
+        const chk = isAccDateInOrgPeriod(String(data0.acc_date), period);
+        if (!chk.ok) {
+          return NextResponse.json(
+            outOfPeriodBody(Number(data0.org_id), String(data0.acc_date), chk),
+            { status: 400 },
+          );
+        }
+      }
+    }
     // 거래처 미선택(-999/0/null)은 공유 익명 거래처의 실제 cust_id 로 치환.
     // -999 는 PFund2 호환 센티널일 뿐 Supabase customer 에는 존재하지 않아
     // 그대로 INSERT 하면 acc_book_cust_id_fkey 위반이 난다.
@@ -120,6 +157,31 @@ export async function POST(request: NextRequest) {
 
   if (action === "update") {
     const data0 = payload.data as Record<string, unknown>;
+    // 거래일↔회계기간 검증 (acc_date 변경 시). org_id는 data 또는 기존 행에서.
+    const allowOOP = data0._allowOutOfPeriod === true;
+    delete data0._allowOutOfPeriod;
+    if (data0.acc_date && !allowOOP) {
+      let orgId = data0.org_id != null ? Number(data0.org_id) : null;
+      if (orgId == null) {
+        const { data: ex } = await supabase
+          .from("acc_book")
+          .select("org_id")
+          .eq("acc_book_id", payload.acc_book_id)
+          .maybeSingle();
+        orgId = (ex as { org_id?: number } | null)?.org_id ?? null;
+      }
+      if (orgId != null) {
+        const period = await fetchOrgPeriod(orgId);
+        if (period) {
+          const chk = isAccDateInOrgPeriod(String(data0.acc_date), period);
+          if (!chk.ok) {
+            return NextResponse.json(outOfPeriodBody(orgId, String(data0.acc_date), chk), {
+              status: 400,
+            });
+          }
+        }
+      }
+    }
     if ("cust_id" in data0 && needsAnonymousResolve(data0.cust_id)) {
       try {
         data0.cust_id = await resolveAnonymousCustId(anonClient);
@@ -232,14 +294,58 @@ export async function POST(request: NextRequest) {
       supabase.from("codevalue").select("cv_id, cs_id, cv_name"),
       supabase.from("acc_rel").select("org_sec_cd, incm_sec_cd, acc_sec_cd, item_sec_cd, exp_sec_cd, input_yn, acc_order").eq("input_yn", "Y"),
       orgIds.length > 0
-        ? supabase.from("organ").select("org_id, org_sec_cd").in("org_id", orgIds)
-        : Promise.resolve({ data: [] as { org_id: number; org_sec_cd: number }[] }),
+        ? supabase
+            .from("organ")
+            .select("org_id, org_sec_cd, acc_from, acc_to, pre_acc_from")
+            .in("org_id", orgIds)
+        : Promise.resolve({
+            data: [] as {
+              org_id: number;
+              org_sec_cd: number;
+              acc_from: string | null;
+              acc_to: string | null;
+              pre_acc_from: string | null;
+            }[],
+          }),
     ]);
     const codeValues = (cvRes.data || []) as CodeValueLike[];
     const accRels = (arRes.data || []) as AccRelLike[];
-    const orgSecMap = new Map<number, number>(
-      (orgRes.data || []).map((o) => [o.org_id, o.org_sec_cd]),
-    );
+    const orgList = (orgRes.data || []) as {
+      org_id: number;
+      org_sec_cd: number;
+      acc_from: string | null;
+      acc_to: string | null;
+      pre_acc_from: string | null;
+    }[];
+    const orgSecMap = new Map<number, number>(orgList.map((o) => [o.org_id, o.org_sec_cd]));
+
+    // 거래일↔회계기간 검증 (year-data-separation). 위반 시 전체 배치 차단 unless allowOutOfPeriod.
+    if (payload.allowOutOfPeriod !== true) {
+      const orgPeriodMap = new Map<number, OrgPeriod>(
+        orgList.map((o) => [o.org_id, { acc_from: o.acc_from, acc_to: o.acc_to, pre_acc_from: o.pre_acc_from }]),
+      );
+      const violations: { index: number; acc_date: string; org_id: number; range: (string | undefined)[] }[] = [];
+      (rows as Record<string, unknown>[]).forEach((r, i) => {
+        const oid = r.org_id != null ? Number(r.org_id) : null;
+        const period = oid != null ? orgPeriodMap.get(oid) : null;
+        if (period && r.acc_date) {
+          const chk = isAccDateInOrgPeriod(String(r.acc_date), period);
+          if (!chk.ok) violations.push({ index: i, acc_date: String(r.acc_date), org_id: oid as number, range: [chk.lo, chk.hi] });
+        }
+      });
+      if (violations.length > 0) {
+        return NextResponse.json(
+          {
+            error: {
+              code: "OUT_OF_PERIOD",
+              message: `${violations.length}건의 거래일이 사용기관 회계기간 밖입니다. 연도가 맞는 사용기관인지 확인하세요.`,
+              rows: violations.slice(0, 20),
+            },
+          },
+          { status: 400 },
+        );
+      }
+    }
 
     for (const row of rows as Record<string, unknown>[]) {
       // Safety net: if client sent acc_sec_cd=0 but provided _account/_subject, map server-side

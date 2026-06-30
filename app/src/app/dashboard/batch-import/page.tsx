@@ -2,6 +2,7 @@
 
 import { useState, useRef } from "react";
 import { useAuth } from "@/stores/auth";
+import { postAccBook } from "@/lib/acc-book-client";
 import { useCodeValues } from "@/hooks/use-code-values";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -278,11 +279,7 @@ export default function BatchImportPage() {
     }
 
     try {
-      const res = await fetch("/api/acc-book", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "batch_insert", rows }),
-      });
+      const res = await postAccBook({ action: "batch_insert", rows });
       const result = await res.json();
 
       if (res.ok) {

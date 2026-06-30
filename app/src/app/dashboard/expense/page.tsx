@@ -19,6 +19,7 @@ import { EmptyState } from "@/components/empty-state";
 import { PAGE_GUIDES } from "@/lib/page-guides";
 import { EvidenceFileManager, type PendingFile } from "@/components/evidence/evidence-file-manager";
 import { buildExpenseSummary } from "@/lib/accounting/ledger-summary";
+import { isAccDateInOrgPeriod, type OrgPeriod } from "@/lib/accounting/acc-period";
 import { LedgerSummaryHeader } from "@/components/dashboard/LedgerSummaryHeader";
 import { buildFundingAllocation } from "@/lib/accounting/funding-allocation";
 import { buildAdjustedAccBook } from "@/lib/accounting/adjusted-ledger";
@@ -370,6 +371,24 @@ export default function ExpensePage() {
       exp_group2_cd: form.exp_group2_cd || null,
       exp_group3_cd: form.exp_group3_cd || null,
     };
+
+    // 거래일↔회계기간 검증 (year-data-separation). 지출은 API 우회 직접쓰기라 클라에서 가드.
+    {
+      const { data: org } = await supabase
+        .from("organ")
+        .select("acc_from, acc_to, pre_acc_from")
+        .eq("org_id", orgId)
+        .maybeSingle();
+      const chk = isAccDateInOrgPeriod(payload.acc_date, (org ?? {}) as OrgPeriod);
+      if (
+        !chk.ok &&
+        !window.confirm(
+          `거래일 ${payload.acc_date}가 사용기관 회계기간(${chk.lo}~${chk.hi}) 밖입니다.\n연도가 맞는 사용기관인지 확인하세요.\n\n그래도 저장하시겠습니까?`,
+        )
+      ) {
+        return;
+      }
+    }
 
     if (selected) {
       await supabase.from("acc_book_bak").insert({

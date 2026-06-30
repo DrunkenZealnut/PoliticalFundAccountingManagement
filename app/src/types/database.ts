@@ -99,6 +99,7 @@ export type Database = {
           acc_from: string | null;
           acc_to: string | null;
           code_date: string | null;
+          election_cycle: string | null; // 선거주기(연도) — scripts/021
         };
         Insert: Omit<Database["pfam"]["Tables"]["organ"]["Row"], "org_id"> & {
           org_id?: number;
