@@ -1,14 +1,16 @@
 /* ------------------------------------------------------------------ */
-/*  자금원 음수잔액 해소 재배분 (Option B: 단일 현금풀 캐스케이드)        */
+/*  자금원 재배분 (총액 기준 + 지출 자금원 보호, funding-realloc-scrap-guard) */
 /*                                                                    */
-/*  단일 통합계좌의 거래를 시간순으로 훑으며, 한 자금원(acc_sec_cd)의      */
-/*  지출이 그 시점 가용액을 초과하면 부족분을 다른 자금원(우선순위)으로    */
-/*  연쇄 이동(필요 시 한 지출을 여러 자금원으로 분할)한다. 통장 총잔액이    */
-/*  항상 ≥ 0이면 어떤 자금원도 음수가 되지 않는 배분이 보장된다           */
-/*  (임의 시점 Σ가용 = 통장잔액 ≥ 0 ≥ 처리 직전 필요액).                 */
+/*  지출은 원 자금원·과목을 유지한다(같은 자금원의 미래 수입으로 충당,   */
+/*  시간순 중간 잔액 음수 허용 — 자산 입금이 지출보다 늦게 들어오는 경우). */
+/*  자금원별 총액(수입−지출, 환급 반영)이 부족한 자금원의 부족분만, 총액   */
+/*  잉여 자금원(우선순위)으로 이동한다. 이동 대상은 시간순 마지막 지출부터  */
+/*  고른다 — 확성장치처럼 앞선 자산성 지출은 자동 보호되고, 원 자금원에     */
+/*  1~수십 원짜리 소액 자투리를 남기지 않는다(부족분만큼만 통째/1건 분할). */
+/*  통장 총잔액이 음수면 그만큼 미충당(shortfalls)으로 표면화.            */
+/*  최종 자금원별 잔액·통장 총잔액·자금원별 지출합은 불변(이동만).         */
 /*                                                                    */
-/*  report-only: acc_book 원본을 수정하지 않고 표시용 배분만 산출.        */
-/*  환급(음수 지출)은 원 자금원 가용을 복원하며 재배분하지 않는다.         */
+/*  report-only: acc_book 원본 불변. 환급(음수 지출)은 원 자금원 유지.    */
 /*  정렬 SSOT: acc-book-sort.ts(compareAccDateTime).                   */
 /* ------------------------------------------------------------------ */
 import { compareAccDateTime } from "./acc-book-sort";
@@ -57,7 +59,7 @@ export interface Shortfall {
   acc_book_id: number;
   acc_date: string;
   accSecCd: number;
-  shortAmt: number; // 풀 전체가 부족해 메우지 못한 금액(통장 ≥ 0이면 발생 안 함)
+  shortAmt: number; // 자금원 총액 부족(통장 총잔액 ≥ 0이면 상쇄되어 발생 안 함)
 }
 
 export interface ReallocResult {
@@ -69,109 +71,132 @@ export interface ReallocResult {
 export interface ReallocOptions {
   /** 부족분을 흡수할 자금원 우선순위. 기본 [84(후보자자산), 83(보조금외), 82(보조금)]. */
   overflowPriority?: number[];
+  /** 이동 대상에서 제외(원 자금원 강제 유지)할 원거래 id. 자산성 지출 보호용(옵션). */
+  protectIds?: Set<number>;
 }
 
 const DEFAULT_PRIORITY = [84, 83, 82];
 
 /**
- * 시간순 캐스케이드 재배분. 통장 총잔액이 항상 ≥ 0이면 shortfalls 는 빈 배열이며
- * 모든 자금원의 시간순 잔액이 음수가 되지 않는다.
+ * 총액 기준 재배분. 지출은 원 자금원·과목 유지(미래 수입 충당, 중간 음수 허용).
+ * 자금원별 총액 부족분만 잉여 자금원으로 이동(시간순 마지막 지출부터, 소액 자투리 방지).
+ * 통장 총잔액 ≥ 0이면 shortfalls 는 빈 배열이며, 최종 자금원별 잔액이 모두 ≥ 0이 된다.
  */
 export function reallocateFundSources(
   rows: ReallocRow[],
   opts: ReallocOptions = {},
 ): ReallocResult {
   const priority = opts.overflowPriority ?? DEFAULT_PRIORITY;
-  const sorted = [...rows].sort(
-    (a, b) =>
-      compareAccDateTime(a, b) ||
-      a.incm_sec_cd - b.incm_sec_cd || // 동시각·미입력: 수입(1) 먼저 처리 → 잔액 음수 방지 (CLAUDE.md tie-break SSOT 규칙)
-      a.acc_book_id - b.acc_book_id,
-  );
-
-  const avail = new Map<number, number>();
-  const get = (s: number) => avail.get(s) ?? 0;
+  const protectIds = opts.protectIds ?? new Set<number>();
   const out: ReallocOutRow[] = [];
   const redistributions: Redistribution[] = [];
   const shortfalls: Shortfall[] = [];
 
-  for (const r of sorted) {
-    // 수입: 가용 누적
-    if (r.incm_sec_cd === 1) {
-      avail.set(r.acc_sec_cd, get(r.acc_sec_cd) + r.acc_amt);
-      out.push({ ...r, sheetAccSecCd: r.acc_sec_cd, effectiveAmt: r.acc_amt, origin: "as-is" });
-      continue;
-    }
-    // 지출 — 환급/0은 원 자금원 유지(가용 복원), 재배분 안 함
-    if (r.acc_amt <= 0) {
-      avail.set(r.acc_sec_cd, get(r.acc_sec_cd) - r.acc_amt);
-      out.push({ ...r, sheetAccSecCd: r.acc_sec_cd, effectiveAmt: r.acc_amt, origin: "as-is" });
-      continue;
-    }
+  // 1) 자금원별 총액(환급 반영: acc_amt 그대로 합산 — 음수 지출은 순지출을 낮춘다).
+  const netIn = new Map<number, number>();
+  const netOut = new Map<number, number>();
+  for (const r of rows) {
+    if (r.incm_sec_cd === 1) netIn.set(r.acc_sec_cd, (netIn.get(r.acc_sec_cd) ?? 0) + r.acc_amt);
+    else netOut.set(r.acc_sec_cd, (netOut.get(r.acc_sec_cd) ?? 0) + r.acc_amt);
+  }
+  const sources = new Set<number>([...netIn.keys(), ...netOut.keys()]);
+  const deficit = new Map<number, number>(); // 자금원 → 총 부족(총지출−총수입 > 0)
+  const surplus = new Map<number, number>(); // 자금원 → 총 잉여
+  for (const s of sources) {
+    const d = (netOut.get(s) ?? 0) - (netIn.get(s) ?? 0);
+    if (d > 0) deficit.set(s, d);
+    else if (d < 0) surplus.set(s, -d);
+  }
 
-    // 양수 지출 — 원 자금원 먼저, 부족분 캐스케이드
-    const S = r.acc_sec_cd;
-    let need = r.acc_amt;
-    const useS = Math.min(need, Math.max(0, get(S)));
-    avail.set(S, get(S) - useS);
-    need -= useS;
-
-    const moves: { to: number; amt: number }[] = [];
-    // 1) 자투리 조각 방지: 부족분을 "단독으로" 덮을 수 있는 자금원이 우선순위에 있으면
-    //    한 번에 충당한다. 소액 자금원을 부분 충당해 1~수십 원짜리 자투리 행을 만드는 대신,
-    //    부족분 전체를 댈 수 있는 자금원을 우선순위 순서로 선택해 분할 조각 수를 최소화한다.
-    //    (예: 인형탈대여 부족분 78,960을 후보자등자산 가용 58원으로 부분 충당하지 않고
-    //     보조금외에서 통째로 충당. 후보자등자산 58원은 후속 자기 지출에서 정산됨.)
-    //    우선순위는 "단독 충당 가능한 자금원들 중에서" 그대로 존중한다(T13 유지).
-    if (need > 0) {
-      for (const O of priority) {
-        if (O === S) continue;
-        const a = Math.max(0, get(O));
-        if (a >= need) {
-          avail.set(O, get(O) - need);
-          moves.push({ to: O, amt: need });
-          need = 0;
-          break;
+  // 2) 이동 계획: 부족 자금원의 부족분을 잉여 자금원(우선순위 순)으로,
+  //    시간순 마지막 지출부터 통째 이동(부족분에 걸치는 1건만 분할).
+  const moveOf = new Map<number, { to: number; amt: number }[]>(); // acc_book_id → 이동분
+  const surRemain = new Map(surplus);
+  const surOrder = [
+    ...priority.filter((s) => surRemain.has(s)),
+    ...[...surRemain.keys()].filter((s) => !priority.includes(s)),
+  ];
+  for (const [S, defAmt] of deficit) {
+    let need = defAmt;
+    const exps = rows
+      .filter(
+        (r) =>
+          r.acc_sec_cd === S &&
+          r.incm_sec_cd === 2 &&
+          r.acc_amt > 0 &&
+          !protectIds.has(r.acc_book_id),
+      )
+      .sort((a, b) => compareAccDateTime(b, a) || b.acc_book_id - a.acc_book_id); // 시간 역순
+    for (const r of exps) {
+      if (need <= 0) break;
+      let avail = r.acc_amt;
+      const doMove = (T: number, m: number) => {
+        const arr = moveOf.get(r.acc_book_id) ?? [];
+        arr.push({ to: T, amt: m });
+        moveOf.set(r.acc_book_id, arr);
+        need -= m;
+        avail -= m;
+        surRemain.set(T, (surRemain.get(T) ?? 0) - m);
+        redistributions.push({
+          acc_book_id: r.acc_book_id,
+          acc_date: r.acc_date,
+          fromAccSecCd: S,
+          toAccSecCd: T,
+          movedAmt: m,
+        });
+      };
+      // 이 지출에서 옮길 양(toMove)을 "단독으로 덮는" 잉여 자금원을 우선순위 순으로 먼저 선택
+      // → 소액 잉여(예: 84의 58원)를 부분 충당해 자투리 조각을 만드는 것을 방지(v0.24 로직 계승).
+      const toMove = Math.min(avail, need);
+      let covered = false;
+      if (toMove > 0) {
+        for (const T of surOrder) {
+          if (T === S) continue;
+          if ((surRemain.get(T) ?? 0) >= toMove) {
+            doMove(T, toMove);
+            covered = true;
+            break;
+          }
+        }
+      }
+      // 단독 충당 가능한 잉여가 없으면 우선순위 순 greedy 부분 충당(통장 총잔액 ≥0 보장 하)
+      if (!covered) {
+        for (const T of surOrder) {
+          if (need <= 0 || avail <= 0) break;
+          if (T === S) continue;
+          const sr = surRemain.get(T) ?? 0;
+          if (sr <= 0) continue;
+          const m = Math.min(avail, need, sr);
+          if (m > 0) doMove(T, m);
         }
       }
     }
-    // 2) 단독 충당 가능한 자금원이 없으면 우선순위 순서로 greedy 부분 충당(통장≥0 보장).
-    for (const O of priority) {
-      if (need <= 0) break;
-      if (O === S) continue;
-      const a = Math.max(0, get(O));
-      if (a <= 0) continue;
-      const u = Math.min(need, a);
-      avail.set(O, get(O) - u);
-      need -= u;
-      moves.push({ to: O, amt: u });
-    }
-    // 3) 우선순위에 없는 나머지 자금원(가용 있는 것) — 음수 0 보장 위해
-    if (need > 0) {
-      for (const O of [...avail.keys()]) {
-        if (need <= 0) break;
-        if (O === S || priority.includes(O)) continue;
-        const a = Math.max(0, get(O));
-        if (a <= 0) continue;
-        const u = Math.min(need, a);
-        avail.set(O, get(O) - u);
-        need -= u;
-        moves.push({ to: O, amt: u });
-      }
-    }
+    // 잉여로도 못 메운 부족(통장 총잔액 음수 = 진짜 부족) 표면화
+    if (need > 0) shortfalls.push({ acc_book_id: 0, acc_date: "", accSecCd: S, shortAmt: need });
+  }
 
-    const split = moves.length > 0;
-    // 원 자금원 잔류분(0보다 클 때만 행 생성; 분할 아니면 통째)
-    if (useS > 0 || !split) {
+  // 3) 각 행 출력. 수입·환급·0·미이동 지출은 원 자금원 유지, 이동 지출은 잔류분+이동분 분할.
+  for (const r of rows) {
+    if (r.incm_sec_cd === 1 || r.acc_amt <= 0) {
+      out.push({ ...r, sheetAccSecCd: r.acc_sec_cd, effectiveAmt: r.acc_amt, origin: "as-is" });
+      continue;
+    }
+    const moves = moveOf.get(r.acc_book_id);
+    if (!moves || moves.length === 0) {
+      out.push({ ...r, sheetAccSecCd: r.acc_sec_cd, effectiveAmt: r.acc_amt, origin: "as-is" });
+      continue;
+    }
+    const movedTotal = moves.reduce((s, m) => s + m.amt, 0);
+    const keep = r.acc_amt - movedTotal;
+    if (keep > 0) {
       out.push({
         ...r,
-        sheetAccSecCd: S,
-        effectiveAmt: useS,
-        origin: split ? "split-keep" : "as-is",
-        splitGroupId: split ? r.acc_book_id : undefined,
+        sheetAccSecCd: r.acc_sec_cd,
+        effectiveAmt: keep,
+        origin: "split-keep",
+        splitGroupId: r.acc_book_id,
       });
     }
-    // 이동분
     for (const m of moves) {
       out.push({
         ...r,
@@ -179,28 +204,8 @@ export function reallocateFundSources(
         effectiveAmt: m.amt,
         origin: "split-moved",
         splitGroupId: r.acc_book_id,
-        note: `재배분 #${r.acc_book_id} ${S}→${m.to}`,
+        note: `재배분 #${r.acc_book_id} ${r.acc_sec_cd}→${m.to}`,
       });
-      redistributions.push({
-        acc_book_id: r.acc_book_id,
-        acc_date: r.acc_date,
-        fromAccSecCd: S,
-        toAccSecCd: m.to,
-        movedAmt: m.amt,
-      });
-    }
-    // 풀 전체 부족(통장 ≥ 0이면 발생 안 함) — 원 자금원에 음수로 잔류
-    if (need > 0) {
-      avail.set(S, get(S) - need);
-      out.push({
-        ...r,
-        sheetAccSecCd: S,
-        effectiveAmt: need,
-        origin: split ? "split-keep" : "as-is",
-        splitGroupId: split ? r.acc_book_id : undefined,
-        note: `진짜부족 ${need}`,
-      });
-      shortfalls.push({ acc_book_id: r.acc_book_id, acc_date: r.acc_date, accSecCd: S, shortAmt: need });
     }
   }
 
