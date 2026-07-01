@@ -137,4 +137,16 @@ describe("persist-allocation", () => {
     expect(signature(reconstructRawRows(applied))).toEqual(before);
   });
 
+  it("PA1: Pass4가 옮긴 지출일이 slice0 acc_date·원거래일 비고에 반영", () => {
+    // 총액0·수입 늦음 → Pass4가 지출(id1)을 06-01로 이동.
+    const current = [
+      exp(1, 87, "20260501", 500000), // 선거비용외 지출(이른 날짜)
+      inc(2, 86, "20260601", 500000), // 수입(늦은 날짜)
+    ];
+    const applied = applyPlanInMemory(current, planAllocationPersist(current, GEN));
+    const expRow = applied.find((r) => r.acc_book_id === 1)!;
+    expect(expRow.acc_date).toBe("20260601"); // 이동 날짜 반영
+    expect(String(expRow.bigo ?? "")).toContain("원거래일 2026-05-01");
+  });
+
 });
