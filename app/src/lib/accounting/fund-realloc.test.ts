@@ -37,6 +37,15 @@ function minBalances(res: ReallocResult): Record<number, number> {
   }
   return min;
 }
+/** 출력 행에서 자금원별 최종 잔액(총액기준 재배분: 중간 음수 허용, 최종 ≥0 검증용). */
+function finalBalances(res: ReallocResult): Record<number, number> {
+  const bal: Record<number, number> = {};
+  for (const r of res.rows) {
+    const s = r.sheetAccSecCd;
+    bal[s] = (bal[s] ?? 0) + (r.incm_sec_cd === 1 ? r.effectiveAmt : -r.effectiveAmt);
+  }
+  return bal;
+}
 const totalExpense = (rows: ReallocRow[]) =>
   rows.filter((r) => r.incm_sec_cd === 2).reduce((s, r) => s + r.acc_amt, 0);
 const totalEffExpense = (res: ReallocResult) =>
@@ -67,23 +76,25 @@ describe("reallocateFundSources", () => {
     expect(minBalances(res)[85]).toBeGreaterThanOrEqual(0);
   });
 
-  it("T11: 3-source 캐스케이드(85→83, 83 자체지출→84) — 5/22 모사, 전 자금원 ≥ 0", () => {
+  it("T11: 총액 부족분을 잉여 자금원으로 직접 이동(중간 음수 허용, 최종 잔액 ≥0)", () => {
+    // 총액기준: 85 순부족 79(수입 600·지출 679), 84 잉여 1000, 83 균형(3000/3000).
+    // 새 계약 — 85 부족 79를 잉여 84로 '직접' 이동(옛 캐스케이드 85→83→84 아님).
+    // 자산 입금 지연(84 입금 5/26)으로 중간 시점 84가 음수여도 최종은 ≥0.
     const rows = [
-      inc(1, 85, "20260518", 600), // 85 입금
-      inc(2, 83, "20260518", 3000), // 진보당 입금
-      exp(3, 85, "20260522", 679), // 85 가용 600 → 79 부족 → 83으로
-      inc(4, 84, "20260526", 1000), // 자산 입금(5/26)
-      exp(5, 83, "20260526", 3000), // 83 자체 지출 → 83 가용 2921 → 79 부족 → 84로
+      inc(1, 85, "20260518", 600),
+      inc(2, 83, "20260518", 3000),
+      exp(3, 85, "20260522", 679),
+      inc(4, 84, "20260526", 1000),
+      exp(5, 83, "20260526", 3000),
     ];
     const res = reallocateFundSources(rows, { overflowPriority: [84, 83, 82] });
-    const min = minBalances(res);
-    expect(min[85]).toBeGreaterThanOrEqual(0);
-    expect(min[83]).toBeGreaterThanOrEqual(0);
-    expect(min[84]).toBeGreaterThanOrEqual(0);
     expect(res.shortfalls).toEqual([]);
-    // 79가 85→83, 또 79가 83→84로 흘러 최종 84가 부담
-    expect(res.redistributions.some((m) => m.fromAccSecCd === 85 && m.toAccSecCd === 83 && m.movedAmt === 79)).toBe(true);
-    expect(res.redistributions.some((m) => m.fromAccSecCd === 83 && m.toAccSecCd === 84 && m.movedAmt === 79)).toBe(true);
+    // 85 부족 79가 잉여 84로 직접(1건)
+    expect(res.redistributions.filter((m) => m.movedAmt > 0)).toHaveLength(1);
+    expect(res.redistributions[0]).toMatchObject({ fromAccSecCd: 85, toAccSecCd: 84, movedAmt: 79 });
+    // 최종 잔액 모두 ≥0(중간 음수는 미래 수입으로 해소)
+    const fin = finalBalances(res);
+    for (const s of Object.keys(fin)) expect(fin[Number(s)]).toBeGreaterThanOrEqual(0);
   });
 
   it("T9: 총 지출 보존(effectiveAmt 합 = 원본 지출 합)", () => {
@@ -97,7 +108,7 @@ describe("reallocateFundSources", () => {
     expect(totalEffExpense(res)).toBe(totalExpense(rows));
   });
 
-  it("T12: 통장(전 자금원 합) 항상 ≥ 0이면 어떤 자금원도 음수 아님 + shortfall 없음", () => {
+  it("T12: 통장 총잔액 ≥0이면 최종 자금원별 잔액 모두 ≥0 + shortfall 없음", () => {
     const rows = [
       inc(1, 83, "20260518", 3000),
       inc(2, 85, "20260518", 600),
@@ -107,8 +118,9 @@ describe("reallocateFundSources", () => {
       exp(6, 85, "20260530", 800),
     ];
     const res = reallocateFundSources(rows);
-    const min = minBalances(res);
-    for (const s of Object.keys(min)) expect(min[Number(s)]).toBeGreaterThanOrEqual(0);
+    // 총액기준: 최종 잔액 ≥0(시간순 중간 음수는 허용 — 자산 입금 지연 반영)
+    const fin = finalBalances(res);
+    for (const s of Object.keys(fin)) expect(fin[Number(s)]).toBeGreaterThanOrEqual(0);
     expect(res.shortfalls).toEqual([]);
   });
 

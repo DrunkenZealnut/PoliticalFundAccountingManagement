@@ -370,7 +370,13 @@ export default function IncomeExpenseBookPage() {
                     <td className={`${tdR} text-blue-400`}>{isIncome ? fmt(r.incCum) : ""}</td>
                     <td className={`${tdR} text-red-600`}>{!isIncome ? fmt(r.acc_amt) : ""}</td>
                     <td className={`${tdR} text-red-400`}>{!isIncome ? fmt(r.expCum) : ""}</td>
-                    <td className={`${tdR} font-semibold text-green-700`}>{fmt(r.balance)}</td>
+                    <td
+                      className={`${tdR} font-semibold ${r.balance < 0 ? "text-amber-600" : "text-green-700"}`}
+                      title={r.balance < 0 ? "이후 같은 계정의 수입으로 충당되는 일시적(중간) 잔액입니다. 최종 잔액은 0 이상입니다." : undefined}
+                    >
+                      {fmt(r.balance)}
+                      {r.balance < 0 ? " *" : ""}
+                    </td>
                     <td className={td}>{cust.name}</td>
                     <td className={td}>{cust.regNum}</td>
                     <td className={td}>{cust.addr}</td>
