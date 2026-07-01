@@ -86,4 +86,17 @@ describe("scheduleExpenseDates (Pass4)", () => {
     expect(out.filter((r) => r.incm_sec_cd === 2).every((r) => r.acc_date === "20260505")).toBe(true);
     expect(minBalance(out, "85:86")).toBe(0);
   });
+
+  it("S6: 환급(음수지출)도 가용액 — 환급이 지출보다 앞서면 누계≥0 유지", () => {
+    // 가용 = 수입400 + 환급100 = 500 = 지출500. 지출을 06-01(수입일)로 이동해야 누계≥0.
+    const rows = [
+      ia({ acc_book_id: 1, incm_sec_cd: 2, effectiveItemSecCd: 86, effectiveAmt: -100, acc_amt: -100, acc_date: "20260501" }), // 환급
+      ia({ acc_book_id: 2, incm_sec_cd: 2, effectiveItemSecCd: 86, effectiveAmt: 500, acc_amt: 500, acc_date: "20260502" }), // 지출
+      ia({ acc_book_id: 3, incm_sec_cd: 1, effectiveItemSecCd: 86, effectiveAmt: 400, acc_amt: 400, acc_date: "20260601" }), // 수입
+    ];
+    const out = scheduleExpenseDates(rows);
+    expect(out.find((r) => r.acc_book_id === 2)!.acc_date).toBe("20260601"); // 지출 뒤로 이동
+    expect(out.find((r) => r.acc_book_id === 1)!.acc_date).toBe("20260501"); // 환급은 원 날짜 유지
+    expect(minBalance(out, "85:86")).toBe(0);
+  });
 });

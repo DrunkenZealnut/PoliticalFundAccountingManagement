@@ -67,6 +67,7 @@ export function allocateCandidateLedgerRows<T extends ReportSummaryRawRow>(rawRo
     item_sec_cd: lr.itemSecCd,
     acc_amt: lr.amt,
     incm_sec_cd: lr.incm_sec_cd,
+    acc_date: lr.acc_date, // Pass4 이동 날짜(누계잔액≥0). 미전파 시 HWPX 22-4가 원 날짜로 음수 누계.
   })) as T[];
 }
 

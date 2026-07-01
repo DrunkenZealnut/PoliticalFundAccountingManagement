@@ -80,6 +80,22 @@ describe("zeroItemBalances (Pass3)", () => {
     expect(incPieces.find((r) => r.effectiveItemSecCd === 87)?.itemOrigin).toBe("item-moved");
   });
 
+  it("P3-6: 환급>지출인 과목(순지출 음수)은 구조적 0 불가 — 최선노력·합보존·과잉이동 없음", () => {
+    // 86: 수입100/지출300(부족200). 87: 수입100/환급-100(순지출 -100 → 환급이 과목에 갇힘).
+    // 총액=0(상쇄)이라 D4 통과하나, 87 잔액은 환급 때문에 구조적으로 +100 → 86은 가용수입만 받아 -100 잔존.
+    const rows = [
+      ia({ acc_book_id: 1, incm_sec_cd: 1, effectiveItemSecCd: 86, effectiveAmt: 100, acc_amt: 100 }),
+      ia({ acc_book_id: 2, incm_sec_cd: 2, item_sec_cd: 86, effectiveItemSecCd: 86, effectiveAmt: 300, acc_amt: 300 }),
+      ia({ acc_book_id: 3, incm_sec_cd: 1, effectiveItemSecCd: 87, effectiveAmt: 100, acc_amt: 100 }),
+      ia({ acc_book_id: 4, incm_sec_cd: 2, item_sec_cd: 87, effectiveItemSecCd: 87, effectiveAmt: -100, acc_amt: -100 }),
+    ];
+    const out = zeroItemBalances(rows);
+    expect(incSum(out)).toBe(200); // 합 보존(수입 재태깅만)
+    const n = nets(out);
+    expect(n.get("85:86")).toBe(-100); // 가용수입(87의 100)만 이동 후 잔존(구조적)
+    expect(n.get("85:87")).toBe(100); // 환급이 갇혀 +100
+  });
+
   it("P3-5: 자금원 독립 — 84는 84끼리만 재배정", () => {
     const rows = [
       ia({ acc_book_id: 1, incm_sec_cd: 1, acc_sec_cd: 84, sheetAccSecCd: 84, effectiveItemSecCd: 86, effectiveAmt: 400, acc_amt: 400 }),

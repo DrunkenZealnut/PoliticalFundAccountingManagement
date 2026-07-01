@@ -170,7 +170,8 @@ export async function POST(request: NextRequest) {
     }));
     ledgerInput = buildLedgerRows(reallocInput).map((lr) => {
       const o = origById.get(lr.acc_book_id)!;
-      return { ...o, acc_sec_cd: lr.accSecCd, item_sec_cd: lr.itemSecCd, acc_amt: lr.amt, incm_sec_cd: lr.incm_sec_cd };
+      // acc_date: Pass4 이동 날짜 반영(서식7/22-4 누계잔액≥0). 미전파 시 원 날짜로 음수 누계가 찍힌다.
+      return { ...o, acc_sec_cd: lr.accSecCd, item_sec_cd: lr.itemSecCd, acc_amt: lr.amt, incm_sec_cd: lr.incm_sec_cd, acc_date: lr.acc_date };
     });
   } else {
     ledgerInput = rawRows;

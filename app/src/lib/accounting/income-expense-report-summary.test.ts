@@ -319,3 +319,17 @@ describe("교차검증 가드 (FR-04: SSOT·총괄모델·export 세 경로 동�
     expect(model.total.expSubtotal).toBe(50_000);
   });
 });
+
+describe("allocateCandidateLedgerRows — Pass4 지출일 전파", () => {
+  it("Pass4가 이동한 지출일이 결과 행 acc_date에 반영된다(HWPX/22-4 누계 정합)", () => {
+    // 총액0·수입 늦음 → Pass4가 지출(9001)을 06-01로 이동. 원본 메타 조인 시 acc_date 유실 회귀 가드.
+    const rows: ReportSummaryRawRow[] = [
+      { acc_book_id: 9001, incm_sec_cd: 2, acc_sec_cd: 85, item_sec_cd: 87, acc_amt: 500_000, acc_date: "20260501" },
+      { acc_book_id: 9002, incm_sec_cd: 1, acc_sec_cd: 85, item_sec_cd: 86, acc_amt: 500_000, acc_date: "20260601" },
+    ];
+    const out = allocateCandidateLedgerRows(rows);
+    const exp = out.filter((r) => r.incm_sec_cd === 2 && r.acc_book_id === 9001);
+    expect(exp.length).toBeGreaterThan(0);
+    expect(exp.every((r) => r.acc_date === "20260601")).toBe(true);
+  });
+});
