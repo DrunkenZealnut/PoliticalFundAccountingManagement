@@ -162,4 +162,52 @@ describe("buildLedgerRows (Pass0→1→2 조합)", () => {
       }
     }
   });
+
+  // ── 총액0인데 수입이 늦게 온 케이스(Pass3+Pass4 대상) ──
+  const LATE_INCOME: ReallocRow[] = [
+    r85(1, 2, "20260501", 87, 500000), // 선거비용외 지출(이른 날짜)
+    r85(2, 1, "20260601", 86, 500000), // 수입(늦은 날짜, 원과목 86)
+  ];
+
+  it("L9: 수입이 지출보다 늦어도 → 85×87·85×86 최종 0, 누계 ≥ 0", () => {
+    const out = buildLedgerRows(LATE_INCOME);
+    const { bal, min } = ledgerBalances(out);
+    expect(bal.get("85:87")).toBe(0); // Pass3: 수입 86→87 재배정
+    expect(bal.get("85:86") ?? 0).toBe(0);
+    for (const v of min.values()) expect(v).toBeGreaterThanOrEqual(0); // Pass4
+  });
+
+  it("L10: Pass4가 이른 지출을 수입일로 이동하고 원거래일 비고를 남김", () => {
+    const out = buildLedgerRows(LATE_INCOME);
+    const exp = out.filter((r) => r.incm_sec_cd === 2 && r.acc_book_id === 1);
+    expect(exp.every((r) => r.acc_date === "20260601")).toBe(true);
+    expect(exp.some((r) => (r.note ?? "").includes("원거래일 2026-05-01"))).toBe(true);
+  });
+
+  it("L11: 확성기(540,000) → 후보자자산(84)·선거비용(86) 강제", () => {
+    const rows = [
+      raw({ acc_book_id: 1, incm_sec_cd: 1, acc_sec_cd: 84, item_sec_cd: 86, acc_date: "20260401", acc_amt: 540000 }),
+      raw({ acc_book_id: 2, incm_sec_cd: 2, acc_sec_cd: 85, item_sec_cd: 87, acc_date: "20260501", acc_amt: 540000, content: "확성기 대여료" }),
+    ];
+    const out = buildLedgerRows(rows);
+    const ls = out.filter((r) => r.acc_book_id === 2);
+    expect(ls.every((r) => r.accSecCd === 84)).toBe(true); // 85→84 강제
+    expect(ls.every((r) => r.itemSecCd === 86)).toBe(true); // 87→86 강제
+  });
+
+  it("L12: 확성기 protect — 84 부족 시 확성기는 84 유지, 시간상 나중 지출이어도 다른 지출이 이동", () => {
+    const rows = [
+      raw({ acc_book_id: 1, incm_sec_cd: 1, acc_sec_cd: 84, item_sec_cd: 86, acc_date: "20260401", acc_amt: 540000 }), // 84 수입
+      raw({ acc_book_id: 2, incm_sec_cd: 2, acc_sec_cd: 85, item_sec_cd: 86, acc_date: "20260503", acc_amt: 540000, content: "확성기 사용료" }), // 확성기(시간상 최후) → 84 강제·protect
+      raw({ acc_book_id: 3, incm_sec_cd: 2, acc_sec_cd: 84, item_sec_cd: 86, acc_date: "20260502", acc_amt: 100000 }), // 84 다른 지출(더 이름)
+      raw({ acc_book_id: 4, incm_sec_cd: 1, acc_sec_cd: 85, item_sec_cd: 86, acc_date: "20260401", acc_amt: 100000 }), // 85 잉여 수입
+    ];
+    const out = buildLedgerRows(rows);
+    // 확성기(id2): protect 아니면 시간 역순 선택으로 먼저 이동됐을 것 → protect 덕에 84 전액 유지
+    expect(out.filter((r) => r.acc_book_id === 2).every((r) => r.accSecCd === 84 && r.itemSecCd === 86)).toBe(true);
+    expect(out.filter((r) => r.acc_book_id === 2).reduce((s, r) => s + r.amt, 0)).toBe(540000);
+    // 84 부족분(100000)은 다른 84 지출(id3)이 85로 이동해 충당
+    expect(out.some((r) => r.acc_book_id === 3 && r.accSecCd === 85)).toBe(true);
+    for (const v of ledgerBalances(out).min.values()) expect(v).toBeGreaterThanOrEqual(0);
+  });
 });

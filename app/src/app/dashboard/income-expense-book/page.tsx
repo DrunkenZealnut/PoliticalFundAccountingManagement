@@ -302,7 +302,7 @@ export default function IncomeExpenseBookPage() {
 
       {shortfalls.length > 0 && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
-          ⚠️ 통장 잔액 부족 {shortfalls.length}건 — 재조정으로 충당하지 못한 지출이 있습니다. 원본 데이터(수입·지출)를 점검하세요.
+          ⚠️ 재배분 미정리 잔액 {shortfalls.length}건 — 통장 부족 또는 환급 등으로 과목 잔액이 0으로 정리되지 않았습니다. 원본 데이터(수입·지출)를 확인하세요.
         </div>
       )}
 

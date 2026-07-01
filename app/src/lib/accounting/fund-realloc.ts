@@ -59,7 +59,8 @@ export interface Shortfall {
   acc_book_id: number;
   acc_date: string;
   accSecCd: number;
-  shortAmt: number; // 자금원 총액 부족(통장 총잔액 ≥ 0이면 상쇄되어 발생 안 함)
+  itemSecCd?: number; // 과목 잔여(detectItemResiduals — 재배분 후에도 0 안 된 과목)일 때만. Pass1 통장부족은 미설정.
+  shortAmt: number; // 자금원 총액 부족(통장 총잔액 ≥ 0이면 상쇄되어 발생 안 함) 또는 과목 잔여액.
 }
 
 export interface ReallocResult {

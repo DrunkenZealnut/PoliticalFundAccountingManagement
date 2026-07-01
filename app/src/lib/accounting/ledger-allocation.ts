@@ -18,6 +18,9 @@
 import { adjustNegativeIncome } from "./adjust-negative-income";
 import { reallocateFundSources, type ReallocRow, type ReallocCustomer } from "./fund-realloc";
 import { allocateIncomeToItems } from "./item-allocation";
+import { applyLoudspeakerAnchor } from "./loudspeaker";
+import { zeroItemBalances } from "./item-balance-zero";
+import { scheduleExpenseDates } from "./schedule-expense-dates";
 
 export interface LedgerRow {
   acc_book_id: number;
@@ -52,10 +55,13 @@ export function buildLedgerRows(rows: ReallocRow[]): LedgerRow[] {
   for (const r of rows) rawById.set(r.acc_book_id, r);
 
   const p0 = adjustNegativeIncome(rows); // Pass0
-  const p1 = reallocateFundSources(p0).rows; // Pass1 (과목 불변)
+  const { rows: pL, protectIds } = applyLoudspeakerAnchor(p0); // Pass-L 확성기 앵커
+  const p1 = reallocateFundSources(pL, { protectIds }).rows; // Pass1 (확성기 보호, 과목 불변)
   const p2 = allocateIncomeToItems(p1); // Pass2
+  const p3 = zeroItemBalances(p2); // Pass3 (계정×과목) 최종 0
+  const p4 = scheduleExpenseDates(p3); // Pass4 지출일 스케줄링(누계≥0)
 
-  return p2.map((r) => {
+  return p4.map((r) => {
     const rawRow = rawById.get(r.acc_book_id);
     const fundMoved = r.origin === "split-moved";
     const itemMoved = r.itemOrigin === "item-moved";

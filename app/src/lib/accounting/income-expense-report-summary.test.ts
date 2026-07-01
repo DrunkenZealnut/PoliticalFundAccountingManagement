@@ -3,6 +3,7 @@ import {
   buildCandidateReportSummary,
   allocateCandidateLedgerRows,
   detectCandidateShortfalls,
+  detectItemResiduals,
   type ReportSummaryRawRow,
 } from "./income-expense-report-summary";
 import { planAllocationPersist, applyPlanInMemory, type AllocTrackedRow } from "./persist-allocation";
@@ -317,5 +318,54 @@ describe("교차검증 가드 (FR-04: SSOT·총괄모델·export 세 경로 동�
     // 합 보존: 세 경로 공통 입력 → 동일 총액(수입 130,000 / 지출 50,000).
     expect(model.total.income).toBe(130_000);
     expect(model.total.expSubtotal).toBe(50_000);
+  });
+});
+
+describe("allocateCandidateLedgerRows — Pass4 지출일 전파", () => {
+  it("Pass4가 이동한 지출일이 결과 행 acc_date에 반영된다(HWPX/22-4 누계 정합)", () => {
+    // 총액0·수입 늦음 → Pass4가 지출(9001)을 06-01로 이동. 원본 메타 조인 시 acc_date 유실 회귀 가드.
+    const rows: ReportSummaryRawRow[] = [
+      { acc_book_id: 9001, incm_sec_cd: 2, acc_sec_cd: 85, item_sec_cd: 87, acc_amt: 500_000, acc_date: "20260501" },
+      { acc_book_id: 9002, incm_sec_cd: 1, acc_sec_cd: 85, item_sec_cd: 86, acc_amt: 500_000, acc_date: "20260601" },
+    ];
+    const out = allocateCandidateLedgerRows(rows);
+    const exp = out.filter((r) => r.incm_sec_cd === 2 && r.acc_book_id === 9001);
+    expect(exp.length).toBeGreaterThan(0);
+    expect(exp.every((r) => r.acc_date === "20260601")).toBe(true);
+  });
+});
+
+describe("detectItemResiduals — 환급 등 구조적 과목 잔여 표면화", () => {
+  it("환급>지출인 과목: 총액0인데 과목 음수 잔여 → itemSecCd 포함 표면화(경로 재사용)", () => {
+    // 85: 86 수입100/지출300, 87 수입100/환급-100. 총액0(상쇄)이나 86은 -100 잔존(환급이 87에 갇힘).
+    const rows: ReportSummaryRawRow[] = [
+      { acc_book_id: 1, incm_sec_cd: 1, acc_sec_cd: 85, item_sec_cd: 86, acc_amt: 100, acc_date: "20260501" },
+      { acc_book_id: 2, incm_sec_cd: 2, acc_sec_cd: 85, item_sec_cd: 86, acc_amt: 300, acc_date: "20260502" },
+      { acc_book_id: 3, incm_sec_cd: 1, acc_sec_cd: 85, item_sec_cd: 87, acc_amt: 100, acc_date: "20260501" },
+      { acc_book_id: 4, incm_sec_cd: 2, acc_sec_cd: 85, item_sec_cd: 87, acc_amt: -100, acc_date: "20260503" },
+    ];
+    const res = detectItemResiduals(rows);
+    expect(res).toHaveLength(1);
+    expect(res[0].accSecCd).toBe(85);
+    expect(res[0].itemSecCd).toBe(86);
+    expect(res[0].shortAmt).toBe(100);
+    // 기존 표면화 경로(detectCandidateShortfalls)에 합류 → UI 배너·HWPX 헤더/로그가 자동 노출.
+    expect(detectCandidateShortfalls(rows).some((s) => s.itemSecCd === 86 && s.shortAmt === 100)).toBe(true);
+  });
+
+  it("정상(총액0·전버킷0): 잔여 없음", () => {
+    const rows: ReportSummaryRawRow[] = [
+      { acc_book_id: 1, incm_sec_cd: 1, acc_sec_cd: 85, item_sec_cd: 86, acc_amt: 500, acc_date: "20260501" },
+      { acc_book_id: 2, incm_sec_cd: 2, acc_sec_cd: 85, item_sec_cd: 86, acc_amt: 500, acc_date: "20260502" },
+    ];
+    expect(detectItemResiduals(rows)).toEqual([]);
+  });
+
+  it("비후보자(후원회 1/2): 잔여 없음", () => {
+    const rows: ReportSummaryRawRow[] = [
+      { acc_book_id: 1, incm_sec_cd: 1, acc_sec_cd: 1, item_sec_cd: 94, acc_amt: 500, acc_date: "20260501" },
+      { acc_book_id: 2, incm_sec_cd: 2, acc_sec_cd: 2, item_sec_cd: 97, acc_amt: 500, acc_date: "20260502" },
+    ];
+    expect(detectItemResiduals(rows)).toEqual([]);
   });
 });

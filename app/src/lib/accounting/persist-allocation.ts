@@ -11,6 +11,7 @@
 /*  컬럼 raw_·alloc_ 은 export strip 대상이라 .db엔 안 남는다).               */
 /* ------------------------------------------------------------------ */
 import { buildLedgerRows } from "./ledger-allocation";
+import { appendOrigDateTag } from "./schedule-expense-dates";
 import type { ReallocRow, ReallocCustomer } from "./fund-realloc";
 
 /** acc_book 행 + 과목배분 추적 컬럼(scripts/016). 메타는 인덱스 시그니처로 통과. */
@@ -158,6 +159,8 @@ export function planAllocationPersist(current: AllocTrackedRow[], generation: st
       acc_sec_cd: primary.accSecCd,
       item_sec_cd: primary.itemSecCd,
       acc_amt: primary.amt,
+      acc_date: primary.acc_date, // Pass4 이동 날짜
+      bigo: mergeOrigDateBigo(rawRow.bigo, rawRow.acc_date, primary.acc_date),
       alloc_src_id: null,
       alloc_seq: 0,
       alloc_gen: generation,
@@ -178,6 +181,8 @@ export function planAllocationPersist(current: AllocTrackedRow[], generation: st
         acc_sec_cd: s.accSecCd,
         item_sec_cd: s.itemSecCd,
         acc_amt: s.amt,
+        acc_date: s.acc_date, // Pass4 이동 날짜
+        bigo: mergeOrigDateBigo(rawRow.bigo, rawRow.acc_date, s.acc_date),
         alloc_src_id: id, // 출처 raw id
         alloc_seq: seq++,
         alloc_gen: generation,
@@ -228,4 +233,10 @@ export function applyPlanInMemory(current: AllocTrackedRow[], plan: AllocPersist
     result.push({ ...ins, acc_book_id: nextId++ } as AllocTrackedRow);
   }
   return result;
+}
+
+/** 재조정(Pass4)으로 날짜가 바뀐 행에 "원거래일" 비고를 붙인다(변화 없으면 원 비고). 포맷 SSOT: appendOrigDateTag. */
+function mergeOrigDateBigo(bigo: string | null, rawYmd: string, newYmd: string): string | null {
+  if (rawYmd === newYmd) return bigo;
+  return appendOrigDateTag(bigo, rawYmd);
 }
