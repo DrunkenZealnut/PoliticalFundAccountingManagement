@@ -447,7 +447,7 @@ export default function IncomeExpenseReportPage() {
       {searched && shortfalls.length > 0 && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm">
           <p className="font-medium text-red-900">
-            ⚠️ 통장 잔액 부족 — 자금원에 배정하지 못한 지출 {shortfalls.length}건이 있습니다. 데이터를 점검하세요. (보고서 금액이 실제와 다를 수 있습니다)
+            ⚠️ 재배분 미정리 잔액 {shortfalls.length}건 — 통장 부족 또는 환급 등으로 과목 잔액이 0으로 정리되지 않았습니다. 데이터를 확인하세요. (보고서 금액이 실제와 다를 수 있습니다)
           </p>
           <details className="mt-2 text-red-800">
             <summary className="cursor-pointer">부족 내역 보기</summary>

@@ -82,7 +82,38 @@ export function allocateCandidateLedgerRows<T extends ReportSummaryRawRow>(rawRo
 export function detectCandidateShortfalls<T extends ReportSummaryRawRow>(rawRows: T[]): Shortfall[] {
   const { p0, isCandidate } = preprocessCandidate(rawRows);
   if (!isCandidate) return [];
-  return reallocateFundSources(toReallocInput(p0)).shortfalls;
+  // 통장 부족(Pass1, 총액<0) + 과목 구조적 잔여(총액=0인데 과목 음수, 주로 환급) — 둘 다 표면화.
+  return [...reallocateFundSources(toReallocInput(p0)).shortfalls, ...detectItemResiduals(rawRows)];
+}
+
+/**
+ * 재배분(buildLedgerRows) 후에도 (계정×과목) 잔액이 0으로 정리되지 않은 잔여를 표면화.
+ * **자금원 총액이 0인데** 한 과목이 음수로 남는 경우(주로 환급이 과목에 갇혀 구조적으로 0 불가 —
+ * `item-balance-zero.ts` 헤더 참조)를 `Shortfall`(itemSecCd 포함)로 반환한다. 은폐·plug 금지.
+ * 통장 부족(총액<0)은 Pass1 `shortfalls`가 담당하므로 여기선 총액=0인 자금원만 본다(중복 방지).
+ */
+export function detectItemResiduals<T extends ReportSummaryRawRow>(rawRows: T[]): Shortfall[] {
+  const { p0, isCandidate } = preprocessCandidate(rawRows);
+  if (!isCandidate) return [];
+  const ledger = buildLedgerRows(toReallocInput(p0));
+  const srcTotal = new Map<number, number>();
+  const buckets = new Map<string, { accSecCd: number; itemSecCd: number; bal: number; lastDate: string }>();
+  for (const r of ledger) {
+    const delta = r.incm_sec_cd === 1 ? r.amt : -r.amt;
+    srcTotal.set(r.accSecCd, (srcTotal.get(r.accSecCd) ?? 0) + delta);
+    const k = `${r.accSecCd}:${r.itemSecCd}`;
+    const b = buckets.get(k) ?? { accSecCd: r.accSecCd, itemSecCd: r.itemSecCd, bal: 0, lastDate: r.acc_date };
+    b.bal += delta;
+    if (r.acc_date > b.lastDate) b.lastDate = r.acc_date;
+    buckets.set(k, b);
+  }
+  const out: Shortfall[] = [];
+  for (const b of buckets.values()) {
+    if ((srcTotal.get(b.accSecCd) ?? 0) === 0 && b.bal < 0) {
+      out.push({ acc_book_id: 0, acc_date: b.lastDate, accSecCd: b.accSecCd, itemSecCd: b.itemSecCd, shortAmt: -b.bal });
+    }
+  }
+  return out;
 }
 
 /** ReportSummaryRawRow(전처리 완료) → Pass1/buildLedgerRows 입력 행. 메타는 배분에 무관하므로 비운다. */

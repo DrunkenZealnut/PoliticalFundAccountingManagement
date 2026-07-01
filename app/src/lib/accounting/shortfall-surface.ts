@@ -27,7 +27,9 @@ export function shortfallHeaders(shortfalls: Shortfall[]): Record<string, string
 export function logShortfalls(tag: string, context: string, shortfalls: Shortfall[]): void {
   if (shortfalls.length === 0) return;
   console.warn(
-    `[${tag}] 통장 잔액 부족 — 자금원 배정 불가 ${shortfalls.length}건 (${context}): ` +
-      shortfalls.map((s) => `${s.accSecCd}/${s.acc_date}/${s.shortAmt}`).join(", "),
+    `[${tag}] 재배분 미정리 잔액 ${shortfalls.length}건 (${context}): ` +
+      shortfalls
+        .map((s) => `${s.accSecCd}${s.itemSecCd != null ? `:${s.itemSecCd}` : ""}/${s.acc_date}/${s.shortAmt}`)
+        .join(", "),
   );
 }
