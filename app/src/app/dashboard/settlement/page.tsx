@@ -17,6 +17,8 @@ import {
 } from "@/lib/accounting/settlement-summary";
 import type { ReportSummaryRawRow } from "@/lib/accounting/income-expense-report-summary";
 import type { Shortfall } from "@/lib/accounting/fund-realloc";
+import { estateAmount, sumEstateAmount } from "@/lib/accounting/estate-types";
+import { countOutOfPeriodRows } from "@/lib/accounting/acc-period";
 
 function fmt(n: number) {
   return n.toLocaleString("ko-KR");
@@ -62,16 +64,17 @@ export default function SettlementPage() {
       .select("acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_amt, acc_date")
       .eq("org_id", orgId)
       .gte("acc_date", from)
-      .lte("acc_date", to);
+      .lte("acc_date", to)
+      .limit(100000); // 기본 max-rows(≈1000) truncation 방지 — 결산 집계 누락 차단
     if (accErr) {
       alert(`수입지출 조회 실패: ${accErr.message}`);
       return;
     }
 
-    // Fetch estate data
+    // Fetch estate data (qty 포함 — 금액은 amt×qty SSOT)
     const { data: estateData, error: estateErr } = await supabase
       .from("estate")
-      .select("estate_sec_cd, amt")
+      .select("estate_sec_cd, amt, qty")
       .eq("org_id", orgId);
     if (estateErr) {
       alert(`재산내역 조회 실패: ${estateErr.message}`);
@@ -85,15 +88,16 @@ export default function SettlementPage() {
     const summary = buildSettlementSummary(records);
     const { income, expense, balance } = summary;
 
-    // Estate: 현금및예금(47) and 차입금(49)
+    // Estate: 현금및예금(47) and 차입금(49). 금액은 estateAmount(amt×qty) SSOT로 통일
+    // (recompute-settlement·export-sqlite와 동일 — opinion.estate_amt 경로별 불일치 제거).
     const estates = estateData || [];
     const estateAmt = estates
       .filter((r) => r.estate_sec_cd === 47)
-      .reduce((s, r) => s + r.amt, 0);
+      .reduce((s, r) => s + estateAmount(r), 0);
     const estateDebt = estates
       .filter((r) => r.estate_sec_cd === 49)
-      .reduce((s, r) => s + Math.abs(r.amt), 0);
-    const netEstate = estates.reduce((s, r) => s + r.amt, 0);
+      .reduce((s, r) => s + Math.abs(estateAmount(r)), 0);
+    const netEstate = sumEstateAmount(estates);
 
     setResult({
       income,
@@ -105,7 +109,33 @@ export default function SettlementPage() {
       accounts: summary.accounts,
       shortfalls: summary.shortfalls,
     });
-    setSettled(false);
+    // 기존 결산확정 여부 반영 (opinion.settled_at, scripts/023). 확정된 org 는 "확정됨" 표시.
+    const { data: op } = await supabase
+      .from("opinion")
+      .select("settled_at")
+      .eq("org_id", orgId)
+      .maybeSingle();
+    setSettled(!!(op as { settled_at?: string | null } | null)?.settled_at);
+
+    // FR-07: 결산 대상 거래 중 사용기관 회계기간 밖 거래 경고(차단 아님 — 오연도 혼입 확인 유도).
+    const { data: orgPeriod } = await supabase
+      .from("organ")
+      .select("acc_from, acc_to, pre_acc_from")
+      .eq("org_id", orgId)
+      .maybeSingle();
+    const oop = countOutOfPeriodRows(
+      records as { acc_date?: string | null }[],
+      (orgPeriod ?? {}) as { acc_from?: string | null; acc_to?: string | null; pre_acc_from?: string | null },
+    );
+    if (oop.count > 0) {
+      const samples = oop.samples
+        .map((s) => `${s.acc_date}(${s.reason === "before" ? "기간이전" : "기간이후"})`)
+        .join(", ");
+      alert(
+        `⚠️ 주의: 결산 대상에 사용기관 회계기간(${oop.range?.lo} ~ ${oop.range?.hi}) 밖 거래가 ${oop.count}건 있습니다.\n` +
+          `다른 연도(선거주기) 거래가 섞였는지 확인하세요.${samples ? `\n예시: ${samples}` : ""}`,
+      );
+    }
 
     // Balance vs estate mismatch warning
     if (balance !== estateAmt) {

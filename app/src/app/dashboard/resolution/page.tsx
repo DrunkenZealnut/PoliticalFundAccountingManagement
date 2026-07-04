@@ -10,46 +10,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { HelpTooltip } from "@/components/help-tooltip";
 import { CodeSelect } from "@/components/code-select";
+import { PAY_METHODS } from "@/lib/expense-types";
 
-const PAY_METHODS: Record<string, string> = {
-  "118": "계좌입금",
-  "119": "카드",
-  "120": "현금",
-  "583": "수표",
-  "584": "신용카드",
-  "585": "체크카드",
-  "121": "미지급",
-  "122": "기타",
-};
+/** 지출방법 코드 → 표시명 (SSOT: expense-types.PAY_METHODS). */
+const PAY_METHOD_LABEL: Record<string, string> = Object.fromEntries(
+  PAY_METHODS.map((p) => [p.value, p.label]),
+);
 
 const MAX_EXCEL_ITEMS = 10;
-
-/** 계정명 → 증빙서 접두어 */
-const ACC_PREFIX_MAP: Record<string, string> = {
-  "후보자등자산": "자",
-  "후원회기부금": "후",
-  "보조금": "보",
-  "보조금외지원금": "기",
-};
-
-/** 증빙서이름 생성: 예) 자(비)-1, 보-3 */
-function buildReceiptLabel(
-  accName: string,
-  itemName: string,
-  rcpNo: string | null,
-): string {
-  if (!rcpNo) return "";
-  // 계정 접두어
-  let prefix = "";
-  for (const [key, val] of Object.entries(ACC_PREFIX_MAP)) {
-    if (accName.includes(key)) { prefix = val; break; }
-  }
-  if (!prefix) prefix = accName.charAt(0) || "?";
-  // 과목: 선거비용외 → (비), 선거비용 → 없음
-  const isNonElection = itemName.includes("선거비용외") || itemName.includes("비용외");
-  const suffix = isNonElection ? "(비)" : "";
-  return `${prefix}${suffix}-${rcpNo}`;
-}
 
 interface ResolutionRow {
   acc_book_id: number;
@@ -600,16 +568,16 @@ export default function ResolutionPage() {
                   </td>
                   <td className="px-3 py-2">
                     {r.acc_ins_type
-                      ? PAY_METHODS[r.acc_ins_type] || r.acc_ins_type
+                      ? PAY_METHOD_LABEL[r.acc_ins_type] || r.acc_ins_type
                       : "-"}
                   </td>
                   <td className="px-3 py-2 text-center">
                     {r.rcp_yn === "Y" ? "O" : "-"}
                   </td>
                   <td className="px-3 py-2 text-blue-700 font-mono">
-                    {r.rcp_yn === "Y" && r.rcp_no
-                      ? buildReceiptLabel(getName(r.acc_sec_cd), getName(r.item_sec_cd), r.rcp_no)
-                      : ""}
+                    {/* 저장된 rcp_no(예: 자(비)-1)를 그대로 표기 — 채번 SSOT(receipt-no.ts)가 부여한 값.
+                        과거 로컬 buildReceiptLabel 재구성은 접두사·접미사가 SSOT와 반대라 표기가 어긋났음 */}
+                    {r.rcp_yn === "Y" ? (r.rcp_no ?? "") : ""}
                   </td>
                 </tr>
               ))

@@ -74,10 +74,11 @@ export default function AuditPage() {
     })();
   }, [orgId, supabase, loaded]);
 
-  // 결산 금액(재산·수입·지출·잔액) 자동 동기화.
+  // 결산 금액(재산·수입·지출·잔액) 자동 동기화 (표시 전용).
   // 사용자가 수동 입력하지 않아도 감사의견서·심사의결서에 최신 결산값이 표기되도록
   // opinion 로드 완료 후 결산을 1회 재계산한다(recompute-settlement = settlement-calc SSOT,
-  // 보고서·총괄표와 동일 기준). 실패해도 저장된 값으로 표기되므로 비치명적.
+  // 보고서·총괄표와 동일 기준). **dryRun:true — 열람만으로 DB의 opinion 을 덮어쓰지 않는다**
+  // (수기 입력값 보존; 실제 저장은 handleSaveOpinion 버튼). 실패해도 저장된 값으로 표기.
   useEffect(() => {
     if (!orgId || !loaded) return;
     (async () => {
@@ -85,7 +86,7 @@ export default function AuditPage() {
         const res = await fetch("/api/system/recompute-settlement", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ orgId }),
+          body: JSON.stringify({ orgId, dryRun: true }),
         });
         if (!res.ok) return;
         const d = await res.json();

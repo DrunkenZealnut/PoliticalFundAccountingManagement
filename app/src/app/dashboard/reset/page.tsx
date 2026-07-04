@@ -31,6 +31,11 @@ export default function ResetPage() {
     if (!counts || (counts.income === 0 && counts.expense === 0)) { alert("삭제할 자료가 없습니다."); return; }
     const pw = prompt("삭제된 자료는 복구될 수 없습니다.\n로그인 비밀번호를 입력하세요.");
     if (!pw) return;
+    // 비밀번호를 실제로 검증(가짜 게이트 방지) — 현재 로그인 사용자의 비밀번호로 재인증.
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user?.email) { alert("로그인 정보를 확인할 수 없습니다. 다시 로그인하세요."); return; }
+    const { error: authError } = await supabase.auth.signInWithPassword({ email: user.email, password: pw });
+    if (authError) { alert("비밀번호가 일치하지 않습니다."); return; }
     const from = dateFrom.replace(/-/g, ""); const to = dateTo.replace(/-/g, "");
     const { error } = await supabase.from("acc_book").delete().eq("org_id", orgId!).gte("acc_date", from).lte("acc_date", to);
     if (error) { alert(`삭제 실패: ${error.message}`); return; }

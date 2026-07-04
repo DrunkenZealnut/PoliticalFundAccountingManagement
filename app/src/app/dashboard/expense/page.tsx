@@ -19,7 +19,7 @@ import { EmptyState } from "@/components/empty-state";
 import { PAGE_GUIDES } from "@/lib/page-guides";
 import { EvidenceFileManager, type PendingFile } from "@/components/evidence/evidence-file-manager";
 import { buildExpenseSummary } from "@/lib/accounting/ledger-summary";
-import { isAccDateInOrgPeriod, type OrgPeriod } from "@/lib/accounting/acc-period";
+import { postAccBook } from "@/lib/acc-book-client";
 import { useOrgCycleLock } from "@/hooks/use-org-cycle-lock";
 import { OrgCycleLockBanner } from "@/components/dashboard/OrgCycleLockBanner";
 import { LedgerSummaryHeader } from "@/components/dashboard/LedgerSummaryHeader";
@@ -210,6 +210,7 @@ export default function ExpensePage() {
 
   async function handleBatchReceiptGen() {
     if (!orgId) return;
+    if (cycleLock.locked) { alert("옛 선거주기 사용기관은 읽기전용입니다. 상단 '잠금 해제' 후 진행하세요."); return; }
     if (!confirm("증빙서첨부=Y이고 번호 미입력인 지출에 계정·과목 조합 영수증번호(예: 자(비)-1)를 부여합니다.\n계속하시겠습니까?")) return;
     const res = await fetch("/api/acc-book", {
       method: "POST",
@@ -231,6 +232,7 @@ export default function ExpensePage() {
 
   async function handleBatchReceiptDel() {
     if (!orgId) return;
+    if (cycleLock.locked) { alert("옛 선거주기 사용기관은 읽기전용입니다. 상단 '잠금 해제' 후 진행하세요."); return; }
     if (!confirm("모든 지출내역의 증빙서번호를 제거합니다.\n이 작업은 복구할 수 없습니다.\n\n계속하시겠습니까?")) return;
 
     const { error } = await supabase
@@ -379,25 +381,11 @@ export default function ExpensePage() {
       exp_group3_cd: form.exp_group3_cd || null,
     };
 
-    // 거래일↔회계기간 검증 (year-data-separation). 지출은 API 우회 직접쓰기라 클라에서 가드.
-    {
-      const { data: org } = await supabase
-        .from("organ")
-        .select("acc_from, acc_to, pre_acc_from")
-        .eq("org_id", orgId)
-        .maybeSingle();
-      const chk = isAccDateInOrgPeriod(payload.acc_date, (org ?? {}) as OrgPeriod);
-      if (
-        !chk.ok &&
-        !window.confirm(
-          `거래일 ${payload.acc_date}가 사용기관 회계기간(${chk.lo}~${chk.hi}) 밖입니다.\n연도가 맞는 사용기관인지 확인하세요.\n\n그래도 저장하시겠습니까?`,
-        )
-      ) {
-        return;
-      }
-    }
-
+    // acc_book 쓰기는 /api/acc-book 경유(postAccBook) — 서버가 익명 거래처 resolve(-999→익명 정본),
+    // 거래일↔회계기간 검증(OUT_OF_PERIOD confirm), org 소속검증(IDOR 가드)을 일괄 처리한다.
+    // (직접 supabase insert 시 -999 가 acc_book_cust_id_fkey 위반이라 거래처 미선택 지출이 저장 불가였음)
     if (selected) {
+      // 수정 전 백업 (복구용)
       await supabase.from("acc_book_bak").insert({
         work_kind: 1,
         acc_book_id: selected.acc_book_id,
@@ -413,22 +401,22 @@ export default function ExpensePage() {
         rcp_yn: selected.rcp_yn,
         rcp_no: selected.rcp_no,
       });
-      const { error } = await supabase
-        .from("acc_book")
-        .update(payload)
-        .eq("acc_book_id", selected.acc_book_id);
-      if (error) {
-        alert(`수정 실패: ${error.message}`);
+      const res = await postAccBook({ action: "update", acc_book_id: selected.acc_book_id, data: payload });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(`수정 실패: ${err.error?.message ?? err.error}`);
         return;
       }
       // 수정 시에도 증빙파일 업로드 (새로 선택한 파일들)
       await uploadPendingFiles(selected.acc_book_id);
     } else {
-      const { data: inserted, error } = await supabase.from("acc_book").insert(payload).select("acc_book_id").single();
-      if (error) {
-        alert(`등록 실패: ${error.message}`);
+      const res = await postAccBook({ action: "insert", data: payload });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(`등록 실패: ${err.error?.message ?? err.error}`);
         return;
       }
+      const inserted = await res.json().catch(() => null);
       // 증빙파일 업로드 (새로 선택한 파일들)
       if (inserted?.acc_book_id) await uploadPendingFiles(inserted.acc_book_id);
     }
@@ -439,6 +427,7 @@ export default function ExpensePage() {
 
   async function handleDelete() {
     if (!selected) return;
+    if (cycleLock.locked) { alert("옛 선거주기 사용기관은 읽기전용입니다. 상단 '잠금 해제' 후 진행하세요."); return; }
     if (!confirm("선택한 지출내역을 삭제하시겠습니까?")) return;
     await supabase.from("acc_book_bak").insert({
       work_kind: 2,
@@ -470,6 +459,7 @@ export default function ExpensePage() {
 
   async function handleBatchDelete() {
     if (checkedIds.size === 0) return;
+    if (cycleLock.locked) { alert("옛 선거주기 사용기관은 읽기전용입니다. 상단 '잠금 해제' 후 진행하세요."); return; }
     if (!confirm(`선택한 ${checkedIds.size}건의 지출내역을 삭제하시겠습니까?`)) return;
 
     const toDelete = records.filter((r) => checkedIds.has(r.acc_book_id));

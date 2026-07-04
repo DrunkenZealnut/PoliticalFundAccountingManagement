@@ -99,6 +99,29 @@ export default function BackupPage() {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
+
+      // FR-07: 내보낸 자료에 회계기간 밖 거래(오연도 혼입 등)가 있으면 경고(차단 아님).
+      const oopCount = Number(res.headers.get("X-Out-Of-Period-Count") || 0);
+      if (oopCount > 0) {
+        let detail = "";
+        try {
+          const raw = res.headers.get("X-Out-Of-Period");
+          if (raw) {
+            const oop = JSON.parse(decodeURIComponent(raw));
+            const samples = (oop.samples || [])
+              .map((s: { acc_date: string; reason: string }) =>
+                `${s.acc_date}(${s.reason === "before" ? "기간이전" : "기간이후"})`)
+              .join(", ");
+            detail =
+              `\n사용기관 회계기간: ${oop.range?.lo} ~ ${oop.range?.hi}` +
+              (samples ? `\n예시: ${samples}` : "");
+          }
+        } catch { /* 헤더 파싱 실패는 무시 */ }
+        alert(
+          `⚠️ 주의: 내보낸 자료에 사용기관 회계기간 밖 거래가 ${oopCount}건 포함되어 있습니다.\n` +
+          `다른 연도(선거주기) 거래가 섞였는지 확인하세요.${detail}`,
+        );
+      }
     } catch (e) {
       alert(`백업 중 오류: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -211,9 +234,9 @@ export default function BackupPage() {
 
   async function handleRestore() {
     const policyLabel = {
-      overwrite: "덮어쓰기 (기존 자료 삭제 후 복구)",
-      skip: "건너뛰기 (중복은 기존 자료 유지)",
-      merge: "병합 (중복은 업데이트)",
+      overwrite: "전체 교체 (기존 거래·거래처 삭제 후 복구)",
+      skip: "거래 유지 (참조코드·기관정보만 갱신)",
+      merge: "거래 유지 (참조코드·기관정보만 갱신)",
     }[conflictPolicy];
 
     const warn =
@@ -364,9 +387,9 @@ export default function BackupPage() {
               value={conflictPolicy}
               onChange={(e) => setConflictPolicy(e.target.value as ConflictPolicy)}
             >
-              <option value="overwrite">덮어쓰기 (기존 자료 삭제 후 복구)</option>
-              <option value="skip">건너뛰기 (중복은 유지)</option>
-              <option value="merge">병합 (중복은 업데이트)</option>
+              <option value="overwrite">전체 교체 (기존 거래·거래처 삭제 후 복구)</option>
+              <option value="skip">거래 유지 (참조코드·기관정보만 갱신)</option>
+              <option value="merge">거래 유지 (참조코드·기관정보만 갱신)</option>
             </select>
           </div>
           <Button variant="outline" onClick={handlePreview} disabled={busy || !restoreFile}>
