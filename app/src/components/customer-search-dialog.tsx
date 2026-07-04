@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
+import { useAuth } from "@/stores/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -68,17 +69,22 @@ export function CustomerSearchDialog({
     addr: "",
   });
 
+  // 검색·신규등록을 현재 사용기관으로 격리한다. 세 호출부(income·expense·document-register)가
+  // orgId prop 을 넘기지 않으므로 auth store 의 선택 기관으로 보정한다(prop 우선). 022 RLS 와 정합.
+  const storeOrgId = useAuth((s) => s.orgId);
+  const effectiveOrgId = orgId ?? storeOrgId;
+
   const search = useCallback(async () => {
     setLoading(true);
     const supabase = createSupabaseBrowser();
 
-    // orgId가 있으면 해당 기관에서 사용 중인 거래처만 검색
+    // 현재 사용기관이 거래한 거래처만 검색
     let custIds: number[] | null = null;
-    if (orgId) {
+    if (effectiveOrgId) {
       const { data: used } = await supabase
         .from("acc_book")
         .select("cust_id")
-        .eq("org_id", orgId);
+        .eq("org_id", effectiveOrgId);
       custIds = [...new Set((used || []).map((r: { cust_id: number }) => r.cust_id).filter(Boolean))];
     }
 
@@ -102,7 +108,7 @@ export function CustomerSearchDialog({
     const { data } = await query.limit(50);
     setResults(data || []);
     setLoading(false);
-  }, [keyword, orgId]);
+  }, [keyword, effectiveOrgId]);
 
   function handleSelect(c: Customer) {
     onSelect(c);
@@ -124,13 +130,15 @@ export function CustomerSearchDialog({
     setRegLoading(true);
     const supabase = createSupabaseBrowser();
 
-    // 중복 체크
-    const { data: dup } = await supabase
+    // 중복 체크 (현재 사용기관 범위 내)
+    let dupQuery = supabase
       .from("customer")
       .select("cust_id")
       .eq("cust_sec_cd", regForm.cust_sec_cd)
       .eq("name", regForm.name)
       .eq("reg_num", regForm.reg_num || "");
+    if (effectiveOrgId) dupQuery = dupQuery.eq("org_id", effectiveOrgId);
+    const { data: dup } = await dupQuery;
 
     if (dup && dup.length > 0) {
       alert("같은 구분 + 성명 + 생년월일(사업자번호)의 수입지출처가 이미 존재합니다.");
@@ -138,9 +146,10 @@ export function CustomerSearchDialog({
       return;
     }
 
+    // 신규 거래처는 현재 사용기관으로 귀속(org 격리). orgId 미확정 시에만 NULL(공용).
     const { data: newCust, error } = await supabase
       .from("customer")
-      .insert(regForm)
+      .insert({ ...regForm, org_id: effectiveOrgId ?? null })
       .select("cust_id, cust_sec_cd, name, reg_num, job, tel")
       .single();
 

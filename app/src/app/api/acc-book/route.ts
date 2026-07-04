@@ -12,6 +12,10 @@ import {
 } from "./anonymous-customer";
 import { assignReceiptNumbers } from "@/lib/accounting/receipt-no";
 import { isAccDateInOrgPeriod, type OrgPeriod, type PeriodCheck } from "@/lib/accounting/acc-period";
+import {
+  requireOrgMembership,
+  type MembershipQueryClient,
+} from "@/lib/api/require-org-membership";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -23,6 +27,90 @@ const supabase = createClient(
 // 받는다. supabase-js 의 깊은 제네릭 체인을 이 인터페이스에 직접 구조적 매칭하면
 // TS2589(과도한 타입 인스턴스화)가 나므로 경계에서 한 번 좁힌다.
 const anonClient = supabase as unknown as AnonymousCustomerClient;
+const membershipClient = supabase as unknown as MembershipQueryClient;
+
+// POST action별 대상 org 를 확정한 뒤 호출자 소속을 검증한다(IDOR 방어).
+// org_id 가 본문에 없는 update/delete 는 acc_book_id/ids 로 기존 행 org 를 역조회한다.
+async function authorizeAccBook(
+  action: string,
+  payload: Record<string, unknown>,
+): Promise<{ ok: true; orgId: number } | { ok: false; response: NextResponse }> {
+  let rawOrgId: unknown = null;
+
+  if (action === "insert" || action === "backup") {
+    rawOrgId = (payload.data as Record<string, unknown> | undefined)?.org_id;
+  } else if (action === "update") {
+    const data0 = payload.data as Record<string, unknown> | undefined;
+    rawOrgId = data0?.org_id;
+    if (rawOrgId == null && payload.acc_book_id != null) {
+      const { data: ex } = await supabase
+        .from("acc_book")
+        .select("org_id")
+        .eq("acc_book_id", payload.acc_book_id)
+        .maybeSingle();
+      rawOrgId = (ex as { org_id?: number } | null)?.org_id ?? null;
+    }
+  } else if (action === "batch_receipt") {
+    rawOrgId = payload.orgId;
+  } else if (action === "batch_insert") {
+    const orgIds = [
+      ...new Set(
+        ((payload.rows as Record<string, unknown>[]) ?? [])
+          .map((r) => r.org_id)
+          .filter((v) => v != null),
+      ),
+    ];
+    if (orgIds.length !== 1) {
+      return {
+        ok: false,
+        response: NextResponse.json(
+          { error: "batch_insert 는 단일 사용기관 행만 허용합니다" },
+          { status: 400 },
+        ),
+      };
+    }
+    rawOrgId = orgIds[0];
+  } else if (action === "delete") {
+    const ids = payload.ids as unknown;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return {
+        ok: false,
+        response: NextResponse.json({ error: "삭제할 ids 가 필요합니다" }, { status: 400 }),
+      };
+    }
+    // 삭제 대상 행들이 실제로 속한 org 를 역조회 — 여러 org 혼재 시 거부.
+    const { data: rows, error } = await supabase
+      .from("acc_book")
+      .select("org_id")
+      .in("acc_book_id", ids);
+    if (error) {
+      return {
+        ok: false,
+        response: NextResponse.json({ error: "삭제 대상 조회 중 오류" }, { status: 500 }),
+      };
+    }
+    const orgs = [...new Set((rows ?? []).map((r) => (r as { org_id: number }).org_id))];
+    if (orgs.length !== 1) {
+      return {
+        ok: false,
+        response: NextResponse.json(
+          { error: "여러 사용기관에 걸친 삭제는 허용되지 않습니다" },
+          { status: 400 },
+        ),
+      };
+    }
+    rawOrgId = orgs[0];
+  } else {
+    return {
+      ok: false,
+      response: NextResponse.json({ error: "Unknown action" }, { status: 400 }),
+    };
+  }
+
+  const auth = await requireOrgMembership(rawOrgId, membershipClient);
+  if (!auth.ok) return { ok: false, response: auth.response };
+  return { ok: true, orgId: auth.orgId };
+}
 
 // 거래일 ↔ 회계기간 검증 (year-data-separation 가드). org 회계기간 조회 + 표준 에러.
 async function fetchOrgPeriod(orgId: number): Promise<OrgPeriod | null> {
@@ -45,11 +133,46 @@ function outOfPeriodBody(orgId: number, accDate: string, chk: PeriodCheck) {
   };
 }
 
+// 결산확정 경고 (BX7). org 가 결산확정(opinion.settled_at)됐고 거래일이 확정 결산기간
+// [acc_from, acc_to] 내이면 SETTLED_PERIOD 로 표면화 — 차단이 아니라 클라 confirm 후
+// _allowSettled override 재요청(postAccBook). 확정치와 원장이 어긋날 수 있음을 알리는 경고.
+async function checkSettledPeriod(
+  orgId: number,
+  accDate: string,
+): Promise<{ blocked: boolean; from?: string; to?: string }> {
+  const { data } = await supabase
+    .from("opinion")
+    .select("settled_at, acc_from, acc_to")
+    .eq("org_id", orgId)
+    .maybeSingle();
+  const row = data as { settled_at: string | null; acc_from: string | null; acc_to: string | null } | null;
+  if (!row?.settled_at || !row.acc_from || !row.acc_to) return { blocked: false };
+  // YYYYMMDD 사전식 비교(acc-period 와 동일).
+  if (accDate >= row.acc_from && accDate <= row.acc_to) {
+    return { blocked: true, from: row.acc_from, to: row.acc_to };
+  }
+  return { blocked: false };
+}
+function settledPeriodBody(orgId: number, accDate: string, from: string, to: string) {
+  return {
+    error: {
+      code: "SETTLED_PERIOD",
+      message: `거래일 ${accDate}가 결산확정된 기간(${from}~${to}) 내입니다. 확정 후 수정은 결산치와 원장을 어긋나게 할 수 있습니다.`,
+      org_id: orgId,
+      acc_date: accDate,
+      range: [from, to],
+    },
+  };
+}
+
 export async function GET(request: NextRequest) {
-  const orgId = request.nextUrl.searchParams.get("orgId");
+  const orgIdParam = request.nextUrl.searchParams.get("orgId");
   const incmSecCd = request.nextUrl.searchParams.get("incmSecCd");
 
-  if (!orgId) return NextResponse.json({ error: "orgId required" }, { status: 400 });
+  // 인가: 로그인 + 해당 org 소속 검증(IDOR 방어). orgId 는 여기서 정수로 확정된다.
+  const auth = await requireOrgMembership(orgIdParam, membershipClient);
+  if (!auth.ok) return auth.response;
+  const orgId = auth.orgId;
 
   // maxRcpNo 조회 (증빙서번호 자동채번용)
   const maxRcpNoFlag = request.nextUrl.searchParams.get("maxRcpNo");
@@ -98,15 +221,27 @@ export async function GET(request: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Also fetch summary (total income/expense for this org)
-  const { data: allData } = await supabase
-    .from("acc_book")
-    .select("incm_sec_cd, acc_amt")
-    .eq("org_id", Number(orgId))
-    .limit(100000);
-
-  const inc = (allData || []).filter((r) => r.incm_sec_cd === 1).reduce((s, r) => s + r.acc_amt, 0);
-  const exp = (allData || []).filter((r) => r.incm_sec_cd === 2).reduce((s, r) => s + r.acc_amt, 0);
+  // 요약(총수입/총지출) — DB 집계 RPC(SUM GROUP BY, scripts/025)로 2행만 받는다.
+  // RPC 미적용 환경에서는 기존 전건 fetch+reduce 로 폴백(무해).
+  let inc = 0;
+  let exp = 0;
+  const { data: totals, error: totalsErr } = await supabase.rpc("org_income_expense_totals", {
+    p_org_id: orgId,
+  });
+  if (!totalsErr && Array.isArray(totals)) {
+    for (const t of totals as { incm_sec_cd: number; total: number }[]) {
+      if (t.incm_sec_cd === 1) inc = Number(t.total) || 0;
+      else if (t.incm_sec_cd === 2) exp = Number(t.total) || 0;
+    }
+  } else {
+    const { data: allData } = await supabase
+      .from("acc_book")
+      .select("incm_sec_cd, acc_amt")
+      .eq("org_id", orgId)
+      .limit(100000);
+    inc = (allData || []).filter((r) => r.incm_sec_cd === 1).reduce((s, r) => s + r.acc_amt, 0);
+    exp = (allData || []).filter((r) => r.incm_sec_cd === 2).reduce((s, r) => s + r.acc_amt, 0);
+  }
 
   // Filtered summary (sum of currently returned records)
   const records = data || [];
@@ -123,11 +258,18 @@ export async function POST(request: NextRequest) {
   const body = await request.json();
   const { action, ...payload } = body;
 
+  // 인가: action별 대상 org 확정 후 소속검증(IDOR 방어). 검증된 org 는 delete 스코프에 사용.
+  const guard = await authorizeAccBook(action, payload);
+  if (!guard.ok) return guard.response;
+  const authOrgId = guard.orgId;
+
   if (action === "insert") {
     const data0 = payload.data as Record<string, unknown>;
     // 거래일↔회계기간 검증 (year-data-separation). override(_allowOutOfPeriod) 시 통과.
     const allowOOP = data0._allowOutOfPeriod === true;
+    const allowSettled = data0._allowSettled === true;
     delete data0._allowOutOfPeriod;
+    delete data0._allowSettled;
     if (data0.acc_date && data0.org_id != null && !allowOOP) {
       const period = await fetchOrgPeriod(Number(data0.org_id));
       if (period) {
@@ -138,6 +280,16 @@ export async function POST(request: NextRequest) {
             { status: 400 },
           );
         }
+      }
+    }
+    // 결산확정 경고 (BX7). authOrgId = 소속검증된 org.
+    if (data0.acc_date && !allowSettled) {
+      const s = await checkSettledPeriod(authOrgId, String(data0.acc_date));
+      if (s.blocked) {
+        return NextResponse.json(
+          settledPeriodBody(authOrgId, String(data0.acc_date), s.from!, s.to!),
+          { status: 400 },
+        );
       }
     }
     // 거래처 미선택(-999/0/null)은 공유 익명 거래처의 실제 cust_id 로 치환.
@@ -157,29 +309,30 @@ export async function POST(request: NextRequest) {
 
   if (action === "update") {
     const data0 = payload.data as Record<string, unknown>;
-    // 거래일↔회계기간 검증 (acc_date 변경 시). org_id는 data 또는 기존 행에서.
+    // 거래일↔회계기간 검증 (acc_date 변경 시). 대상 org 는 소속검증된 authOrgId.
     const allowOOP = data0._allowOutOfPeriod === true;
+    const allowSettled = data0._allowSettled === true;
     delete data0._allowOutOfPeriod;
+    delete data0._allowSettled;
     if (data0.acc_date && !allowOOP) {
-      let orgId = data0.org_id != null ? Number(data0.org_id) : null;
-      if (orgId == null) {
-        const { data: ex } = await supabase
-          .from("acc_book")
-          .select("org_id")
-          .eq("acc_book_id", payload.acc_book_id)
-          .maybeSingle();
-        orgId = (ex as { org_id?: number } | null)?.org_id ?? null;
-      }
-      if (orgId != null) {
-        const period = await fetchOrgPeriod(orgId);
-        if (period) {
-          const chk = isAccDateInOrgPeriod(String(data0.acc_date), period);
-          if (!chk.ok) {
-            return NextResponse.json(outOfPeriodBody(orgId, String(data0.acc_date), chk), {
-              status: 400,
-            });
-          }
+      const period = await fetchOrgPeriod(authOrgId);
+      if (period) {
+        const chk = isAccDateInOrgPeriod(String(data0.acc_date), period);
+        if (!chk.ok) {
+          return NextResponse.json(outOfPeriodBody(authOrgId, String(data0.acc_date), chk), {
+            status: 400,
+          });
         }
+      }
+    }
+    // 결산확정 경고 (BX7).
+    if (data0.acc_date && !allowSettled) {
+      const s = await checkSettledPeriod(authOrgId, String(data0.acc_date));
+      if (s.blocked) {
+        return NextResponse.json(
+          settledPeriodBody(authOrgId, String(data0.acc_date), s.from!, s.to!),
+          { status: 400 },
+        );
       }
     }
     if ("cust_id" in data0 && needsAnonymousResolve(data0.cust_id)) {
@@ -195,7 +348,12 @@ export async function POST(request: NextRequest) {
   }
 
   if (action === "delete") {
-    const { error } = await supabase.from("acc_book").delete().in("acc_book_id", payload.ids);
+    // 검증된 org 로 스코프를 걸어 심층 방어(가드가 이미 단일 org 소속을 확인).
+    const { error } = await supabase
+      .from("acc_book")
+      .delete()
+      .eq("org_id", authOrgId)
+      .in("acc_book_id", payload.ids);
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     return NextResponse.json({ success: true });
   }
@@ -347,8 +505,21 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // 성능(P-2): 행당 customer 조회+생성+acc_book insert(3N 왕복)를 일괄화한다.
+    //   ① 코드매핑(메모리) + provider 수집 → ② customer 일괄 조회 → ③ 신규 일괄 생성
+    //   → ④ acc_book 청크 배열 insert. 거래처 매칭은 org 범위 격리 유지(011, key="org|name").
+    const custKey = (orgId: number | null | undefined, name: string) => `${orgId ?? "null"}|${name}`;
+    const namedProvider = (p: string | undefined): p is string =>
+      !!p && p !== "익명" && p.trim() !== "";
+
+    // ① 코드매핑 + provider 수집 (DB 왕복 없음)
+    const preparedRows: Record<string, unknown>[] = [];
+    const providerInfo = new Map<
+      string,
+      { name: string; orgId: number | null; regNum: string; custType: string | undefined;
+        addr: string | null; job: string | null; tel: string | null }
+    >();
     for (const row of rows as Record<string, unknown>[]) {
-      // Safety net: if client sent acc_sec_cd=0 but provided _account/_subject, map server-side
       const accSecRaw = row.acc_sec_cd;
       const orgId = row.org_id as number | undefined;
       const account = row._account as string | undefined;
@@ -375,52 +546,82 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Auto-register or match customer
-      let custId = anonCustId;
       const provider = row._provider as string | undefined;
-      const regNum = row._regNum as string | undefined;
-      const custType = row._custType as string | undefined;
-
-      if (provider && provider !== "익명" && provider.trim() !== "") {
-        // 거래처 매칭/생성을 org 범위로 격리 (011): 같은 이름이라도 org가 다르면 별개 거래처.
-        let existingQuery = supabase
-          .from("customer")
-          .select("cust_id")
-          .eq("name", provider);
-        if (orgId != null) existingQuery = existingQuery.eq("org_id", orgId);
-        const { data: existing } = await existingQuery.limit(1);
-
-        if (existing && existing.length > 0) {
-          custId = (existing[0] as { cust_id: number }).cust_id;
-        } else {
-          const rn = regNum || "9999";
-          const csc = custType === "사업자" ? 62 : 63;
-          const { data: newCust } = await supabase
-            .from("customer")
-            .insert({
-              cust_sec_cd: csc,
-              name: provider,
-              reg_num: rn,
-              org_id: orgId ?? null,
-              addr: row._addr as string || null,
-              job: row._job as string || null,
-              tel: row._tel as string || null,
-            })
-            .select("cust_id")
-            .single();
-          if (newCust) custId = (newCust as { cust_id: number }).cust_id;
+      if (namedProvider(provider)) {
+        const key = custKey(orgId, provider);
+        if (!providerInfo.has(key)) {
+          providerInfo.set(key, {
+            name: provider,
+            orgId: orgId ?? null,
+            regNum: (row._regNum as string) || "9999",
+            custType: row._custType as string | undefined,
+            addr: (row._addr as string) || null,
+            job: (row._job as string) || null,
+            tel: (row._tel as string) || null,
+          });
         }
       }
+      preparedRows.push(row);
+    }
 
-      // Remove all internal (_-prefixed) fields before insert
+    // ② 기존 customer 일괄 조회 (org 격리는 key 로 판별)
+    const custMap = new Map<string, number>();
+    const uniqueNames = [...new Set([...providerInfo.values()].map((p) => p.name))];
+    if (uniqueNames.length > 0) {
+      const { data: existingCusts } = await supabase
+        .from("customer")
+        .select("cust_id, name, org_id")
+        .in("name", uniqueNames);
+      for (const c of (existingCusts ?? []) as { cust_id: number; name: string; org_id: number | null }[]) {
+        custMap.set(custKey(c.org_id, c.name), c.cust_id);
+      }
+    }
+
+    // ③ 없는 provider 일괄 생성
+    const toCreate = [...providerInfo.entries()]
+      .filter(([key]) => !custMap.has(key))
+      .map(([, p]) => ({
+        cust_sec_cd: p.custType === "사업자" ? 62 : 63,
+        name: p.name,
+        reg_num: p.regNum,
+        org_id: p.orgId,
+        addr: p.addr,
+        job: p.job,
+        tel: p.tel,
+      }));
+    if (toCreate.length > 0) {
+      const { data: created, error: createErr } = await supabase
+        .from("customer")
+        .insert(toCreate)
+        .select("cust_id, name, org_id");
+      if (createErr) {
+        return NextResponse.json({ error: `거래처 일괄 생성 실패: ${createErr.message}` }, { status: 400 });
+      }
+      for (const c of (created ?? []) as { cust_id: number; name: string; org_id: number | null }[]) {
+        custMap.set(custKey(c.org_id, c.name), c.cust_id);
+      }
+    }
+
+    // ④ acc_book 행 구성 + 청크 배열 insert
+    const insertRows = preparedRows.map((row) => {
+      const orgId = row.org_id as number | undefined;
+      const provider = row._provider as string | undefined;
+      const custId = namedProvider(provider)
+        ? custMap.get(custKey(orgId, provider)) ?? anonCustId
+        : anonCustId;
       const insertData: Record<string, unknown> = { ...row, cust_id: custId };
       for (const key of Object.keys(insertData)) {
         if (key.startsWith("_")) delete insertData[key];
       }
+      return insertData;
+    });
 
-      const { error } = await supabase.from("acc_book").insert(insertData);
-      if (error) errors.push(`row: ${error.message}`);
-      else success++;
+    const CHUNK = 500;
+    for (let i = 0; i < insertRows.length; i += CHUNK) {
+      const chunk = insertRows.slice(i, i + CHUNK);
+      const { error } = await supabase.from("acc_book").insert(chunk);
+      if (error) errors.push(`${i + 1}~${i + chunk.length}행: ${error.message}`);
+      else success += chunk.length;
     }
 
     return NextResponse.json({ success, failed: errors.length, errors: errors.slice(0, 5) });

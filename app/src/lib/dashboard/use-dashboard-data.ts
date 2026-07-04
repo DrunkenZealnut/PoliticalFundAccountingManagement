@@ -172,7 +172,13 @@ function processData(records: AccBookRow[], codes: CodeValue[]): DashboardData {
     codeNameById[c.cv_id] = c.cv_name;
     if (c.cv_name === "선거비용") electionExpenseItemCds.push(c.cv_id);
   }
-  const orgCtx = { electionExpenseItemCds, codeNameById };
+  // 익명 거래처(name='익명')의 실제 cust_id 집합 — DB에 -999 행이 없어 이름 기반으로 판정.
+  // (익명 기부가 기부자 수를 부풀리지 않도록 org-metrics 가 이 집합으로 제외)
+  const anonymousCustIds = new Set<number>();
+  for (const r of records) {
+    if (r.cust_id != null && r.customer?.[0]?.name === "익명") anonymousCustIds.add(r.cust_id);
+  }
+  const orgCtx = { electionExpenseItemCds, codeNameById, anonymousCustIds };
 
   const orgRows = records as unknown as OrgMetricsRow[];
   const candidate = computeCandidateMetrics(orgRows, orgCtx);
@@ -224,8 +230,12 @@ export function useDashboardData(orgId: number | null) {
       const records = (accRes.data || []) as AccBookRow[];
       const codes = (codesRes.codeValues || []) as CodeValue[];
       const result = processData(records, codes);
-      // 해당 기관에서 사용 중인 고유 거래처 수
-      const uniqueCustIds = new Set(records.map((r) => r.cust_id).filter(Boolean));
+      // 해당 기관에서 사용 중인 고유 거래처 수 (익명 name='익명'은 제외 — 거래처 수 과대 방지)
+      const uniqueCustIds = new Set(
+        records
+          .filter((r) => r.cust_id != null && r.customer?.[0]?.name !== "익명")
+          .map((r) => r.cust_id as number),
+      );
       result.summary.customerCount = uniqueCustIds.size;
 
       setData(result);

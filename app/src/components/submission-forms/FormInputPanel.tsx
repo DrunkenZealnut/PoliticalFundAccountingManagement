@@ -3,7 +3,7 @@
 /**
  * 선택한 HWPX 서식의 입력 폼. DB 자동 prefill + 수동 보완 → /api/hwpx/generate 호출 → 다운로드.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -71,11 +71,30 @@ export default function FormInputPanel({ def, prefill }: Props) {
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 사용자가 직접 수정한 필드 토큰(입력값 보존용) + 직전 def(서식 전환 감지).
+  const dirtyRef = useRef<Set<string>>(new Set());
+  const prevDefRef = useRef<HwpxFormDef | null>(null);
 
-  // 서식 변경 또는 prefill 갱신 시 초기값 재설정
+  // 서식 전환 시엔 전체 prefill 재설정, prefill 참조만 갱신될 때(organ 비동기 fetch resolve 등)는
+  // 사용자가 이미 입력·수정한 필드(dirty)는 보존하고 나머지 자동 필드만 갱신한다.
+  // (기존엔 prefill 갱신마다 setValues(prefill(def))로 입력값 전체를 덮어써 race 로 소실됐음)
   useEffect(() => {
-    setValues(prefill(def));
-    setError(null);
+    const defChanged = prevDefRef.current !== def;
+    prevDefRef.current = def;
+    const fresh = prefill(def);
+    if (defChanged) {
+      dirtyRef.current = new Set();
+      setValues(fresh);
+      setError(null);
+    } else {
+      setValues((prev) => {
+        const next = { ...prev };
+        for (const [k, v] of Object.entries(fresh)) {
+          if (!dirtyRef.current.has(k)) next[k] = v;
+        }
+        return next;
+      });
+    }
   }, [def, prefill]);
 
   const missingRequired = useMemo(
@@ -83,8 +102,10 @@ export default function FormInputPanel({ def, prefill }: Props) {
     [def, values]
   );
 
-  const setField = (token: string, v: string) =>
+  const setField = (token: string, v: string) => {
+    dirtyRef.current.add(token);
     setValues((prev) => ({ ...prev, [token]: v }));
+  };
 
   /** def.fields 값을 전송 payload 로 — 날짜 필드는 한글 표기로 변환. (두 생성 핸들러 공통) */
   const buildFieldValues = (): Record<string, string> => {

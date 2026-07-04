@@ -216,6 +216,34 @@ describe("computeSupporterMetrics", () => {
     expect(m.anonymousDonor).toBe(true);
   });
 
+  it("실제 익명 cust_id(양수)를 anonymousCustIds 로 판정 — 중복 익명이 기부자 수를 부풀리지 않음", () => {
+    // DB엔 -999가 없고 익명 정본·중복이 양수 cust_id(예: 39/65/117)로 저장됨.
+    const ctx: OrgMetricsContext = { ...CTX, anonymousCustIds: new Set([39, 65, 117]) };
+    const m = computeSupporterMetrics(
+      [
+        row({ incm_sec_cd: 1, cust_id: 39, acc_amt: 1000 }),
+        row({ incm_sec_cd: 1, cust_id: 65, acc_amt: 1500 }), // 익명 중복 — 별도 기부자로 세면 안 됨
+        row({ incm_sec_cd: 1, cust_id: 117, acc_amt: 500 }),
+        row({ incm_sec_cd: 1, cust_id: 5, acc_amt: 2000 }), // 실명 기부자 1명
+      ],
+      "202606",
+      ctx,
+    );
+    expect(m.donorCount).toBe(1); // 실명 5만 — 익명 3행 제외
+    expect(m.anonymousDonor).toBe(true);
+    expect(m.totalRaised).toBe(5000); // 모금총액은 익명 포함 전액
+  });
+
+  it("anonymousCustIds 미지정이면 익명이 기부자로 잘못 집계됨(회귀 방지 — 로더가 반드시 채워야 함)", () => {
+    const m = computeSupporterMetrics(
+      [row({ incm_sec_cd: 1, cust_id: 39, acc_amt: 1000 })],
+      "202606",
+      CTX, // anonymousCustIds 없음
+    );
+    expect(m.donorCount).toBe(1); // 판정 불가 → 실명 취급(이 상황을 로더가 anonymousCustIds로 방지)
+    expect(m.anonymousDonor).toBe(false);
+  });
+
   it("잔여 모금액 = 모금총액 - 총지출", () => {
     const m = computeSupporterMetrics(
       [

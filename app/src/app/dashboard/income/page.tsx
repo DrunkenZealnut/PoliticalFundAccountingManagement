@@ -269,6 +269,7 @@ export default function IncomePage() {
 
   async function handleDelete() {
     if (!selected) return;
+    if (cycleLock.locked) { alert("옛 선거주기 사용기관은 읽기전용입니다. 상단 '잠금 해제' 후 진행하세요."); return; }
     if (!confirm("선택한 수입내역을 삭제하시겠습니까?")) return;
 
     await fetch("/api/acc-book", {
@@ -298,6 +299,7 @@ export default function IncomePage() {
 
   async function handleBatchDelete() {
     if (checkedIds.size === 0) return;
+    if (cycleLock.locked) { alert("옛 선거주기 사용기관은 읽기전용입니다. 상단 '잠금 해제' 후 진행하세요."); return; }
     if (!confirm(`선택한 ${checkedIds.size}건의 수입내역을 삭제하시겠습니까?`)) return;
 
     const toDelete = records.filter((r) => checkedIds.has(r.acc_book_id));

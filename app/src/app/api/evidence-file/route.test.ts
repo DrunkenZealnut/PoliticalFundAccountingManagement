@@ -8,6 +8,9 @@ import { NextRequest } from "next/server";
  * 필요한 필드만 구조분해로 가져가므로 단일 result에 여러 필드를 담아 처리한다.
  */
 const state: {
+  user: { id: string } | null;
+  membership: Record<string, unknown> | null;
+  membershipError: unknown;
   listRows: Array<Record<string, unknown>>;
   listError: unknown;
   count: number;
@@ -21,6 +24,9 @@ const state: {
   uploadError: unknown;
   lastUpload: { path: string; opts: unknown } | null;
 } = {
+  user: { id: "u1" },
+  membership: { org_id: 7 },
+  membershipError: null,
   listRows: [],
   listError: null,
   count: 0,
@@ -35,8 +41,18 @@ const state: {
   lastUpload: null,
 };
 
+vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServer: vi.fn(() =>
+    Promise.resolve({
+      auth: {
+        getUser: vi.fn(() => Promise.resolve({ data: { user: state.user }, error: null })),
+      },
+    })
+  ),
+}));
+
 vi.mock("@supabase/supabase-js", () => {
-  function makeChain() {
+  function makeChain(table: string) {
     const chain: Record<string, unknown> = { _mode: null };
     chain.select = vi.fn((_cols?: string, opts?: { head?: boolean }) => {
       if (opts?.head) chain._mode = "count";
@@ -53,7 +69,12 @@ vi.mock("@supabase/supabase-js", () => {
     chain.eq = vi.fn(() => chain);
     chain.order = vi.fn(() => Promise.resolve({ data: state.listRows, error: state.listError }));
     chain.single = vi.fn(() => Promise.resolve({ data: state.insertRow, error: state.insertError }));
-    chain.maybeSingle = vi.fn(() => Promise.resolve({ data: state.findRow, error: state.findError }));
+    chain.maybeSingle = vi.fn(() => {
+      // requireOrgMembership 의 user_organ 소속조회는 membership 을 반환한다.
+      if (table === "user_organ")
+        return Promise.resolve({ data: state.membership, error: state.membershipError });
+      return Promise.resolve({ data: state.findRow, error: state.findError });
+    });
     chain.then = (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) => {
       let r: unknown;
       if (chain._mode === "count") r = { count: state.count, error: null };
@@ -79,7 +100,7 @@ vi.mock("@supabase/supabase-js", () => {
   };
 
   const client = {
-    from: vi.fn(() => makeChain()),
+    from: vi.fn((table: string) => makeChain(table)),
     storage: {
       getBucket: vi.fn(() => Promise.resolve({ data: { name: "evidence" } })),
       createBucket: vi.fn(() => Promise.resolve({})),
@@ -94,6 +115,9 @@ import { GET, POST, DELETE } from "./route";
 
 function reset() {
   Object.assign(state, {
+    user: { id: "u1" },
+    membership: { org_id: 7 },
+    membershipError: null,
     listRows: [],
     listError: null,
     count: 0,
@@ -229,5 +253,41 @@ describe("DELETE /api/evidence-file", () => {
   it("fileId/orgId 누락 시 400", async () => {
     const res = await DELETE(new NextRequest("http://t/api/evidence-file", { method: "DELETE" }));
     expect(res.status).toBe(400);
+  });
+});
+
+describe("/api/evidence-file 인가(IDOR 방어)", () => {
+  it("비로그인 GET 401", async () => {
+    state.user = null;
+    const res = await GET(new NextRequest("http://t/api/evidence-file?orgId=7"));
+    expect(res.status).toBe(401);
+  });
+  it("비소속 GET 403", async () => {
+    state.membership = null;
+    const res = await GET(new NextRequest("http://t/api/evidence-file?orgId=7"));
+    expect(res.status).toBe(403);
+  });
+  it("비소속 POST 403", async () => {
+    state.membership = null;
+    const res = await POST(
+      new NextRequest("http://t/api/evidence-file", {
+        method: "POST",
+        body: JSON.stringify({
+          accBookId: 3,
+          orgId: 7,
+          fileName: "a.jpg",
+          fileType: "image/jpeg",
+          fileData: "QUJD",
+        }),
+      })
+    );
+    expect(res.status).toBe(403);
+  });
+  it("비소속 DELETE 403", async () => {
+    state.membership = null;
+    const res = await DELETE(
+      new NextRequest("http://t/api/evidence-file?fileId=5&orgId=7", { method: "DELETE" })
+    );
+    expect(res.status).toBe(403);
   });
 });

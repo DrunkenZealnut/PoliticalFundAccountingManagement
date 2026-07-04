@@ -95,7 +95,8 @@ export default function IncomeExpenseBookPage() {
       .select("acc_book_id, incm_sec_cd, acc_sec_cd, item_sec_cd, acc_date, content, acc_amt, rcp_yn, rcp_no, bigo, acc_print_ok, cust_id, customer:cust_id(name, reg_num, addr, job, tel)")
       .eq("org_id", orgId)
       .gte("acc_date", fromStr)
-      .lte("acc_date", toStr);
+      .lte("acc_date", toStr)
+      .limit(100000); // 기본 max-rows(≈1000) truncation 방지 — 재조정 뷰어 행 유실 차단
 
     if (error) {
       alert(`조회 실패: ${error.message}`);

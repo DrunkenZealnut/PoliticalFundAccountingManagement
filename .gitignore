@@ -68,5 +68,9 @@ nohup.out
 
 # 백업·검증 산출물 (프로덕션 금융데이터 덤프·일회용 — 추적 제외)
 /backups/
+app/backups/
 /.playwright-mcp/
+
+# 로컬 dev 프록시 설정 (도구 생성, 머신별)
+.devproxy.json
 /verify-*.png

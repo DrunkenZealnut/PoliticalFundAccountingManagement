@@ -38,6 +38,12 @@ export interface OrgMetricsContext {
   electionExpenseItemCds: number[];
   /** cv_id → 코드명 (자금원 이름 폴백 + 후보자 기부금 item 식별) */
   codeNameById: Record<number, string>;
+  /**
+   * 익명 거래처(name='익명')의 실제 cust_id 집합. DB에는 PFund2 센티널 -999 행이 없고
+   * (import 시 remap됨) 익명 정본·중복이 실제 양수 cust_id 로 저장되므로, 익명 기부 판정은
+   * cust_id === -999 비교가 아니라 이 집합으로 해야 한다(로더가 customer.name 으로 구성).
+   */
+  anonymousCustIds?: Set<number>;
 }
 
 const EMPTY_CONTEXT: OrgMetricsContext = { electionExpenseItemCds: [], codeNameById: {} };
@@ -187,6 +193,11 @@ export function computeSupporterMetrics(
   for (let i = 5; i >= 0; i--) months.push(addMonths(currentYM, -i));
   const monthSums = new Map<string, number>(months.map((m) => [m, 0]));
 
+  // 익명 판정: 실제 익명 cust_id 집합(로더 구성) + 하위호환 센티널(-999).
+  const anonIds = ctx.anonymousCustIds;
+  const isAnonymousDonor = (custId: number) =>
+    custId === ANONYMOUS_CUST_ID || (anonIds?.has(custId) ?? false);
+
   for (const r of rows) {
     if (isIncome(r)) {
       totalRaised += r.acc_amt;
@@ -195,7 +206,9 @@ export function computeSupporterMetrics(
       if (monthSums.has(mk)) monthSums.set(mk, monthSums.get(mk)! + r.acc_amt);
 
       if (r.cust_id != null) {
-        if (r.cust_id === ANONYMOUS_CUST_ID) {
+        if (isAnonymousDonor(r.cust_id)) {
+          // 익명 기부는 기부자 수(donorIds)·신규 기부자에서 제외 — 중복 익명 행이
+          // 참여자 수를 부풀리지 않도록. 익명 포함 여부만 플래그로 표기.
           anonymousDonor = true;
         } else {
           donorIds.add(r.cust_id);

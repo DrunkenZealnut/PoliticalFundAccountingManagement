@@ -52,6 +52,41 @@ export function isAccDateInOrgPeriod(accDate: string, p: OrgPeriod): PeriodCheck
   return { ok: true, lo: range.lo, hi: range.hi };
 }
 
+export interface OutOfPeriodSummary {
+  /** org 유효기간 밖(before/after) 거래 건수 */
+  count: number;
+  /** 검증에 쓴 [lo, hi] — 기간 정보 없으면 null(검증 skip) */
+  range: { lo: string; hi: string } | null;
+  /** 표면화용 샘플(최대 sampleLimit개) */
+  samples: { acc_date: string; reason: "before" | "after" }[];
+}
+
+/**
+ * 산출물(결산·export·보고서) 생성 시점에 org 회계기간 밖 거래 건수를 센다(FR-07, 경고 표면화용).
+ * 생성 자체는 막지 않는다 — 오연도 혼입 등을 사용자에게 알리는 용도(은폐 금지 방침).
+ * 기간 정보가 없으면 count 0(검증 skip). 형식 이상 거래일은 세지 않는다(isAccDateInOrgPeriod와 동일).
+ */
+export function countOutOfPeriodRows(
+  rows: { acc_date?: string | null }[],
+  p: OrgPeriod,
+  sampleLimit = 5,
+): OutOfPeriodSummary {
+  const range = orgValidRange(p);
+  if (!range) return { count: 0, range: null, samples: [] };
+  let count = 0;
+  const samples: { acc_date: string; reason: "before" | "after" }[] = [];
+  for (const r of rows) {
+    const chk = isAccDateInOrgPeriod(String(r.acc_date ?? ""), p);
+    if (!chk.ok && (chk.reason === "before" || chk.reason === "after")) {
+      count++;
+      if (samples.length < sampleLimit) {
+        samples.push({ acc_date: String(r.acc_date ?? ""), reason: chk.reason });
+      }
+    }
+  }
+  return { count, range, samples };
+}
+
 /** acc_from 연도로 선거주기(연도) 파생 — election_cycle 컬럼 fallback. */
 export function electionCycleOf(p: OrgPeriod): string | null {
   const f = ymd(p.acc_from);

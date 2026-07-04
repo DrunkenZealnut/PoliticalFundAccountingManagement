@@ -149,7 +149,8 @@ export async function POST(request: NextRequest) {
         // 빌더가 compareAccDateTime + tie-break(수입 먼저)로 재정렬하므로 결정적 보조키만 부여한다.
         .order("acc_date", { ascending: true })
         .order("acc_sort_num", { ascending: true, nullsFirst: true })
-        .order("acc_book_id", { ascending: true });
+        .order("acc_book_id", { ascending: true })
+        .limit(100000); // 기본 max-rows(≈1000) truncation 방지 — 회계보고서 집계 유실 차단
       if (rowsErr) {
         return errorResponse("QUERY_FAILED", "수입·지출내역 조회에 실패했습니다.", 500, { detail: rowsErr.message });
       }
