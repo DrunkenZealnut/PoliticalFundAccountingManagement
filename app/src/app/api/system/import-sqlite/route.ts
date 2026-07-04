@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import {
+  requireOrgMembership,
+  type MembershipQueryClient,
+} from "@/lib/api/require-org-membership";
 import initSqlJs from "sql.js";
 import path from "path";
 import { readFileSync } from "fs";
@@ -192,6 +196,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "orgId required" }, { status: 400 });
     }
 
+    // 인가: 로그인 + 해당 org 소속 검증(IDOR 방어 — 타 기관 데이터 파괴·overwrite 차단).
+    const auth = await requireOrgMembership(orgId, supabase as unknown as MembershipQueryClient);
+    if (!auth.ok) return auth.response;
+
     const conflictPolicy = parseConflictPolicy(conflictPolicyRaw);
 
     const numOrgId = Number(orgId);
@@ -272,11 +280,17 @@ export async function POST(request: NextRequest) {
 
     // ──────────────────────────────────────────────────────
     // STEP 1: conflictPolicy에 따라 기존 데이터 처리
-    // - overwrite (기본): 기존 데이터 삭제 후 재삽입 (full replace)
-    // - skip: 기존 데이터 보존, .db의 새 row만 추가
-    // - merge: 동일 PK는 update, 없으면 insert (현재는 skip과 동일하게 동작 + 보고서로 안내)
+    // - overwrite (기본): org 거래성 데이터(거래·거래처·재산·백업)를 삭제 후 재삽입 (full replace)
+    // - skip/merge: 거래성 데이터는 기존 유지(import 건너뜀), 참조코드·기관정보·의견만 갱신.
+    //
+    // ⚠️ BX4: CUSTOMER/ACC_BOOK/ESTATE 등은 identity PK 를 strip 하고 fresh insert 하므로
+    //   PK 충돌이 원천적으로 없어(자연키 없음) skip/merge 여도 "중복 판정"이 불가능했다.
+    //   → 과거엔 복구할 때마다 거래·거래처가 전량 복제됐다. 안전한 자연키가 없으므로
+    //   skip/merge 는 거래성 테이블 import 자체를 건너뛰어 기존 자료를 보존한다(STEP 4~9 가드).
+    //   거래 자료를 새로 불러오려면 overwrite(전체 교체)를 쓴다.
     // ──────────────────────────────────────────────────────
-    if (conflictPolicy === "overwrite") {
+    const replaceOrgData = conflictPolicy === "overwrite";
+    if (replaceOrgData) {
       await supabase.from("accbooksend").delete().gt("acc_book_id", 0);
       await supabase.from("acc_book_bak").delete().eq("org_id", numOrgId);
       await supabase.from("acc_book").delete().eq("org_id", numOrgId);
@@ -287,8 +301,8 @@ export async function POST(request: NextRequest) {
       await supabase.from("organ").delete().eq("org_id", numOrgId);
     } else {
       warnings.push(
-        `conflictPolicy=${conflictPolicy}: 기존 데이터를 삭제하지 않습니다. ` +
-        `동일 PK 충돌 시 ${conflictPolicy === "merge" ? "update" : "skip"} 처리됩니다.`,
+        `conflictPolicy=${conflictPolicy}: 거래·거래처·재산·백업은 기존 자료를 유지합니다(import 안 함). ` +
+        `참조코드·기관정보·의견만 갱신됩니다. 거래 자료를 새로 불러오려면 '전체 교체(overwrite)'를 사용하세요.`,
       );
     }
 
@@ -403,7 +417,7 @@ export async function POST(request: NextRequest) {
     // ──────────────────────────────────────────────────────
     const custIdMap = new Map<number, number>(); // old_cust_id → new_cust_id
 
-    if (existingTables.has("CUSTOMER")) {
+    if (replaceOrgData && existingTables.has("CUSTOMER")) {
       const rawRows = readSqliteTable(db, "CUSTOMER"); // includes cust_id
       let imported = 0;
       let skipped = 0;
@@ -431,12 +445,14 @@ export async function POST(request: NextRequest) {
 
       report.CUSTOMER = { imported, skipped };
       totalImported += imported;
+    } else if (existingTables.has("CUSTOMER")) {
+      report.CUSTOMER = { imported: 0, skipped: readSqliteTable(db, "CUSTOMER").length, error: "기존 유지(overwrite 아님)" };
     }
 
     // ──────────────────────────────────────────────────────
-    // STEP 5: CUSTOMER_ADDR — remap cust_id
+    // STEP 5: CUSTOMER_ADDR — remap cust_id (overwrite 전용 — custIdMap 이 비면 자동 무동작이나 명시 가드)
     // ──────────────────────────────────────────────────────
-    if (existingTables.has("CUSTOMER_ADDR")) {
+    if (replaceOrgData && existingTables.has("CUSTOMER_ADDR")) {
       const rows = readSqliteTable(db, "CUSTOMER_ADDR");
       const remapped = rows
         .map((r) => {
@@ -465,7 +481,7 @@ export async function POST(request: NextRequest) {
 
     const accBookIdMap = new Map<number, number>(); // old → new
 
-    if (existingTables.has("ACC_BOOK")) {
+    if (replaceOrgData && existingTables.has("ACC_BOOK")) {
       const rawRows = readSqliteTable(db, "ACC_BOOK");
       let imported = 0;
       let skipped = 0;
@@ -499,12 +515,14 @@ export async function POST(request: NextRequest) {
 
       report.ACC_BOOK = { imported, skipped };
       totalImported += imported;
+    } else if (existingTables.has("ACC_BOOK")) {
+      report.ACC_BOOK = { imported: 0, skipped: readSqliteTable(db, "ACC_BOOK").length, error: "기존 유지(overwrite 아님)" };
     }
 
     // ──────────────────────────────────────────────────────
-    // STEP 7: ACC_BOOK_BAK — strip identity, remap cust_id + acc_book_id
+    // STEP 7: ACC_BOOK_BAK — strip identity, remap cust_id + acc_book_id (overwrite 전용)
     // ──────────────────────────────────────────────────────
-    if (existingTables.has("ACC_BOOK_BAK")) {
+    if (replaceOrgData && existingTables.has("ACC_BOOK_BAK")) {
       const rawRows = readSqliteTable(db, "ACC_BOOK_BAK");
       const remapped = rawRows.map((r) => {
         const row: Record<string, unknown> = { ...r, org_id: numOrgId };
@@ -525,9 +543,9 @@ export async function POST(request: NextRequest) {
     }
 
     // ──────────────────────────────────────────────────────
-    // STEP 8: ACCBOOKSEND — remap acc_book_id
+    // STEP 8: ACCBOOKSEND — remap acc_book_id (overwrite 전용 — accBookIdMap 이 비면 무동작)
     // ──────────────────────────────────────────────────────
-    if (existingTables.has("ACCBOOKSEND")) {
+    if (replaceOrgData && existingTables.has("ACCBOOKSEND")) {
       const rows = readSqliteTable(db, "ACCBOOKSEND");
       const remapped = rows
         .map((r) => {
@@ -542,14 +560,16 @@ export async function POST(request: NextRequest) {
     }
 
     // ──────────────────────────────────────────────────────
-    // STEP 9: ESTATE — strip identity, remap org_id
+    // STEP 9: ESTATE — strip identity, remap org_id (overwrite 전용 — identity strip 이라 중복 복제 방지)
     // ──────────────────────────────────────────────────────
-    if (existingTables.has("ESTATE")) {
+    if (replaceOrgData && existingTables.has("ESTATE")) {
       const rows = readSqliteTable(db, "ESTATE", ["estate_id"]);
       const remapped = rows.map((r) => ({ ...r, org_id: numOrgId }));
       const r = await bulkInsert(supabase, "estate", remapped);
       report.ESTATE = r;
       totalImported += r.imported;
+    } else if (existingTables.has("ESTATE")) {
+      report.ESTATE = { imported: 0, skipped: readSqliteTable(db, "ESTATE").length, error: "기존 유지(overwrite 아님)" };
     }
 
     // ──────────────────────────────────────────────────────

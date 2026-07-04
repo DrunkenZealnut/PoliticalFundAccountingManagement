@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import {
+  requireOrgMembership,
+  type MembershipQueryClient,
+} from "@/lib/api/require-org-membership";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -31,20 +35,10 @@ export async function GET(req: NextRequest) {
   const orgId = req.nextUrl.searchParams.get("orgId");
   const orgType = req.nextUrl.searchParams.get("orgType") || "candidate";
 
-  if (!orgId) {
-    return NextResponse.json({ error: "orgId required" }, { status: 400 });
-  }
-
-  const numOrgId = Number(orgId);
-
-  // 소유권 검증: 해당 orgId가 실제 존재하는지 확인
-  const { count: orgExists } = await supabase
-    .from("organ")
-    .select("org_id", { count: "exact", head: true })
-    .eq("org_id", numOrgId);
-  if (!orgExists) {
-    return NextResponse.json({ error: "invalid orgId" }, { status: 403 });
-  }
+  // 인가: 존재확인이 아니라 로그인 + 소속검증(IDOR 방어 — orgId 열거로 타 기관 데이터 유무 추론 차단).
+  const auth = await requireOrgMembership(orgId, supabase as unknown as MembershipQueryClient);
+  if (!auth.ok) return auth.response;
+  const numOrgId = auth.orgId;
 
   const stepIds = WORKFLOW_DEFINITIONS[orgType] || WORKFLOW_DEFINITIONS.candidate;
 

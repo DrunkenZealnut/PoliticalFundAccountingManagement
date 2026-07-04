@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import {
+  requireOrgMembership,
+  type MembershipQueryClient,
+} from "@/lib/api/require-org-membership";
+import { sumEstateAmount } from "@/lib/accounting/estate-types";
+import { countOutOfPeriodRows } from "@/lib/accounting/acc-period";
 import initSqlJs from "sql.js";
 import path from "path";
 import { readFileSync } from "fs";
@@ -531,6 +537,7 @@ const APP_ONLY_OPINION_COLUMNS = [
   "position03", "addr03", "name03",
   "position04", "addr04", "name04",
   "position05", "addr05", "name05",
+  "settled_at", // scripts/023 결산확정 플래그 — 공식 OPINION DDL 에 없어 export 전 제거
 ] as const;
 
 /**
@@ -614,7 +621,9 @@ async function fetchTable(
       .gte(yearFilter.col, `${yearFilter.year}0101`)
       .lte(yearFilter.col, `${yearFilter.year}1231`);
   }
-  const { data, error } = await query;
+  // 명시적 상한 — 미지정 시 PostgREST/Supabase 기본 max-rows(통상 1000)로 조용히 잘려
+  // 공식 제출 .db 의 거래·거래처가 유실될 수 있다. 앱 내 다른 조회 관례와 동일하게 100000.
+  const { data, error } = await query.limit(100000);
   if (error) throw new Error(`${table}: ${error.message}`);
   return data || [];
 }
@@ -672,6 +681,10 @@ export async function GET(request: NextRequest) {
   if (!orgId) {
     return NextResponse.json({ error: "orgId required" }, { status: 400 });
   }
+
+  // 인가: 로그인 + 해당 org 소속 검증(IDOR 방어 — 타 기관 전체 재무데이터·자격증명(userid/passwd) 유출 차단).
+  const auth = await requireOrgMembership(orgId, supabase as unknown as MembershipQueryClient);
+  if (!auth.ok) return auth.response;
 
   // restore 모드: 프로그램 실제 ORG_ID 필수(복구는 ORGAN을 이 ID 그대로 INSERT).
   let restoreOrgId: number | null = null;
@@ -821,11 +834,10 @@ export async function GET(request: NextRequest) {
         acc_amt: Number(r.acc_amt ?? 0),
       }));
     const settlement = computeBalances(accBookRows);
-    const estateTotal = (estate as Record<string, unknown>[])
-      .reduce(
-        (sum, e) => sum + Number(e.amt ?? 0) * Number(e.qty ?? 1),
-        0,
-      );
+    // 재산 합계는 estate-types SSOT(amt×qty) — settlement 화면·recompute와 동일 기준.
+    const estateTotal = sumEstateAmount(
+      estate as unknown as ReadonlyArray<{ amt: number | null; qty?: number | null }>,
+    );
 
     const settlementOverlay = {
       in_amt: settlement.incomeTotal,
@@ -992,12 +1004,22 @@ export async function GET(request: NextRequest) {
       pfund2DownloadFilename(mode, orgName, yearFilter?.year, restoreTs),
     );
 
-    return new NextResponse(dbBinary.buffer as ArrayBuffer, {
-      headers: {
-        "Content-Type": "application/x-sqlite3",
-        "Content-Disposition": `attachment; filename="${filename}"`,
-      },
-    });
+    // FR-07: 대상 org 회계기간 밖 거래(오연도 혼입 등)를 경고로 표면화한다.
+    //   .db 생성은 막지 않고(은폐 금지) 응답 헤더로 건수·샘플을 전달 → 클라(backup 페이지)가 안내.
+    const outOfPeriod = countOutOfPeriodRows(
+      accBook as { acc_date?: string | null }[],
+      supabaseOrgan as { acc_from?: string | null; acc_to?: string | null; pre_acc_from?: string | null },
+    );
+    const responseHeaders: Record<string, string> = {
+      "Content-Type": "application/x-sqlite3",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+    };
+    if (outOfPeriod.count > 0) {
+      responseHeaders["X-Out-Of-Period-Count"] = String(outOfPeriod.count);
+      responseHeaders["X-Out-Of-Period"] = encodeURIComponent(JSON.stringify(outOfPeriod));
+    }
+
+    return new NextResponse(dbBinary.buffer as ArrayBuffer, { headers: responseHeaders });
   } catch (err) {
     if (err instanceof ParityError) {
       return NextResponse.json(err.toResponse(), { status: err.httpStatus });

@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import {
+  requireOrgMembership,
+  type MembershipQueryClient,
+} from "@/lib/api/require-org-membership";
+import {
   aggregateReimbursementByFundingSource,
   type AccBookRow,
 } from "@/lib/accounting/reimbursement-aggregator";
@@ -26,6 +30,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "orgId 필수" }, { status: 400 });
   }
 
+  // 인가: 로그인 + 해당 org 소속 검증(IDOR 방어).
+  const auth = await requireOrgMembership(body.orgId, supabase as unknown as MembershipQueryClient);
+  if (!auth.ok) return auth.response;
+
   // 1. 코드값에서 "선거비용" 과목(item_sec_cd) 목록 조회
   // codevalue.cs_id=20이 과목, cv_name이 "선거비용"인 모든 cv_id
   const { data: items, error: itemErr } = await supabase
@@ -50,7 +58,8 @@ export async function POST(request: NextRequest) {
     .from("acc_book")
     .select("acc_book_id, acc_sec_cd, item_sec_cd, acc_amt, claim_amt, acc_print_ok, incm_sec_cd")
     .eq("org_id", body.orgId)
-    .eq("incm_sec_cd", 2);
+    .eq("incm_sec_cd", 2)
+    .limit(100000); // 기본 max-rows(≈1000) truncation 방지 — 보전청구 집계 누락 차단
   if (rowErr) {
     return NextResponse.json({ error: rowErr.message }, { status: 500 });
   }

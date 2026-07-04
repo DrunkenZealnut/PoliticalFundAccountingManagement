@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { createClient } from "@supabase/supabase-js";
+import {
+  requireOrgMembership,
+  type MembershipQueryClient,
+} from "@/lib/api/require-org-membership";
 import { RECEIPT_OMITTED_LABEL } from "@/lib/accounting/receipt-no";
 
 const supabase = createClient(
@@ -243,9 +247,9 @@ export async function GET(request: NextRequest) {
   const accSecCd = request.nextUrl.searchParams.get("accSecCd");
   const itemSecCd = request.nextUrl.searchParams.get("itemSecCd");
 
-  if (!orgId) {
-    return NextResponse.json({ error: "orgId required" }, { status: 400 });
-  }
+  // 인가: 로그인 + 해당 org 소속 검증(IDOR 방어).
+  const auth = await requireOrgMembership(orgId, supabase as unknown as MembershipQueryClient);
+  if (!auth.ok) return auth.response;
 
   const codes = await getCodeNames();
 

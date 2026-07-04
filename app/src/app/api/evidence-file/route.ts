@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import {
+  requireOrgMembership,
+  type MembershipQueryClient,
+} from "@/lib/api/require-org-membership";
+import {
   buildEvidenceStoragePath,
   EVIDENCE_MAX_FILES,
   EVIDENCE_MAX_FILE_SIZE,
@@ -43,10 +47,9 @@ export async function GET(request: NextRequest) {
   const accBookId = request.nextUrl.searchParams.get("accBookId");
   const orgId = request.nextUrl.searchParams.get("orgId");
 
-  // service-role로 RLS를 우회하므로 org 필터가 유일한 접근 제어 → orgId 필수
-  if (!orgId) {
-    return NextResponse.json({ error: "orgId required" }, { status: 400 });
-  }
+  // 인가: 로그인 + 해당 org 소속 검증(IDOR 방어 — orgId 필터만으로는 신뢰 경계가 안 됨).
+  const auth = await requireOrgMembership(orgId, supabase as unknown as MembershipQueryClient);
+  if (!auth.ok) return auth.response;
 
   let query = supabase.from("evidence_file").select("*").eq("org_id", Number(orgId));
   if (accBookId) query = query.eq("acc_book_id", Number(accBookId));
@@ -85,6 +88,10 @@ export async function POST(request: NextRequest) {
     if (!orgId || !fileName || !fileType || !fileData) {
       return NextResponse.json({ error: "필수 필드 누락" }, { status: 400 });
     }
+
+    // 인가: 로그인 + 해당 org 소속 검증(IDOR 방어 — 타 기관에 증빙 주입 차단).
+    const auth = await requireOrgMembership(orgId, supabase as unknown as MembershipQueryClient);
+    if (!auth.ok) return auth.response;
 
     if (!isAllowedEvidenceMime(fileType)) {
       return NextResponse.json(
@@ -176,6 +183,10 @@ export async function DELETE(request: NextRequest) {
     if (Number.isNaN(fileId) || Number.isNaN(orgId)) {
       return NextResponse.json({ error: "fileId and orgId required" }, { status: 400 });
     }
+
+    // 인가: 로그인 + 해당 org 소속 검증(IDOR 방어 — 타 기관 증빙 삭제 차단).
+    const auth = await requireOrgMembership(orgId, supabase as unknown as MembershipQueryClient);
+    if (!auth.ok) return auth.response;
 
     // org 검증 + storage_path 확보
     const { data: row, error: findError } = await supabase

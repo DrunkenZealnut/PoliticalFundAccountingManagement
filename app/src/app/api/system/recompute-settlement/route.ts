@@ -21,10 +21,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import {
+  requireOrgMembership,
+  type MembershipQueryClient,
+} from "@/lib/api/require-org-membership";
+import {
   computeBalances,
   type AccBookRow,
   type ReimbursementCaps,
 } from "@/lib/accounting/settlement-calc";
+import { sumEstateAmount } from "@/lib/accounting/estate-types";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -60,13 +65,19 @@ export async function POST(request: NextRequest) {
       { status: 400 },
     );
   }
+
+  // 인가: 로그인 + 해당 org 소속 검증(IDOR 방어 — 타 기관 결산치 변조 차단).
+  const auth = await requireOrgMembership(orgId, supabase as unknown as MembershipQueryClient);
+  if (!auth.ok) return auth.response;
+
   const dryRun = body.dryRun === true;
 
   // 1) Fetch all acc_book rows for this org
   const { data: accBook, error: accErr } = await supabase
     .from("acc_book")
     .select("acc_book_id, org_id, incm_sec_cd, acc_sec_cd, item_sec_cd, exp_sec_cd, acc_date, acc_amt")
-    .eq("org_id", orgId);
+    .eq("org_id", orgId)
+    .limit(100000); // 기본 max-rows(≈1000) truncation 방지 — 결산 재계산 누락 차단
 
   if (accErr) {
     return NextResponse.json(
@@ -107,15 +118,12 @@ export async function POST(request: NextRequest) {
     reimbursementCaps,
   });
 
-  // 3) Optionally read estate total for OPINION.estate_amt
+  // 3) Optionally read estate total for OPINION.estate_amt (금액 = amt×qty SSOT)
   const { data: estateRows } = await supabase
     .from("estate")
     .select("amt, qty")
     .eq("org_id", orgId);
-  const estateTotal = (estateRows ?? []).reduce(
-    (acc, row) => acc + Number(row.amt ?? 0) * Number(row.qty ?? 1),
-    0,
-  );
+  const estateTotal = sumEstateAmount(estateRows ?? []);
 
   let opinionUpdated = false;
   if (!dryRun) {
