@@ -333,6 +333,7 @@ export type Database = {
           acc_torgnm: string | null;
           acc_borgnm: string | null;
           acc_repnm: string | null;
+          settled_at: string | null; // scripts/023 결산확정 시각(NULL=미확정)
         };
         Insert: Database["pfam"]["Tables"]["opinion"]["Row"];
         Update: Partial<Database["pfam"]["Tables"]["opinion"]["Row"]>;

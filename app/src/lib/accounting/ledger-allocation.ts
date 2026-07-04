@@ -1,12 +1,18 @@
 /* ------------------------------------------------------------------ */
-/*  수입·지출부 배분 조합 — buildLedgerRows = Pass0→Pass1→Pass2          */
+/*  수입·지출부 배분 조합 — buildLedgerRows = Pass0→L→1→2→3→4 (v0.31.0.0) */
 /*                                                                    */
 /*  후보자 raw acc_book 행을 받아 공식(Fund_Data_1.db)과 동일한 구조의     */
 /*  장부 행으로 변환한다(표시·영구화 공용 SSOT).                          */
 /*   - Pass0 adjustNegativeIncome: 음수 수입 → 양수 지출 정규화.          */
+/*   - PassL applyLoudspeakerAnchor: 확성기(적요"확성기"∧540,000) 지출을   */
+/*     계정 84·과목 86으로 강제 고정 + Pass1 이동 제외.                   */
 /*   - Pass1 reallocateFundSources: 자금원 음수잔액 해소(지출을 계정 간     */
 /*     이동, 과목은 불변).                                               */
 /*   - Pass2 allocateIncomeToItems: 수입을 충당 과목으로 재태깅.          */
+/*   - Pass3 zeroItemBalances: 남은 (계정×과목) 불균형을 같은 자금원 잉여   */
+/*     과목 수입 재배정으로 0(자금원 총액=0일 때만 강제).                  */
+/*   - Pass4 scheduleExpenseDates: (계정×과목) 지출일을 누계 가용액이 덮는  */
+/*     최초일로 뒤로만 이동(금액·계정·과목 불변).                          */
 /*                                                                    */
 /*  핵심 불변식:                                                        */
 /*   - 지출의 과목(선거비용 86/선거비용외 87)은 절대 불변. 계정만 이동 가능. */

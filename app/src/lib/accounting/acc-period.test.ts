@@ -5,6 +5,7 @@ import {
   electionCycleOf,
   currentCycleOf,
   isOldCycle,
+  countOutOfPeriodRows,
 } from "./acc-period";
 
 // 2022 후보자 org 기간(실제 org 9): 이월 2021 ~ 회계 2022
@@ -95,5 +96,53 @@ describe("isOldCycle", () => {
     expect(isOldCycle(null, "2026")).toBe(false);
     expect(isOldCycle("2022", null)).toBe(false);
     expect(isOldCycle("", "")).toBe(false);
+  });
+});
+
+describe("countOutOfPeriodRows (FR-07 산출물 주기 외 경고)", () => {
+  // 2026 org: 이월 2025 ~ 회계 2026
+  const p = { pre_acc_from: "20250101", acc_from: "20260101", acc_to: "20261231" };
+
+  it("기간 내 거래만 있으면 count 0", () => {
+    const r = countOutOfPeriodRows(
+      [{ acc_date: "20260601" }, { acc_date: "20251215" }],
+      p,
+    );
+    expect(r.count).toBe(0);
+    expect(r.range).toEqual({ lo: "20250101", hi: "20261231" });
+  });
+
+  it("기간 밖(before/after) 거래를 세고 샘플을 담는다", () => {
+    const r = countOutOfPeriodRows(
+      [
+        { acc_date: "20260601" }, // 내
+        { acc_date: "20221231" }, // before(오연도 혼입)
+        { acc_date: "20270101" }, // after
+      ],
+      p,
+    );
+    expect(r.count).toBe(2);
+    expect(r.samples).toEqual([
+      { acc_date: "20221231", reason: "before" },
+      { acc_date: "20270101", reason: "after" },
+    ]);
+  });
+
+  it("샘플은 sampleLimit 로 제한", () => {
+    const rows = Array.from({ length: 10 }, () => ({ acc_date: "20221231" }));
+    const r = countOutOfPeriodRows(rows, p, 3);
+    expect(r.count).toBe(10);
+    expect(r.samples).toHaveLength(3);
+  });
+
+  it("기간 정보 없으면 count 0(검증 skip)", () => {
+    const r = countOutOfPeriodRows([{ acc_date: "20221231" }], { acc_from: null, acc_to: null });
+    expect(r.count).toBe(0);
+    expect(r.range).toBeNull();
+  });
+
+  it("형식 이상 거래일은 세지 않는다", () => {
+    const r = countOutOfPeriodRows([{ acc_date: "2026-06-01" }, { acc_date: null }], p);
+    expect(r.count).toBe(0);
   });
 });

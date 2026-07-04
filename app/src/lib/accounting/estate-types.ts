@@ -24,6 +24,20 @@ export function estateLabel(secCd: number): string {
   return ESTATE_TYPES.find((t) => t.value === secCd)?.label ?? String(secCd);
 }
 
+/** 재산 금액 계산 SSOT — 금액은 Σ(amt × qty)로 산정한다(qty 미지정은 1).
+ *  settlement 화면·recompute-settlement·export-sqlite가 공유해 opinion.estate_amt 가
+ *  경로마다 달라지던 불일치(qty 반영/미반영)를 제거한다. */
+export function estateAmount(row: { amt: number | null | undefined; qty?: number | null }): number {
+  return Number(row.amt ?? 0) * Number(row.qty ?? 1);
+}
+
+/** 재산 금액 합계 = Σ estateAmount(row). */
+export function sumEstateAmount(
+  rows: ReadonlyArray<{ amt: number | null | undefined; qty?: number | null }>,
+): number {
+  return rows.reduce((s, r) => s + estateAmount(r), 0);
+}
+
 /**
  * 재산명세서(서식 22-3) 양식 고정 표기 구분 (토지~그밖의재산).
  * 데이터 0건이어도 "해당없음" 행으로 항상 표기한다. 차입금(49)은 양식상
