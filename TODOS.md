@@ -2,14 +2,6 @@
 
 ## P1 - Security
 
-### Add auth token validation to acc-book API route
-- **What:** Validate the caller's auth token and verify they have access to the requested orgId before processing any request.
-- **Why:** The API uses `SUPABASE_SERVICE_ROLE_KEY` (bypasses RLS) and never checks who's calling. Any client can read/modify any org's financial data by passing any `orgId`. This is the most serious security gap in the codebase.
-- **Context:** `app/src/app/api/acc-book/route.ts` lines 4-7. The service role key is needed for some operations (e.g., cross-table joins), but the route should extract and verify the user's auth token from the request, then confirm the user has a `user_organ` relationship to the requested `orgId`. Consider switching to the user's token for read operations and reserving service role for admin operations only.
-- **Reference pattern:** `/api/organ` and `/api/hwpx/income-ledger` (added v0.4.0.0) already implement the correct guard: `createSupabaseServer()` → `auth.getUser()` (401) → `user_organ` membership check on `(user_id, org_id)` (403) before any service-role query. Apply the same guard to `acc-book` and other service-role routes.
-- **Depends on:** Nothing. Can be done independently.
-- **Added:** 2026-04-01 (eng review of feat/search-total-summary); income-ledger guarded 2026-06-08 (CodeRabbit review of PR #58)
-
 ### Require auth on /api/hwpx/generate
 - **What:** Add the standard session + `user_organ` guard to `/api/hwpx/generate` (and audit the other hwpx routes).
 - **Why:** `lib/supabase/middleware.ts` exempts all of `/api`, and the route itself never checks a session — anyone on the internet can POST and generate official-looking 선관위 forms with arbitrary values (no DB access, so no data leak; compute abuse + 위조 보조 위험).
@@ -36,28 +28,16 @@
 
 ## P3 - Performance
 
-### Optimize summary queries with Supabase RPC
-- **What:** Replace the all-records fetch (used to compute org-wide income/expense totals) with a Postgres function that returns `SUM(acc_amt) GROUP BY incm_sec_cd`.
-- **Why:** Currently every GET request to `/api/acc-book` and every expense page load fetches ALL records for the org just to compute header summary totals. With `.limit(100000)` this won't silently truncate, but loading thousands of rows to compute two numbers is wasteful. A Supabase RPC with `SELECT incm_sec_cd, SUM(acc_amt) FROM acc_book WHERE org_id=$1 GROUP BY incm_sec_cd` would return 2 rows instead of N.
-- **Context:** `app/src/app/api/acc-book/route.ts` lines 47-54, `app/src/app/dashboard/expense/page.tsx` lines 120-125. Current dataset sizes are likely <5K records per org, so this is not urgent.
-- **Depends on:** Nothing. Can be done independently.
-- **Added:** 2026-04-01 (eng review)
-
-## P2 - Quality
-
-### Fix FormInputPanel prefill race that wipes in-progress input
-- **What:** Merge prefill values into empty fields only (or track dirty fields) instead of `setValues(prefill(def))` on every `[def, prefill]` change.
-- **Why:** `prefill` is a `useCallback` depending on `[organ, orgName, acctName]`. If the organ fetch resolves (or auth store updates) while the user is typing, the effect re-runs and silently wipes ALL entered values. Worst on 서식 44 (37 manual fields — a full 청구금액 table can vanish).
-- **Context:** `app/src/components/hwpx/FormInputPanel.tsx` (`useEffect(() => setValues(prefill(def)), [def, prefill])`). Pre-existing defect affecting every form; exposure maximized by form 44.
-- **Added:** 2026-06-11 (adversarial review of feat/burden-cost-claim-hwpx)
+### Optimize expense-page summary query (RPC) — acc-book GET 완료, expense 잔여
+- **What:** acc-book GET 요약은 `org_income_expense_totals` RPC(SUM GROUP BY, scripts/025)로 이전됨(P-3 완료, 아래 Completed). **expense 페이지의 브라우저 직접 전건 요약은 잔여** — 같은 RPC 를 브라우저에서(RLS 적용) 호출하거나 직접 aggregate 로 이전 가능.
+- **Context:** `app/src/app/dashboard/expense/page.tsx` — supabase 브라우저 클라 직접쿼리. not urgent(<5K rows/org).
+- **Added:** 2026-04-01 (eng review); acc-book GET 완료 2026-07-04 (P-3)
 
 ## P3 - Quality
 
-### 익명 거래처 판정·데이터 정리 (org-metrics dead 조건 + 익명 4중복)
-- **What:** (1) `org-metrics.ts`의 익명 기부 판정 `ANONYMOUS_CUST_ID = -999` 비교를 실제 익명 cust_id(name='익명') 기반으로 교체 — DB에 -999가 존재하지 않아 현재 **항상 false**(익명 기부가 집계에 안 잡힘). (2) customer의 익명 중복 4행(38=org_id 10 묶임/39·65·117=NULL) 정리 — acc_book 참조를 39(정본)로 이관 후 중복 삭제.
-- **Why:** acc_book FK 버그 조사(2026-06-11)에서 발견. 쓰기 경로는 `api/acc-book/anonymous-customer.ts` resolve로 수정됐으나 읽기 판정과 기존 데이터는 별개.
-- **Context:** `app/src/lib/dashboard/org-metrics.ts:75-81`, `pfam.customer`. income-ledger-builder는 reg_num='9999' 폴백이 있어 동작 중.
-- **Added:** 2026-06-11 (investigate: acc_book_cust_id_fkey)
+### 익명 유니크 인덱스 적용 (scripts/024) — ⚠️ Supabase 수동 적용만 남음
+- **상태:** 데이터 정리 **실행 완료**(2026-07-04). 공유 익명 중복 65·117·244를 정본 39로 이관·삭제(117 참조 5건→39). 이제 공유 익명 1행(39)만 존재. 남은 것은 **`app/scripts/024_anon_customer_unique.sql`을 Supabase SQL 에디터에 적용**(부분 유니크 인덱스로 재중복 차단)뿐.
+- **B2(집계 왜곡)·B3(데이터)** 모두 해소됨 — 아래 Completed 참조.
 
 ### 서식 44 입력 품질 Phase 2 (숫자 검증·per-field maxLen·합계 자동계산)
 - **What:** (1) 금액/수량 필드에 숫자 형식 검증(`/^[0-9,]*$/` + `inputMode="numeric"`), (2) `HwpxFormField.maxLen`으로 셀 폭에 맞는 필드별 길이 제한(금액류 ~20자 — 현행 type 기반 200자는 39.8mm 셀에 과대), (3) 총매수(C=A×B)·계 행/열 자동계산 또는 불일치 경고, 격자 입력 UI.
@@ -73,6 +53,54 @@
 - **Added:** 2026-04-05 (eng review of feat/faq-back-navigation, cross-model consensus)
 
 ## Completed
+
+### program-wide-review B3 — 익명 중복 데이터 정리 실행 (2026-07-04, ⚠️ scripts/024 적용만 남음)
+- **실행 완료:** `cleanup-anon-customers.mjs --confirm` — 공유 익명 중복 65·117·244의 acc_book 참조(117→5건)를 정본 39로 이관 후 삭제. 백업 `app/backups/anon-cleanup-*.json`. org 10 전용 익명 183 미접촉.
+- **검증:** diagnose 재실행 → 공유 익명 1행(39, 참조 5건)만 존재.
+- **남은 것:** `app/scripts/024_anon_customer_unique.sql` Supabase 적용(재중복 차단 인덱스).
+
+### program-wide-review Phase E — FR-07 주기 외 거래 경고 (2026-07-04)
+- **SSOT:** `acc-period.ts countOutOfPeriodRows` — 산출물 생성 시 org 회계기간 밖 거래 건수·샘플(순수). +테스트 5.
+- **적용:** export-sqlite(응답 헤더 `X-Out-Of-Period`)·backup 페이지(다운로드 후 alert)·결산 handleSettle(alert). 차단 아닌 경고(은폐 금지).
+- **잔여:** reports 배치 Excel·HWPX 서식(income-ledger/accounting-report) 생성 경로는 후속.
+
+### program-wide-review P-2/P-3 — 성능 리팩터 (2026-07-04, P-3은 scripts/025 적용 시 활성)
+- **P-2 batch_insert N+1:** 행당 customer 조회+생성+insert(3N 왕복) → customer 일괄 조회(`in`)+신규 일괄 생성+acc_book 500행 청크 배열 insert(~2+N/500). org 격리·매칭 규칙 불변. +스모크 테스트.
+- **P-3 요약 RPC:** acc-book GET 이 요약합계용 전건 재fetch → `org_income_expense_totals` RPC(SUM GROUP BY). RPC 미적용 시 전건 폴백(무해). expense 페이지 요약은 잔여(위 P3).
+
+### program-wide-review BX4 — import 중복적재 (2026-07-04)
+- **문제:** import-sqlite skip/merge 가 identity PK strip 후 fresh insert 라 복구할 때마다 거래·거래처 전량 복제(안내문과 반대).
+- **수정:** `replaceOrgData=(conflictPolicy==="overwrite")` 로 거래성 STEP 4~9(CUSTOMER/ACC_BOOK/ACC_BOOK_BAK/ACCBOOKSEND/ESTATE/CUSTOMER_ADDR) 가드 — overwrite 만 교체 import, skip/merge 는 건너뛰고 기존 유지. 참조·기관·의견은 자연 PK upsert 라 정책 무관.
+- **UX:** backup 페이지 conflictPolicy 라벨 정정("거래 유지(참조·기관정보만 갱신)"), skip report 표기.
+- **잔여:** S4(overwrite 의 customer/accbooksend 전역삭제 org 스코프화), route 통합 테스트(sql.js 모킹 부담).
+
+### program-wide-review BX7/BX8 — 결산확정 스키마 (2026-07-04, ⚠️ scripts/023 수동 적용 필요)
+- **BX8:** `finalize_settlement` RPC가 organ 회계기간(주기 판정 SSOT)을 덮어쓰던 것 제거 — 결산기간은 opinion 에만 저장.
+- **BX7:** `opinion.settled_at` 확정 플래그 추가. acc-book insert/update가 확정 결산기간 내면 `SETTLED_PERIOD` 경고(postAccBook confirm→`_allowSettled`). expense는 BX1로 API 경유라 자동 적용.
+- **부수:** export-sqlite `APP_ONLY_OPINION_COLUMNS`에 `settled_at` 등록, types opinion Row 갱신, settlement 화면 확정상태 로드. +테스트 4.
+- **적용 안내:** `scripts/023` 미적용 시에도 코드 안전(경고 no-op), 적용 후 활성화.
+
+### program-wide-review Phase D — 효율화·정리 1차분 (2026-07-04)
+- **P-1 무제한 fetch truncation:** export `fetchTable` + 산출물·결산 6경로에 `.limit(100000)` — 기본 max-rows(≈1000)에 잘려 공식 .db·HWPX·결산 행이 유실되던 위험 차단.
+- **D-1 데드 복제본 삭제:** `api/excel/export/route 2.ts`, `dashboard/organ/page 2.tsx`.
+- **D-2 resolution 영수증 표기 버그:** 로컬 `buildReceiptLabel`(접두사·접미사가 SSOT와 반대)을 제거하고 저장된 `rcp_no` 직접 표기.
+- **D-3 resolution PAY_METHODS 중복:** `expense-types` SSOT import로 교체.
+- **X6 주석 stale:** `ledger-allocation.ts` 헤더를 실제 Pass0→L→1→2→3→4로 갱신.
+- **잔여(별도):** P-2(batch_insert 3N 리팩터, 테스트 선행 필요), P-3(요약 RPC), D-4~D-6·X3·X4·R2(정리).
+
+### program-wide-review Phase C — 버그·데이터 수정 (2026-07-03)
+- **BX5 reset 가짜 비번 게이트:** `reset/page.tsx` — `prompt` 비밀번호를 검증하지 않던 것을 `supabase.auth.signInWithPassword`로 재인증 후에만 삭제. (Storage 고아·bak 잔존은 진단 BX5 잔여로 후속)
+- **BX6 audit 로드-시-덮어쓰기:** `audit/page.tsx` — 열람만으로 opinion을 upsert하던 recompute 호출에 `dryRun:true` 추가(표시 전용, DB 미변경).
+- **B2 org-metrics 익명 dead 조건:** `org-metrics.ts`/`use-dashboard-data.ts` — `cust_id===-999`(항상 false) 대신 `OrgMetricsContext.anonymousCustIds`(name='익명' 기반) 판정. 익명 기부 누락·기부자 수 과대·customerCount 과대 동시 해소. +테스트 2.
+- **B1 FormInputPanel prefill race:** `components/submission-forms/FormInputPanel.tsx` — dirty 필드 추적으로 organ fetch resolve 시 입력값 소실 방지(서식 전환만 전체 리셋). (경로는 `components/hwpx/`→`submission-forms/`로 이동됨)
+- **BX3 옛 주기 잠금 우회:** income·expense 삭제/영수증 핸들러에 `cycleLock.locked` 가드 추가.
+
+### service_role API 라우트 IDOR 가드 (org 소속검증)
+- **What:** service_role(RLS 우회) API 라우트에 `createSupabaseServer()` → `auth.getUser()`(401) → `user_organ` 소속검증(403) 표준 가드를 적용. 공통 헬퍼 `lib/api/require-org-membership.ts`(`requireOrgMembership`)로 추출.
+- **적용 라우트(9):** `acc-book`(GET/POST 전 액션 + delete를 검증 org로 스코프), `customers`(GET orgId 필수화 + search-only/전체반환 PII 유출 분기 제거, POST는 cust_id→org 역조회 가드, 공유 익명 org_id NULL 수정/삭제 거부), `excel/export`, `system/export-sqlite`(자격증명 노출 차단), `system/import-sqlite`(overwrite 데이터파괴 차단), `system/recompute-settlement`, `reimbursement/claim-form/aggregate`, `evidence-file`(GET/POST/DELETE), `system/workflow-status`(존재확인→소속검증 교체).
+- **테스트:** `require-org-membership.test.ts`(12), `acc-book/route.authz.test.ts`(10), `evidence-file/route.test.ts` 인가 케이스(4) 추가. 전체 926 통과·빌드 성공.
+- **남은 것:** `/api/hwpx/generate`(아래 P1 — org 데이터 접근 없음, 로그인 게이트만 필요) · `/api/address/search`(EPOST 키, 로그인 게이트). 미들웨어 `/api` 공개 정책은 유지(라우트별 자체 가드 방식).
+- **Completed:** 2026-07-03 (program-wide-review Phase B, branch fix/api-org-membership-guard)
 
 ### Set up test framework (vitest + testing-library)
 - **What:** Add vitest, @testing-library/react, and happy-dom to the project. Write initial tests for core components (tfoot summaries, auth flow, API route).
