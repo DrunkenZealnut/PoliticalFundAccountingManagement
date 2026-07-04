@@ -462,16 +462,17 @@ export default function ExpensePage() {
     if (cycleLock.locked) { alert("옛 선거주기 사용기관은 읽기전용입니다. 상단 '잠금 해제' 후 진행하세요."); return; }
     if (!confirm(`선택한 ${checkedIds.size}건의 지출내역을 삭제하시겠습니까?`)) return;
 
+    // 백업(acc_book_bak)은 행당 insert(N 왕복) 대신 배열 insert 1회(P-4).
     const toDelete = records.filter((r) => checkedIds.has(r.acc_book_id));
-    for (const r of toDelete) {
-      await supabase.from("acc_book_bak").insert({
+    await supabase.from("acc_book_bak").insert(
+      toDelete.map((r) => ({
         work_kind: 2, acc_book_id: r.acc_book_id, org_id: r.org_id,
         incm_sec_cd: r.incm_sec_cd, acc_sec_cd: r.acc_sec_cd,
         item_sec_cd: r.item_sec_cd, exp_sec_cd: r.exp_sec_cd,
         cust_id: r.cust_id, acc_date: r.acc_date, content: r.content,
         acc_amt: r.acc_amt, rcp_yn: r.rcp_yn, rcp_no: r.rcp_no,
-      });
-    }
+      })),
+    );
 
     const { error } = await supabase
       .from("acc_book")

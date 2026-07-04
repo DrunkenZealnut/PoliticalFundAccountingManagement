@@ -223,8 +223,13 @@ function ReimbursementTab({ dirty, setDirty }: { dirty: boolean; setDirty: (d: b
       const claim = e === undefined
         ? r.claim_amt
         : (e.replace(/[^0-9]/g, "") === "" ? null : Number(e.replace(/[^0-9]/g, "")));
+      const newPrint = checkedIds.has(r.acc_book_id) ? "Y" : "N";
+      // 변경분만 UPDATE (P-4) — 보전 체크 상태나 청구액이 실제로 바뀐 행만 쓴다(no-op 쓰기 N회 제거).
+      const printChanged = newPrint !== (r.acc_print_ok ?? "N");
+      const claimChanged = e !== undefined && claim !== r.claim_amt;
+      if (!printChanged && !claimChanged) { ok++; continue; }
       const { error } = await supabase.from("acc_book")
-        .update({ acc_print_ok: checkedIds.has(r.acc_book_id) ? "Y" : "N", claim_amt: claim })
+        .update({ acc_print_ok: newPrint, claim_amt: claim })
         .eq("acc_book_id", r.acc_book_id);
       if (!error) ok++;
       else failed.push({ id: r.acc_book_id, msg: error.message });

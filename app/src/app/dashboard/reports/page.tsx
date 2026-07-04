@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { PageGuide } from "@/components/page-guide";
 import { PAGE_GUIDES } from "@/lib/page-guides";
 import { compareAccDateTime } from "@/lib/accounting/acc-book-sort";
+import { countOutOfPeriodRows, type OrgPeriod } from "@/lib/accounting/acc-period";
 import { buildReportLedgerRecords } from "@/lib/accounting/report-ledger";
 import { displayReceiptNo } from "@/lib/accounting/receipt-no";
 import { buildReportCombos, type AccItemCombo } from "@/lib/excel-template/report-combos";
@@ -833,6 +834,34 @@ export default function ReportsPage() {
         alert("해당 기간에 회계 데이터가 없습니다.");
         setGenerating(false);
         return;
+      }
+
+      // FR-07: 보고 대상 거래 중 사용기관 회계기간 밖 거래(오연도 혼입 등) 경고.
+      //   제출용 산출물이라 confirm 으로 표면화하고 사용자가 진행 여부를 결정한다(강제 차단 아님).
+      {
+        const { data: orgPeriod } = await createSupabaseBrowser()
+          .from("organ")
+          .select("acc_from, acc_to, pre_acc_from")
+          .eq("org_id", orgId)
+          .maybeSingle();
+        const oop = countOutOfPeriodRows(
+          records as { acc_date?: string | null }[],
+          (orgPeriod ?? {}) as OrgPeriod,
+        );
+        if (oop.count > 0) {
+          const samples = oop.samples
+            .map((s) => `${s.acc_date}(${s.reason === "before" ? "기간이전" : "기간이후"})`)
+            .join(", ");
+          if (
+            !window.confirm(
+              `⚠️ 보고 대상에 사용기관 회계기간(${oop.range?.lo} ~ ${oop.range?.hi}) 밖 거래가 ${oop.count}건 있습니다.\n` +
+                `다른 연도(선거주기) 거래가 섞였는지 확인하세요.${samples ? `\n예시: ${samples}` : ""}\n\n그래도 생성하시겠습니까?`,
+            )
+          ) {
+            setGenerating(false);
+            return;
+          }
+        }
       }
 
       // 후보자: 보고자료(총괄표·계정과목별 수입지출부)는 보고 시점에 (계정×과목) 분할 +
