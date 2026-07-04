@@ -291,13 +291,33 @@ export async function POST(request: NextRequest) {
     // ──────────────────────────────────────────────────────
     const replaceOrgData = conflictPolicy === "overwrite";
     if (replaceOrgData) {
-      await supabase.from("accbooksend").delete().gt("acc_book_id", 0);
+      // S4: overwrite 는 **대상 org 만** 교체한다. customer_addr(cust_id만)·accbooksend(acc_book_id만)는
+      //   org_id 컬럼이 없어 대상 org 의 참조 id 로 스코프한다. 과거 전역 삭제(gt 0)는 다기관 환경에서
+      //   타 org 거래처·주소·전송이력을 지웠다(공유 익명 org_id NULL 도 삭제됐다).
+      const { data: orgCusts } = await supabase
+        .from("customer").select("cust_id").eq("org_id", numOrgId);
+      const orgCustIds = (orgCusts ?? []).map((c) => c.cust_id as number);
+      const { data: orgAccBooks } = await supabase
+        .from("acc_book").select("acc_book_id").eq("org_id", numOrgId);
+      const orgAccBookIds = (orgAccBooks ?? []).map((a) => a.acc_book_id as number);
+
+      // id 목록이 크면 URL 길이 제한을 피하려 청크로 삭제.
+      const deleteInChunks = async (table: string, col: string, ids: number[]) => {
+        const CHUNK = 500;
+        for (let i = 0; i < ids.length; i += CHUNK) {
+          await supabase.from(table).delete().in(col, ids.slice(i, i + CHUNK));
+        }
+      };
+
+      // accbooksend 는 acc_book 삭제 전에(참조 id 유효할 때) 먼저 지운다.
+      await deleteInChunks("accbooksend", "acc_book_id", orgAccBookIds);
       await supabase.from("acc_book_bak").delete().eq("org_id", numOrgId);
       await supabase.from("acc_book").delete().eq("org_id", numOrgId);
       await supabase.from("estate").delete().eq("org_id", numOrgId);
       await supabase.from("opinion").delete().eq("org_id", numOrgId);
-      await supabase.from("customer_addr").delete().gt("cust_id", 0);
-      await supabase.from("customer").delete().gt("cust_id", 0);
+      // customer_addr 는 customer 삭제 전에(cust_id 유효할 때) 먼저 지운다. 공유 익명(org_id NULL)은 유지.
+      await deleteInChunks("customer_addr", "cust_id", orgCustIds);
+      await supabase.from("customer").delete().eq("org_id", numOrgId);
       await supabase.from("organ").delete().eq("org_id", numOrgId);
     } else {
       warnings.push(

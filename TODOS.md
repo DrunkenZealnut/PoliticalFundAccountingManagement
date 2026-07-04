@@ -28,10 +28,8 @@
 
 ## P3 - Performance
 
-### Optimize expense-page summary query (RPC) — acc-book GET 완료, expense 잔여
-- **What:** acc-book GET 요약은 `org_income_expense_totals` RPC(SUM GROUP BY, scripts/025)로 이전됨(P-3 완료, 아래 Completed). **expense 페이지의 브라우저 직접 전건 요약은 잔여** — 같은 RPC 를 브라우저에서(RLS 적용) 호출하거나 직접 aggregate 로 이전 가능.
-- **Context:** `app/src/app/dashboard/expense/page.tsx` — supabase 브라우저 클라 직접쿼리. not urgent(<5K rows/org).
-- **Added:** 2026-04-01 (eng review); acc-book GET 완료 2026-07-04 (P-3)
+### ~~Optimize expense-page summary query (RPC)~~ — 해소(acc-book GET RPC 완료, expense는 N/A)
+- **결론:** acc-book GET 요약은 `org_income_expense_totals` RPC로 이전 완료(P-3). expense 페이지는 **RPC 미적용이 정답** — `allData`가 요약뿐 아니라 자금원 충당 패널(buildAdjustedAccBook)에도 필수라 전건 조회가 불가피, RPC 추가는 왕복만 늘림(2026-07-04 재검토).
 
 ## P3 - Quality
 
@@ -53,6 +51,12 @@
 - **Added:** 2026-04-05 (eng review of feat/faq-back-navigation, cross-model consensus)
 
 ## Completed
+
+### program-wide-review 후속(followup) — S4·reports FR-07·P-4 (2026-07-04)
+- **S4:** import-sqlite overwrite 전역삭제 → 대상 org 스코프화(customer_addr·accbooksend는 참조 id 청크 삭제, 공유 익명 유지). 다기관 타 org 데이터 소실 해소.
+- **reports FR-07:** 배치 Excel 생성 전 주기 외 거래 confirm 경고.
+- **P-4:** expense 일괄삭제 bak 배열 insert, reimbursement handleSave 변경분만 UPDATE.
+- **잔여(가치 낮음):** HWPX FR-07(중복), income 일괄삭제 N+1(API 경유), D-5/D-6/X3/X4 정리.
 
 ### program-wide-review B3 — 익명 중복 데이터 정리 실행 (2026-07-04, ⚠️ scripts/024 적용만 남음)
 - **실행 완료:** `cleanup-anon-customers.mjs --confirm` — 공유 익명 중복 65·117·244의 acc_book 참조(117→5건)를 정본 39로 이관 후 삭제. 백업 `app/backups/anon-cleanup-*.json`. org 10 전용 익명 183 미접촉.
