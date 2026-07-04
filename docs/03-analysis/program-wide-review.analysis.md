@@ -270,6 +270,19 @@ Phase: **B**=보안 · **C**=버그/데이터 · **D**=효율화/정리 · **E**
 
 **Phase E 잔여(후속)**: reports 배치 Excel·HWPX 서식(income-ledger·accounting-report) 생성 경로의 주기 외 경고는 미적용 — export/결산이 핵심 제출 경로라 우선 처리, 보고서류는 후속.
 
+## 5.13 잔여 후속(followup) 실행 — 2026-07-04 (branch fix/program-review-followup)
+
+| 항목 | 처리 |
+|------|------|
+| **S4** (P2) | import-sqlite overwrite 전역삭제 → **대상 org 스코프화**. customer_addr(cust_id만)·accbooksend(acc_book_id만)는 org_id 컬럼이 없어 대상 org 의 참조 id 로 스코프(대량 id 청크 500). 공유 익명(org_id NULL) 유지. 과거 다기관 전역삭제(타 org 거래처·주소·전송이력 소실) 해소 |
+| **Phase E reports** (FR-07) | reports 배치 Excel 생성 전 `countOutOfPeriodRows`로 회계기간 밖 거래 confirm 경고(사용자 진행 결정) |
+| **P-4** (성능) | expense 일괄삭제 bak 행당 insert → 배열 insert 1회. reimbursement handleSave 전체행 UPDATE → **변경분(체크·청구액)만 UPDATE**(no-op 쓰기 제거) |
+| **P-3 expense** (재검토) | expense 요약 RPC는 **미적용이 정답** — `allData`가 요약뿐 아니라 자금원 충당 패널(`buildAdjustedAccBook`)에도 필수라 전건 조회가 불가피, RPC 추가는 왕복만 늘림 |
+
+**검증**: 80파일 945테스트 통과, eslint 클린, `next build` 성공.
+
+**최종 잔여(가치 낮음/중복)**: HWPX 서식 FR-07(export·reports·결산이 같은 데이터를 이미 경고 — 중복), income 일괄삭제 N+1(API backup 경유라 배치엔 API 변경 필요), D-5/D-6/X3/X4(미사용 export·org_sec_cd 라벨·중복 fetch·denylist→allowlist 정리). 진단 P1/P2 실질 항목은 모두 소진.
+
 ## 6. 진단 완성도 / 다음 단계
 
 - **커버리지 95%**: 플로우 7개 + API 10그룹 인가 매트릭스 + 재배분 소비처 전수 + 성능/데드코드 스캔 완료. 미탐색 영역: RAG/챗봇(정적이라 저위험), 개별 UI 컴포넌트 시각 QA(DESIGN.md 범위, 별도).
