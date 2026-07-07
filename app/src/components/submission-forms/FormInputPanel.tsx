@@ -9,22 +9,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { fmtKoreanDate } from "@/lib/hwpx/escape";
 import { useAuth } from "@/stores/auth";
 import type { HwpxFormDef, HwpxFormField } from "@/lib/hwpx/form-fields";
+import { generateFormBlob, downloadBlob } from "@/lib/submission/generate-form";
 
 interface Props {
   def: HwpxFormDef;
   prefill: (def: HwpxFormDef) => Record<string, string>;
 }
-
-/** dataFill 서식 → 호출할 데이터 채움 API 경로. */
-const DATA_FILL_ENDPOINT: Record<NonNullable<HwpxFormDef["dataFill"]>, string> = {
-  "income-ledger": "/api/hwpx/income-ledger",
-  "accounting-report": "/api/hwpx/accounting-report",
-  "reimbursement": "/api/hwpx/reimbursement-claim",
-  "reimbursement-doclist": "/api/hwpx/reimbursement-doclist",
-};
 
 /** dataFill 서식 → 안내문구·버튼 라벨. */
 const DATA_FILL_TEXT: Record<NonNullable<HwpxFormDef["dataFill"]>, { desc: string; button: string }> = {
@@ -51,20 +43,6 @@ const isAuto = (f: HwpxFormField) => f.source.from === "organ" || f.source.from 
 /** 필드 타입별 입력 길이 상한 (route.ts MAX_LEN 과 동기화). */
 const MAX_LEN: Record<string, number> = { tel: 40, account: 40, date: 20, text: 200, textarea: 1000 };
 const maxLenFor = (type: string) => MAX_LEN[type] ?? 200;
-
-const safeFileName = (label: string) => `${label.replace(/[\\/:*?"<>|·\s]+/g, "_")}.hwpx`;
-
-/** Blob 을 첨부 파일로 다운로드. */
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
 
 export default function FormInputPanel({ def, prefill }: Props) {
   const { orgId } = useAuth();
@@ -107,30 +85,12 @@ export default function FormInputPanel({ def, prefill }: Props) {
     setValues((prev) => ({ ...prev, [token]: v }));
   };
 
-  /** def.fields 값을 전송 payload 로 — 날짜 필드는 한글 표기로 변환. (두 생성 핸들러 공통) */
-  const buildFieldValues = (): Record<string, string> => {
-    const out: Record<string, string> = {};
-    for (const f of def.fields) {
-      const raw = values[f.token] ?? "";
-      out[f.token] = f.type === "date" && raw ? fmtKoreanDate(raw) : raw;
-    }
-    return out;
-  };
-
-  /** POST → 실패 시 메시지 throw → 성공 시 .hwpx 다운로드. (두 생성 핸들러 공통) */
-  async function postAndDownload(endpoint: string, payload: unknown) {
+  /** 서식 생성 → 다운로드. 엔드포인트·payload·파일명 규칙은 generate-form 헬퍼(마법사와 공유). */
+  async function generateAndDownload() {
     setBusy(true);
     try {
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        throw new Error(body?.error?.message ?? `생성 실패 (${res.status})`);
-      }
-      downloadBlob(await res.blob(), safeFileName(def.label));
+      const { filename, blob } = await generateFormBlob(def, { orgId, values });
+      downloadBlob(blob, filename);
     } catch (e) {
       setError(e instanceof Error ? e.message : "생성 중 오류가 발생했습니다.");
     } finally {
@@ -144,7 +104,7 @@ export default function FormInputPanel({ def, prefill }: Props) {
       setError(`필수 항목을 입력하세요: ${missingRequired.join(", ")}`);
       return;
     }
-    await postAndDownload("/api/hwpx/generate", { formId: def.id, values: buildFieldValues() });
+    await generateAndDownload();
   }
 
   /** dataFill 서식: DB 데이터로 표/행을 채워 생성. 하이브리드(서식 43)는 수동 텍스트도 전송. */
@@ -160,10 +120,7 @@ export default function FormInputPanel({ def, prefill }: Props) {
       return;
     }
     setError(null);
-    // formId 는 accounting-report 가 서식 분기에 사용(income-ledger 는 무시)
-    const payload: Record<string, unknown> = { orgId, formId: def.id };
-    if (def.fields.length > 0) payload.values = buildFieldValues();
-    await postAndDownload(DATA_FILL_ENDPOINT[def.dataFill], payload);
+    await generateAndDownload();
   }
 
   /** 입력 필드 1개 렌더 (일반 폼 + dataFill 하이브리드 공용). */
