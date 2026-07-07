@@ -8,6 +8,9 @@ export interface EstateType {
   label: string;
 }
 
+/** 현금 및 예금 구분 코드 — 결산 잔액 검증(settlement·submission-wizard readiness)이 참조하는 명명 상수. */
+export const CASH_ESTATE_SEC_CD = 47;
+
 /** 재산 구분 코드(estate_sec_cd) → 표시명. 표시·집계 순서이기도 하다. */
 export const ESTATE_TYPES: readonly EstateType[] = [
   { value: 43, label: "토지" },
