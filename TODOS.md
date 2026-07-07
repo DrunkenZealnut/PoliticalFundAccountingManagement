@@ -11,6 +11,33 @@
 
 ## P2 - Architecture
 
+### organ 테이블 RLS org 소속 검증 없음 (읽기)
+- **What:** `organ_read` RLS 정책(`auth.uid() IS NOT NULL`)이 org 소속 여부를 검증하지 않아, 로그인한 임의 사용자가 orgId를 조작하면 다른 기관의 `organ` 행(회계기간 등 메타데이터)을 클라이언트에서 직접 읽을 수 있다.
+- **Why:** 실거래·거래처 데이터는 `/api/acc-book`·`/api/customers`의 `requireOrgMembership`으로 이미 보호되지만, `organ` 테이블 자체는 예외라 회계기간(`acc_from`/`acc_to`/`pre_acc_from`) 같은 저민감 메타데이터가 노출된다.
+- **Context:** submission-wizard(`app/src/app/dashboard/submission-wizard/page.tsx`) adversarial review에서 재확인됨(2026-07-07). **신규 위험 아님** — 동일 패턴이 이미 프로덕션 `reports/page.tsx`(handleBatchExcel)에 존재. `022_customer_org_isolation.sql`이 customer/customer_addr는 이미 좁혔던 선례(user_organ 조인)를 organ에도 적용하면 해소. 예시 정책(CodeRabbit 리뷰 제안, 022와 동일 패턴):
+  ```sql
+  USING (
+    EXISTS (
+      SELECT 1 FROM pfam.user_organ uo
+      WHERE uo.user_id = auth.uid() AND uo.org_id = organ.org_id
+    )
+  )
+  ```
+- **Depends on:** 스키마 마이그레이션(Supabase SQL 에디터 수동 적용) — 별도 검증 필요.
+- **Added:** 2026-07-07 (submission-wizard adversarial review)
+
+### 마법사 재배분 파이프라인 3중 재계산
+- **What:** submission-wizard의 신호등 점검(page.tsx)·미리보기(PreviewStep)·Excel 생성(GenerateStep)이 각각 독립적으로 `buildSettlementSummary`/`aggregateReimbursementByFundingSource`를 호출해, Pass0→L→1→2→3→4 재배분 파이프라인이 한 세션에 최대 3~4회 중복 실행된다.
+- **Why:** 거래가 매우 많은 기관에서 스텝 전환·생성 시마다 체감 지연이 발생할 수 있다. page.tsx에서 한 번 계산해 하위 컴포넌트에 prop으로 전달하면 해소되나, 배포 직전 구조 변경은 회귀 위험이 있어 보류.
+- **Context:** `app/src/app/dashboard/submission-wizard/page.tsx`, `components/wizard/{PreviewStep,GenerateStep}.tsx`. adversarial review(2026-07-07) 지적.
+- **Added:** 2026-07-07 (submission-wizard adversarial review)
+
+### submission-wizard 로드 레이스 가드(G1) 회귀 테스트 부재
+- **What:** org 빠른 전환 시 stale 응답을 폐기하는 `loadSeqRef` 시퀀스 가드(`submission-wizard/page.tsx`)에 자동 회귀 테스트가 없다.
+- **Why:** 이 저장소는 dashboard `page.tsx` 파일 전반을 컴포넌트 테스트하지 않는 관행(전체 85개 테스트 파일 중 `.test.tsx`는 7개뿐)이라 신규 RTL+fetch 모킹 인프라 구축이 필요해 지금은 보류. 패턴 자체(요청 시퀀스 번호 비교)는 잘 알려진 안전한 기법.
+- **Context:** `app/src/app/dashboard/submission-wizard/page.tsx` (loadSeqRef). Testing specialist가 test_stub 초안 제시(2026-07-07).
+- **Added:** 2026-07-07 (submission-wizard pre-landing review, testing specialist)
+
 ### Unify data access pattern (API route vs direct Supabase)
 - **What:** Income page uses Next.js API route (`/api/acc-book`) with service role key. Expense page queries Supabase directly from the browser with anon key. These are contradictory security models for the same table.
 - **Why:** Two different access patterns means auth, audit logging, rate limiting, and data validation must be implemented in two places. They will diverge as features grow. The expense page relies on RLS being correctly configured; the income page bypasses RLS entirely.

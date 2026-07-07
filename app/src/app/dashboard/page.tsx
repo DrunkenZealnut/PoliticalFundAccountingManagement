@@ -9,6 +9,7 @@ import { SupporterSummaryCards } from "@/components/dashboard/supporter/Supporte
 import { RecentTransactions } from "@/components/dashboard/RecentTransactions";
 import { ReceiptAlert } from "@/components/dashboard/ReceiptAlert";
 import { QuickActions } from "@/components/dashboard/QuickActions";
+import { SubmissionWizardBanner } from "@/components/dashboard/SubmissionWizardBanner";
 import { WorkflowProgress } from "@/components/workflow-progress";
 
 const MonthlyTrendChart = dynamic(
@@ -116,6 +117,9 @@ export default function DashboardPage() {
 
       {/* Workflow Progress (초보자 모드) */}
       <WorkflowProgress />
+
+      {/* 제출 서류 마법사 진입 배너 */}
+      <SubmissionWizardBanner orgType={orgType} />
 
       {/* Summary Cards (조직 유형별) */}
       {renderSummary()}

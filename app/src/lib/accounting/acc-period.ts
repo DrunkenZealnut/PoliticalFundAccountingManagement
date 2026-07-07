@@ -87,6 +87,11 @@ export function countOutOfPeriodRows(
   return { count, range, samples };
 }
 
+/** YYYYMMDD → YYYY-MM-DD 표시 변환(형식 이상 시 원문 그대로). 화면 표시 전용, 검증에는 미사용. */
+export function ymdToDash(s: string): string {
+  return /^\d{8}$/.test(s) ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}` : s;
+}
+
 /** acc_from 연도로 선거주기(연도) 파생 — election_cycle 컬럼 fallback. */
 export function electionCycleOf(p: OrgPeriod): string | null {
   const f = ymd(p.acc_from);

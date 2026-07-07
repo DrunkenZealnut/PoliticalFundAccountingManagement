@@ -50,17 +50,19 @@ This uses Next.js 16 which has breaking changes from training data. Always read 
 
 ```
 app/api/          → route groups: codes, customers, acc-book, organ, excel/export, system/{export-sqlite,import-sqlite,recompute-settlement,workflow-status}, address/search, evidence-file, reimbursement/claim-form/aggregate, hwpx/{generate,income-ledger,accounting-report,reimbursement-claim,reimbursement-doclist}
-app/dashboard/    → 28 pages: income, expense, document-register (manual entry), income-expense-book (재조정 수입·지출부 뷰어), income-expense-report, reports, submit, reset, backup (SQLite backup/restore), customer, customer-batch, organ, aggregate, audit, forms, settlement, estate, codes, submission-forms (선관위 제출서류 HWPX 생성), etc. Several are org-type-gated (party-summary, supporter-summary, support-detail, donors) — see Org-Type Differentiation below.
+app/dashboard/    → 28 pages: income, expense, document-register (manual entry), income-expense-book (재조정 수입·지출부 뷰어), income-expense-report, reports, submit, reset, backup (SQLite backup/restore), customer, customer-batch, organ, aggregate, audit, forms, settlement, estate, codes, submission-forms (선관위 제출서류 HWPX 생성), submission-wizard (제출 산출물 마법사 — 준비상태 점검·미리보기·zip 일괄생성, submission-forms/reports/reimbursement 오케스트레이션), etc. Several are org-type-gated (party-summary, supporter-summary, support-detail, donors) — see Org-Type Differentiation below.
 app/login/        → Supabase email/password auth
 components/chat/  → ChatBubble (static FAQ browser, well-tested)
 components/ui/    → shadcn/ui primitives (Button, Card, Dialog, Table, etc.)
+components/wizard/ → 제출 마법사 4스텝(TrackSelectStep, ReadinessStep, PreviewStep, GenerateStep) — 판정·수치는 lib/accounting/submission-readiness·lib/submission 순수 함수를 그대로 표시만
 hooks/            → use-code-values, use-donation-limit, use-sort, use-undo, use-hwpx-prefill, use-org-cycle-lock (옛 선거주기 org 읽기전용 잠금 — year-separation-p2)
 lib/supabase/     → client.ts (browser), server.ts (SSR), middleware.ts (session)
 lib/chat/         → faq-data.ts (static FAQ items only)
-lib/accounting/   → Business logic: settlement-calc (balances), funding-source, submission-forms, + PFund2 SQLite compat (organ-pair, pfund2-constants, parity-errors, import-helpers)
+lib/accounting/   → Business logic: settlement-calc (balances), funding-source, submission-forms, submission-readiness (제출 마법사 신호등 판정 — 기존 SSOT 조합만, 신규 계산 0), + PFund2 SQLite compat (organ-pair, pfund2-constants, parity-errors, import-helpers)
 lib/expense-types.ts → Shared 3-level expense type data (선거비용/선거비용외) + PAY_METHODS
 lib/wizard-mappings.ts → Wizard card definitions + code auto-mapping
-lib/excel-template/ → Excel 산출물 빌더(ExcelJS 직접): burden-cost-form(부담비용), reimbursement-claim-form(보전청구서), income-expense-book(수입·지출부 13컬럼), report-combos(reports 페이지 계정×과목 조합). (구 선관위 템플릿 기반 경로 `/api/excel/report`+data-query/mappings/index 등은 v0.18.0.0에서 데드코드로 제거)
+lib/excel-template/ → Excel 산출물 빌더(ExcelJS 직접): burden-cost-form(부담비용), reimbursement-claim-form(보전청구서), income-expense-book(수입·지출부 13컬럼), report-combos(reports 페이지 계정×과목 조합), build-report-workbook(reports 배치 Excel 워크북 빌더 — reports/page.tsx와 submission-wizard GenerateStep이 공유). (구 선관위 템플릿 기반 경로 `/api/excel/report`+data-query/mappings/index 등은 v0.18.0.0에서 데드코드로 제거)
+lib/submission/   → 제출 마법사 오케스트레이션 헬퍼(순수): wizard-forms(orgType별 트랙 서식 집합), generate-form(HWPX 생성 payload·엔드포인트 매핑 — FormInputPanel과 공유)
 lib/hwpx/         → 선관위 제출서류 HWPX 생성: generate (토큰 치환 코어 + repackageSection 재패키징 헬퍼, JSZip·STORED mimetype), escape (XML escape + 날짜 포맷), form-fields (서식 정의 + 토큰 레지스트리 + dataFill 플래그, 템플릿은 public/hwpx-templates/*.hwpx). **회계장부 데이터 채움**(서식 7): income-ledger-builder (수입행→계정·과목 그룹·누계·잔액, 순수) + owpml-table (form-7-fill.hwpx 의 GROUP/ROW 마커 기반 표·행 동적 복제, 순수) → api/hwpx/income-ledger. 표는 문단(`<hp:p><hp:run>`) 안에 내장되므로 마커 경계·태그 균형 주의(특히 텍스트 셀 토큰화 시 `</hp:run>` 이중 닫힘). **회계보고서 데이터 채움**(서식 22-1·22-2·22-3·22-4, dataFill="accounting-report") → api/hwpx/accounting-report (formId 분기): 22-1 수입·지출보고서=report-summary-builder (자금원 구분별 수입/지출[선거비용·선거비용외] 집계, 순수) + 고정 셀 generateHwpx 치환(행 복제 없음); 22-2 선거비용 지출내역 집계표=election-expense-summary-builder (지출 중 선거비용만 자금원 4분류[후보자자산·후원회기부금·보조금·보조금외] 집계, 순수) + 고정 셀 generateHwpx 치환(15토큰: 합계/사무소/연락소계 × 5열). 22-1과 funding-source·classifyExpenseCategory SSOT 공유로 22-1 선거비용 합계 == 22-2 합계 보장(교차검증 테스트), 22-2엔 기타 열이 없어 미분류 자금원 선거비용은 보조금외에 흡수; 옵션 A(사무소 단일 집계)로 total=office·branch=0, 개별 연락소행은 수기용 빈 양식; 22-4 수입·지출부=income-ledger-builder 재사용(비고 컬럼 1열 추가 → form-7=13/22-4=14컬럼) + renderIncomeLedgerSection; 22-3 재산명세서=estate-builder (estate→구분 그룹/소계/합계, 순수; ESTATE_TYPES SSOT는 lib/accounting/estate-types) + owpml-table.renderEstateSection (단일 표 내 명세행 복제·c0[구분명] rowSpan 동적·2번째+행 c0 제거·표 전체 rowAddr 재계산). 템플릿 제작 스크립트는 app/scripts/make-form-*-fill.py. 새 dataFill 서식 추가 시 next.config outputFileTracingIncludes 와 form-fields.test 의 dataFill 예외 처리 확인.
 stores/           → auth.ts (user + org state), help-mode.ts
 types/database.ts → Supabase-generated types for pfam schema
@@ -210,7 +212,7 @@ Merging to `main` auto-deploys to **Vercel production** (`political-fund-account
 - `PROGRAM_DESIGN.md` — Comprehensive 4700-line design doc (schema, ERD, business rules, implementation phases)
 - `FORM_TEMPLATES.md` — Form layout specifications
 - `RAG/` — 80+ markdown files extracted from election commission PDFs (선거비용보전안내서, 정치관계법 사례집, 회계관리 매뉴얼)
-- `docs/` — PDCA documentation (plan → design → analysis) per feature
+- `docs/` — PDCA documentation (plan → design → analysis → report) per feature, archived under `docs/archive/YYYY-MM/` once complete
 
 ## Design System
 Always read DESIGN.md before making any visual or UI decisions.
