@@ -223,6 +223,10 @@ export default function ReportsPage() {
           `- 총괄표 1개\n` +
           `- 재산명세서 2개\n` +
           `- 표지 1개\n` +
+          (covers.accountCover
+            ? `- 계정 표지 ${new Set(combos.map((c) => c.accSecCd)).size}개\n`
+            : "") +
+          (covers.subjectCover ? `- 과목 표지 ${comboCount}개\n` : "") +
           `- 계정/과목별 내역 ${comboCount}개 조합`,
       );
     } catch (err) {

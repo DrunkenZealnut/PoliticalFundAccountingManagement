@@ -94,6 +94,13 @@ export default function GenerateStep({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   useEffect(() => setSelected(new Set(items.map((i) => i.key))), [items]);
 
+  // generationBlocked 최신값 추적 — handleGenerate 내부는 호출 시점 클로저라 prop 값이
+  // 갱신돼도 루프 안에서 재확인해봤자 같은 값만 본다(CodeRabbit 지적). ref로 최신값 참조.
+  const generationBlockedRef = useRef(generationBlocked);
+  useEffect(() => {
+    generationBlockedRef.current = generationBlocked;
+  }, [generationBlocked]);
+
   // 서식43 수동 필드(선거구명·수령계좌 등) — organ prefill + 사용자 수정 보존
   const form43 = track === "reimburse" ? items.find((i) => i.def?.id === "43")?.def : undefined;
   const { prefill } = useHwpxPrefill();
@@ -152,6 +159,7 @@ export default function GenerateStep({
     ]);
     if (!custRes.ok) throw new Error("수입지출처 데이터를 불러오지 못했습니다.");
     if (!accRes.ok) throw new Error("회계 데이터를 불러오지 못했습니다.");
+    if (estateRes.error) throw new Error("재산 데이터를 불러오지 못했습니다.");
     const custArr: Customer[] = await custRes.json();
     const custMap = new Map<number, Customer>();
     for (const c of custArr) custMap.set(c.cust_id, c);
@@ -225,7 +233,8 @@ export default function GenerateStep({
 
       for (const item of targets) {
         // 생성이 오래 걸리는 다건 요청 중 옛 주기 잠금 상태가 될 가능성에 대비한 방어적 재확인.
-        if (generationBlocked) break;
+        // ref 참조라 handleGenerate 실행 중에도 최신 잠금 상태를 반영한다.
+        if (generationBlockedRef.current) break;
         try {
           const entry = item.def
             ? await generateFormBlob(item.def, {

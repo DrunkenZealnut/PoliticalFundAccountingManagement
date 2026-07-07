@@ -67,6 +67,9 @@ export default function SubmissionWizardPage() {
         sb.from("codevalue").select("cv_id, cv_name"),
       ]);
       if (!accRes.ok) throw new Error("회계 데이터를 불러오지 못했습니다.");
+      if (organRes.error) throw new Error("회계기간 정보를 불러오지 못했습니다.");
+      if (estateRes.error) throw new Error("재산 정보를 불러오지 못했습니다.");
+      if (codeRes.error) throw new Error("코드값 정보를 불러오지 못했습니다.");
       const accJson = await accRes.json();
       const records: WizardAccRow[] = accJson.records || [];
 

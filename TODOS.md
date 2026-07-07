@@ -14,7 +14,15 @@
 ### organ 테이블 RLS org 소속 검증 없음 (읽기)
 - **What:** `organ_read` RLS 정책(`auth.uid() IS NOT NULL`)이 org 소속 여부를 검증하지 않아, 로그인한 임의 사용자가 orgId를 조작하면 다른 기관의 `organ` 행(회계기간 등 메타데이터)을 클라이언트에서 직접 읽을 수 있다.
 - **Why:** 실거래·거래처 데이터는 `/api/acc-book`·`/api/customers`의 `requireOrgMembership`으로 이미 보호되지만, `organ` 테이블 자체는 예외라 회계기간(`acc_from`/`acc_to`/`pre_acc_from`) 같은 저민감 메타데이터가 노출된다.
-- **Context:** submission-wizard(`app/src/app/dashboard/submission-wizard/page.tsx`) adversarial review에서 재확인됨(2026-07-07). **신규 위험 아님** — 동일 패턴이 이미 프로덕션 `reports/page.tsx`(handleBatchExcel)에 존재. `022_customer_org_isolation.sql`이 customer/customer_addr는 이미 좁혔던 선례(user_organ 조인)를 organ에도 적용하면 해소.
+- **Context:** submission-wizard(`app/src/app/dashboard/submission-wizard/page.tsx`) adversarial review에서 재확인됨(2026-07-07). **신규 위험 아님** — 동일 패턴이 이미 프로덕션 `reports/page.tsx`(handleBatchExcel)에 존재. `022_customer_org_isolation.sql`이 customer/customer_addr는 이미 좁혔던 선례(user_organ 조인)를 organ에도 적용하면 해소. 예시 정책(CodeRabbit 리뷰 제안, 022와 동일 패턴):
+  ```sql
+  USING (
+    EXISTS (
+      SELECT 1 FROM pfam.user_organ uo
+      WHERE uo.user_id = auth.uid() AND uo.org_id = organ.org_id
+    )
+  )
+  ```
 - **Depends on:** 스키마 마이그레이션(Supabase SQL 에디터 수동 적용) — 별도 검증 필요.
 - **Added:** 2026-07-07 (submission-wizard adversarial review)
 
